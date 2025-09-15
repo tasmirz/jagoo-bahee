@@ -14,7 +14,7 @@ export class Auth extends Document {
    * For time-based or fine-grained limits, link another collection.
    */
   @Prop({ type: Number, default: 0 })
-  abac: number
+  abac: BigInt
 
   @Prop({ type: Date, default: Date.now })
   createdAt: Date

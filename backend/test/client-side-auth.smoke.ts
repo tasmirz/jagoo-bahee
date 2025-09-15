@@ -77,7 +77,7 @@ async function auth() {
 
   // 8. Zero‑out sensitive buffers
   seed.fill(0)
-  leaf.privateKey.fill(0)
+  leaf.privateKey?.fill(0)
   if (root.privateKey) root.privateKey.fill(0)
 
   let u = await fetch('http://localhost:3000/auth/', {
@@ -91,6 +91,8 @@ async function auth() {
       publicKey: Buffer.from(publicKeyBytes).toString('base64')
     })
   })
-  console.log(u)
+  let the_jwt = await u.text()
+  console.log('JWT:', the_jwt)
+  return the_jwt
 }
 auth()

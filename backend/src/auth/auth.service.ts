@@ -5,16 +5,18 @@ import { AuthenticationDto } from './dto/authenticate.dto'
 import * as tinysecp from 'tiny-secp256k1'
 import { unsafe } from '../common'
 import { Auth } from './schemas/auth.schema'
+import { UsersService } from 'src/users/users.service'
 import 'dotenv/config'
 import { InjectModel } from '@nestjs/mongoose'
-import { Model } from 'mongoose'
+import { Model, Types } from 'mongoose'
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly jwtService: JwtService,
     @InjectModel(Auth.name)
-    private authModel: Model<Auth>
+    private authModel: Model<Auth>,
+    private usersService: UsersService
   ) {}
 
   challenge(): string {
@@ -46,11 +48,20 @@ export class AuthService {
     // Getting user id
 
     // Mongoose stores buffers as Buffer; query by publicKey directly
-    let user = await this.authModel.findOne({ publicKey }).exec()
-    if (user == null) {
-      user = await this.authModel.create({ publicKey })
+    let authDoc = await this.authModel.findOne({ publicKey }).exec()
+    if (authDoc == null) {
+      authDoc = await this.authModel.create({ publicKey })
     }
 
-    return this.jwtService.sign({ id: String((user as any)._id), abac: user.abac })
+    // Ensure a User profile exists for this auth record using UsersService which
+    // implements retries for unique username generation.
+    try {
+      await this.usersService.ensureUserForAuth(authDoc._id as Types.ObjectId)
+    } catch (e) {
+      // best-effort; if user creation fails leave auth flow intact
+      console.warn('Failed to ensure user profile for auth:', e)
+    }
+
+    return this.jwtService.sign({ id: String((authDoc as any)._id), abac: authDoc.abac })
   }
 }

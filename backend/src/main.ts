@@ -13,6 +13,8 @@ async function bootstrap() {
     .setTitle('Jagoo Bahee API')
     .setDescription('API documentation')
     .setVersion('1.0')
+    // Add bearer token option so Swagger UI shows an Authorize button
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT', in: 'header' }, 'JWT-auth')
     .build()
 
   const document = SwaggerModule.createDocument(app, config)
