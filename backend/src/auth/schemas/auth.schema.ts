@@ -13,6 +13,19 @@ export class Auth extends Document {
    * Holds account status, bans, shadowbans, and global rate-limits.
    * For time-based or fine-grained limits, link another collection.
    */
+  /**
+   * 64-bit bitmap for user status flags
+   * Bit 0: isActive
+   * Bit 1: isBanned
+   * Bit 2: isShadowBanned
+   * Bit 3: isVerified
+   * Bit 4: isModerator (global)
+   * Bit 5: isAdmin (global)
+   * Bit 6: isVerified
+   * Bits 7-15: Reserved for future use
+   * Bits 16-31: Custom flags
+   * Bits 32-63: Reserved
+   */
   @Prop({ type: Number, default: 0 })
   abac: BigInt
 

@@ -3,14 +3,13 @@ import { AppController } from './app.controller'
 import { AppService } from './app.service'
 import { AuthModule } from './auth/auth.module'
 import { MongooseModule } from '@nestjs/mongoose'
+import config from './config'
 import { UsersModule } from './users/users.module'
+import { AttachmentsModule } from './attachments/attachments.module'
+import { SubredditsModule } from './subreddits/subreddits.module'
 
 @Module({
-  imports: [
-    MongooseModule.forRoot(process.env.MONGODB_URI ?? 'mongodb://localhost:27017/jagoo-bahee'),
-    AuthModule,
-    UsersModule
-  ],
+  imports: [MongooseModule.forRoot(config.mongo.uri), AuthModule, UsersModule, AttachmentsModule, SubredditsModule],
   controllers: [AppController],
   providers: [AppService]
 })
