@@ -14,14 +14,18 @@ import {
 } from '@nestjs/common'
 import { SubredditsService } from './subreddits.service'
 import { SubredditRbacGuard } from './guards/subreddit-rbac.guard'
+import { CreateSubredditDto } from './dto/create-subreddit.dto'
 
+import { ApiTags } from '@nestjs/swagger'
+
+@ApiTags('subreddits')
 @Controller('subreddits')
 export class SubredditsController {
   constructor(private readonly service: SubredditsService) {}
 
   @Post()
-  async create(@Body() body: any) {
-    return this.service.create(body)
+  async create(@Body() body: CreateSubredditDto) {
+    return this.service.create(body as any)
   }
 
   @Get()

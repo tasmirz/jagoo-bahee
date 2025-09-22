@@ -22,8 +22,13 @@ export class SubredditMembersController {
   constructor(private readonly service: SubredditMembersService) {}
 
   @Post()
-  async add(@Param('subredditId') subredditId: string, @Body() body: any) {
-    const payload = { ...body, subredditId }
+  async add(@Param('subredditId') subredditId: string, @Body() body: import('./dto/add-member.dto').AddMemberDto) {
+    const payload: any = { ...body, subredditId }
+    // Service expects ObjectId for subredditId
+    try {
+      const { Types } = await import('mongoose')
+      payload.subredditId = new Types.ObjectId(subredditId)
+    } catch {}
     return this.service.addMember(payload)
   }
 

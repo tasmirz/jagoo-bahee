@@ -19,6 +19,6 @@ import { SubredditRbacGuard } from './guards/subreddit-rbac.guard'
   ],
   controllers: [SubredditsController, SubredditMembersController],
   providers: [SubredditsService, SubredditMembersService, SubredditRbacGuard],
-  exports: [SubredditsService, SubredditMembersService]
+  exports: [SubredditsService, SubredditMembersService, SubredditRbacGuard]
 })
 export class SubredditsModule {}

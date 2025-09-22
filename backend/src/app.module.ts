@@ -7,9 +7,19 @@ import config from './config'
 import { UsersModule } from './users/users.module'
 import { AttachmentsModule } from './attachments/attachments.module'
 import { SubredditsModule } from './subreddits/subreddits.module'
+import { PostsModule } from './posts/posts.module'
+import { CommentsModule } from './comments/comments.module'
 
 @Module({
-  imports: [MongooseModule.forRoot(config.mongo.uri), AuthModule, UsersModule, AttachmentsModule, SubredditsModule],
+  imports: [
+    MongooseModule.forRoot(config.mongo.uri),
+    AuthModule,
+    UsersModule,
+    AttachmentsModule,
+    SubredditsModule,
+    PostsModule,
+    CommentsModule
+  ],
   controllers: [AppController],
   providers: [AppService]
 })
