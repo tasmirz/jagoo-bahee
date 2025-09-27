@@ -9,6 +9,8 @@ import { AttachmentsModule } from './attachments/attachments.module'
 import { SubredditsModule } from './subreddits/subreddits.module'
 import { PostsModule } from './posts/posts.module'
 import { CommentsModule } from './comments/comments.module'
+import { NotificationsModule } from './notifications/notifications.module'
+import { MessagesModule } from './messages/messages.module'
 
 @Module({
   imports: [
@@ -18,7 +20,9 @@ import { CommentsModule } from './comments/comments.module'
     AttachmentsModule,
     SubredditsModule,
     PostsModule,
-    CommentsModule
+    CommentsModule,
+    NotificationsModule,
+    MessagesModule
   ],
   controllers: [AppController],
   providers: [AppService]
