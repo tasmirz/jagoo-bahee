@@ -31,7 +31,7 @@ async function auth() {
 
   // 2. Optional extra passphrase
   let passphrase = getArg(CLIFlags.passphrase) ?? ''
-
+  
   // 3. Derive seed and root node
   const seed = bip39.mnemonicToSeedSync(mnemonic, passphrase)
   const root = bip32.fromSeed(seed)

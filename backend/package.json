@@ -19,6 +19,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
   "test:e2e": "jest --config ./test/jest-e2e.json",
   "seed": "ts-node -r tsconfig-paths/register src/utils/seed.ts"
+    ,"swagger:export": "ts-node -r tsconfig-paths/register scripts/swagger-export.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.913.0",

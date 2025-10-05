@@ -1,4 +1,3 @@
-import { databaseConfig } from './database.config'
 import { jwtConfig } from './jwt.config'
 import mongoConfig from './mongo.config'
 import minioConfig from './minio.config'
@@ -6,7 +5,6 @@ import attachmentsConfig from './attachments.config'
 import appConfig from './app.config'
 
 const config = {
-  database: databaseConfig,
   jwt: jwtConfig,
   mongo: mongoConfig,
   minio: minioConfig,

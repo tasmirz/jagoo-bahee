@@ -34,3 +34,31 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Theme tokens
+
+This project includes a token file at `src/theme.ts` exporting `lightTheme`, `darkTheme`, and `defaultTheme` for programmatic access to design tokens.
+
+- Use CSS variables (defined in `src/app/globals.css`) to style components with the current color scheme.
+- The app sets `--font-geist-sans` and `--font-geist-mono` in `app/layout.tsx` and the theme maps to those variables.
+
+Example usage in a React component:
+
+```tsx
+import styles from "./button.module.css";
+
+export default function Button({ children }) {
+  return <button className={styles.btn}>{children}</button>;
+}
+```
+
+And in CSS:
+
+```css
+.btn {
+  background: var(--primary);
+  color: var(--foreground);
+  padding: var(--space-sm);
+  border-radius: var(--radius-md);
+}
+```
