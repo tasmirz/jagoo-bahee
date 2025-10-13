@@ -37,6 +37,14 @@ export class AttachmentsController {
     return this.service.createUploadUrl(body)
   }
 
+  // compatibility alias expected by frontend: presigned-upload
+  @Post('presigned-upload')
+  @UseGuards(JwtAuthGuard)
+  async presignedUpload(@Body() body: any, @Req() req: any) {
+    body.ownerId = req.user?.id
+    return this.service.createUploadUrl(body)
+  }
+
   /**
    * Confirm an upload after client has PUT the object to MinIO.
    * Body: { key, ownerId, filename?, contentType? }
@@ -46,6 +54,15 @@ export class AttachmentsController {
   async confirm(@Body() body: any, @Req() req: any) {
     const { key, ownerId, filename, contentType } = body
     // ensure requester is owner or has moderator/admin ABAC bits
+    await this.service.assertOwnerOrAdminOrModerator(key, req.user)
+    return this.service.confirmUpload(key, ownerId, { filename, contentType })
+  }
+
+  // compatibility alias expected by frontend: confirm-upload
+  @Post('confirm-upload')
+  @UseGuards(JwtAuthGuard)
+  async confirmUploadAlias(@Body() body: any, @Req() req: any) {
+    const { key, ownerId, filename, contentType } = body
     await this.service.assertOwnerOrAdminOrModerator(key, req.user)
     return this.service.confirmUpload(key, ownerId, { filename, contentType })
   }

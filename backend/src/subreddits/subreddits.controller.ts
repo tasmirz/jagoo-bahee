@@ -15,6 +15,7 @@ import {
 import { SubredditsService } from './subreddits.service'
 import { SubredditRbacGuard } from './guards/subreddit-rbac.guard'
 import { CreateSubredditDto } from './dto/create-subreddit.dto'
+import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
 
 import { ApiTags } from '@nestjs/swagger'
 
@@ -24,8 +25,24 @@ export class SubredditsController {
   constructor(private readonly service: SubredditsService) {}
 
   @Post()
-  async create(@Body() body: CreateSubredditDto) {
-    return this.service.create(body as any)
+  @UseGuards(JwtAuthGuard)
+  async create(@Body() body: CreateSubredditDto, @Req() req: any) {
+    // Merge theme defaults from frontend globals.css variables when not provided
+    const themeDefaults = {
+      primary: '#053326',
+      accent: '#053326',
+      background: '#ffffff',
+      foreground: '#000000'
+    }
+
+    const payload: any = {
+      ...body,
+      name: body.name?.toLowerCase().trim(),
+      createdBy: req?.user?._id || req?.user?.id || null,
+      theme: { ...(themeDefaults as any), ...(body as any).theme }
+    }
+
+    return this.service.create(payload)
   }
 
   @Get()

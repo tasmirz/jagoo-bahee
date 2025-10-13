@@ -1,21 +1,31 @@
 // lib/nobleClient.ts
-let nobleSecpPromise: Promise<any> | null = null;
+type NobleSecpModule = {
+  utils?: {
+    sha256?: (msg: Uint8Array) => Promise<Uint8Array>;
+  } & Record<string, unknown>;
+  [k: string]: unknown;
+};
+
+let nobleSecpPromise: Promise<NobleSecpModule> | null = null;
 
 export function getNobleSecp() {
   if (!nobleSecpPromise) {
     nobleSecpPromise = import("@noble/secp256k1").then((noble) => {
-      const nobleAny = noble as any;
-      nobleAny.utils = nobleAny.utils || {};
-      nobleAny.utils.sha256 = async (msg: Uint8Array | Buffer) => {
+      const nobleModule = noble as unknown as NobleSecpModule;
+      nobleModule.utils = nobleModule.utils || {};
+      nobleModule.utils.sha256 = async (msg: Uint8Array | Buffer) => {
         const input =
-          msg instanceof Uint8Array ? msg : new Uint8Array(msg as any);
+          msg instanceof Uint8Array
+            ? msg
+            : new Uint8Array(msg as unknown as ArrayBuffer);
         if (typeof window !== "undefined" && window.crypto?.subtle) {
-          const h = await window.crypto.subtle.digest("SHA-256", input.buffer);
-          return new Uint8Array(h);
+          const buf = input.buffer as ArrayBuffer;
+          const h = await window.crypto.subtle.digest("SHA-256", buf);
+          return new Uint8Array(h as ArrayBuffer);
         }
         throw new Error("Web Crypto not available for SHA-256");
       };
-      return nobleAny;
+      return nobleModule;
     });
   }
   return nobleSecpPromise;

@@ -19,6 +19,20 @@ export function toB64(u8: Uint8Array): string {
   return toBase64(u8);
 }
 
+export function fromBase64(s: string): Uint8Array {
+  // atob -> binary -> Uint8Array
+  const bin = atob(s);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+
+export function toHex(u8: Uint8Array): string {
+  return Array.from(u8)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 export function deriveBip32Keypair(mnemonic: string, passphrase = ""): KeyPair {
   // Use bip39 to derive seed and bip32 to derive hardened path
   const seed = bip39.mnemonicToSeedSync(mnemonic, passphrase);
@@ -29,8 +43,18 @@ export function deriveBip32Keypair(mnemonic: string, passphrase = ""): KeyPair {
     throw new Error("BIP32 derivation failed to produce a private key");
   const privateKey = leaf.privateKey as Uint8Array;
   const publicKey = leaf.publicKey as Uint8Array;
-  // zero seed
-  if (seed && typeof (seed as any).fill === "function") (seed as any).fill(0);
+  // zero seed (best-effort)
+  try {
+    // Some Buffer implementations provide a fill method
+    if (
+      (seed as unknown) &&
+      typeof (seed as { fill?: Function }).fill === "function"
+    ) {
+      (seed as unknown as { fill: (v: number) => void }).fill(0);
+    }
+  } catch (e) {
+    /* ignore */
+  }
   return { privateKey, publicKey };
 }
 
@@ -55,8 +79,16 @@ const PRIV_KEY = "auth:priv"; // stored in sessionStorage for slight safety
 
 export function saveKeys(privateKey: Uint8Array, publicKey: Uint8Array) {
   try {
-    sessionStorage.setItem(PRIV_KEY, toB64(privateKey));
-    localStorage.setItem(PUB_KEY, toB64(publicKey));
+    // prefer sessionStorage for private key, but also accept localStorage (some flows save both)
+    try {
+      sessionStorage.setItem(PRIV_KEY, toB64(privateKey));
+    } catch (e) {}
+    try {
+      localStorage.setItem(PRIV_KEY, toB64(privateKey));
+    } catch (e) {}
+    try {
+      localStorage.setItem(PUB_KEY, toB64(publicKey));
+    } catch (e) {}
   } catch (e) {
     // ignore storage errors
   }
@@ -74,6 +106,34 @@ export function getToken(): string | null {
   } catch (e) {
     return null;
   }
+}
+
+export function getPrivateKey(): Uint8Array | null {
+  try {
+    const maybe =
+      sessionStorage.getItem(PRIV_KEY) || localStorage.getItem(PRIV_KEY);
+    if (!maybe) return null;
+    return fromBase64(maybe);
+  } catch (e) {
+    return null;
+  }
+}
+
+export function getPublicKey(): Uint8Array | null {
+  try {
+    const maybe = localStorage.getItem(PUB_KEY);
+    if (!maybe) return null;
+    return fromBase64(maybe);
+  } catch (e) {
+    return null;
+  }
+}
+
+// Sign a raw hash (Uint8Array) using tiny-secp256k1. Returns signature bytes.
+export function signHash(privateKey: Uint8Array, hash: Uint8Array): Uint8Array {
+  const sig = tinySecp.sign(hash, privateKey as Uint8Array);
+  if (!sig) throw new Error("Failed to sign hash");
+  return sig;
 }
 
 export function clearCredentials() {

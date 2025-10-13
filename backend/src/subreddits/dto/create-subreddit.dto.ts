@@ -25,4 +25,28 @@ export class CreateSubredditDto {
   @IsOptional()
   @IsBoolean()
   nsfw?: boolean
+
+  @ApiPropertyOptional({ example: { primary: '#053326', accent: '#053326', background: '#ffffff' } })
+  @IsOptional()
+  theme?: {
+    primary?: string
+    accent?: string
+    background?: string
+    foreground?: string
+  }
+
+  @ApiPropertyOptional({ example: '64a7f2e5...' })
+  @IsOptional()
+  @IsString()
+  iconAttachmentId?: string
+
+  @ApiPropertyOptional({ example: '64a7f2e5...' })
+  @IsOptional()
+  @IsString()
+  bannerAttachmentId?: string
+
+  @ApiPropertyOptional({ example: '# Community rules in markdown' })
+  @IsOptional()
+  @IsString()
+  rules?: string
 }

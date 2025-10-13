@@ -139,8 +139,14 @@ export default function AuthPage() {
 
       if (!res.ok) throw new Error(await res.text());
       const jwt = await res.text();
-      // Save token (don't display it) and redirect
+      // Save token, publicKey, and privateKey to localStorage
       saveToken(jwt);
+      try {
+        localStorage.setItem("auth:publicKey", toB64(publicKey));
+        localStorage.setItem("auth:privateKey", toB64(privateKey));
+      } catch (e) {
+        // ignore storage errors
+      }
       setMessage("Authentication successful");
       setTimeout(() => (window.location.href = "/"), 600);
     } catch (err: unknown) {

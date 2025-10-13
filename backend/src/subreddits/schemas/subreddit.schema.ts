@@ -35,6 +35,22 @@ export class Subreddit extends Document {
 
   @Prop({
     type: {
+      primary: { type: String, default: '#053326' },
+      accent: { type: String, default: '#053326' },
+      background: { type: String, default: '#ffffff' },
+      foreground: { type: String, default: '#000000' }
+    },
+    default: {}
+  })
+  theme: {
+    primary: string
+    accent: string
+    background: string
+    foreground: string
+  }
+
+  @Prop({
+    type: {
       allowTextPosts: { type: Boolean, default: true },
       allowLinkPosts: { type: Boolean, default: true },
       allowImagePosts: { type: Boolean, default: true },
