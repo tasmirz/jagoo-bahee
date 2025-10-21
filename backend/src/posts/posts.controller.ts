@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post as HttpPost, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post as HttpPost, UseGuards, Query } from '@nestjs/common'
 import { PostsService } from './posts.service'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
 import { SubredditRbacGuard } from 'src/subreddits/guards/subreddit-rbac.guard'
@@ -23,6 +23,16 @@ export class PostsController {
     return this.posts.findById(id)
   }
 
+  @Get()
+  listAll(@Query('limit') limit = '50', @Query('skip') skip = '0', @Query('subreddit') subreddit?: string) {
+    const filter: any = {}
+    if (subreddit) {
+      // allow passing subreddit name or id
+      filter.subredditId = subreddit
+    }
+    return this.posts.findAll(filter, Number(limit), Number(skip))
+  }
+
   @UseGuards(JwtAuthGuard)
   @Patch(':id')
   update(@Param('id') id: string, @Body() body: UpdatePostDto) {
@@ -31,8 +41,12 @@ export class PostsController {
 
   @UseGuards(JwtAuthGuard)
   @Delete(':id')
-  remove(@Param('id') id: string, @Body('authorId') authorId: string) {
-    return this.posts.removeByAuthor(id, String(authorId))
+  remove(
+    @Param('id') id: string,
+    @Body('authorId') authorId: string,
+    @Body('deletionSignature') deletionSignature?: string
+  ) {
+    return this.posts.removeByAuthor(id, String(authorId), deletionSignature)
   }
 
   @UseGuards(JwtAuthGuard)
@@ -50,8 +64,24 @@ export class PostsController {
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/remove')
-  modRemove(@Param('id') id: string, @Body() body: PostModRemoveDto) {
-    return this.posts.modRemove(id, String(body.subredditId), String(body.moderatorId), body.reason)
+  modRemove(@Param('id') id: string, @Body() body: PostModRemoveDto & { moderatorSignature?: string }) {
+    return this.posts.modRemove(
+      id,
+      String(body.subredditId),
+      String(body.moderatorId),
+      body.reason,
+      body.moderatorSignature
+    )
+  }
+
+  @Get(':id/verify')
+  getVerify(@Param('id') id: string) {
+    return this.posts.getVerification(id)
+  }
+
+  @Get(':id/audit-trail')
+  getAudit(@Param('id') id: string) {
+    return this.posts.getAuditTrail(id)
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)

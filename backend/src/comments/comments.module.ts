@@ -5,12 +5,20 @@ import { CommentsService } from './comments.service'
 import { Comment, CommentSchema } from './schemas/comment.schema'
 import { ModerationModule } from 'src/moderation/moderation.module'
 import { SubredditsModule } from 'src/subreddits/subreddits.module'
+import { PostsModule } from 'src/posts/posts.module'
+import { AttachmentsModule } from 'src/attachments/attachments.module'
+import { NotificationsModule } from 'src/notifications/notifications.module'
+import { RedisModule } from 'src/redis/redis.module'
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: Comment.name, schema: CommentSchema }]),
     ModerationModule,
-    SubredditsModule
+    SubredditsModule,
+    AttachmentsModule,
+    NotificationsModule,
+    RedisModule,
+    PostsModule
   ],
   controllers: [CommentsController],
   providers: [CommentsService],

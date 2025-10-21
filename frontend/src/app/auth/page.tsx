@@ -148,6 +148,25 @@ export default function AuthPage() {
         // ignore storage errors
       }
       setMessage("Authentication successful");
+      // replay intended actions (vote/comment) if any
+      try {
+        const intendedVote = localStorage.getItem('intended:vote')
+        if (intendedVote) {
+          try {
+            const v = JSON.parse(intendedVote)
+            await fetch('/api/votes', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` }, body: JSON.stringify(v) })
+            localStorage.removeItem('intended:vote')
+          } catch (e) {}
+        }
+        const intendedComment = localStorage.getItem('intended:comment')
+        if (intendedComment) {
+          try {
+            const c = JSON.parse(intendedComment)
+            await fetch('/api/comments', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` }, body: JSON.stringify(c) })
+            localStorage.removeItem('intended:comment')
+          } catch (e) {}
+        }
+      } catch (e) {}
       setTimeout(() => (window.location.href = "/"), 600);
     } catch (err: unknown) {
       setMessage(`Authentication failed: ${(err as Error).message}`);

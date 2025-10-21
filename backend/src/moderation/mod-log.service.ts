@@ -31,4 +31,9 @@ export class ModLogService {
     }
     return this.model.create(doc)
   }
+
+  async listForSubreddit(subredditId: string | Types.ObjectId, limit = 50, skip = 0) {
+    const q: any = { subredditId: new Types.ObjectId(String(subredditId)) }
+    return this.model.find(q).sort({ createdAt: -1 }).limit(Number(limit)).skip(Number(skip)).lean().exec()
+  }
 }

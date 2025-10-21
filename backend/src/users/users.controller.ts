@@ -22,6 +22,42 @@ export class UsersController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('me/subreddits')
+  async mySubreddits(@Req() req: any) {
+    // Return the list of subreddits the current authenticated user is a member of
+    const authId = req.user?.id
+    if (!authId) return []
+    // find the User document for this auth
+    const me = await this.usersService.findByAuthId(authId)
+    if (!me || !me._id) return []
+
+    try {
+      // Use a direct collection aggregation to avoid changing module DI.
+      const { Types } = await import('mongoose')
+      const db = (this as any).usersService?.userModel?.db || (await import('mongoose')).connection.db
+      const pipeline = [
+        { $match: { userId: new Types.ObjectId(String(me._id)) } },
+        {
+          $lookup: {
+            from: 'subreddits',
+            localField: 'subredditId',
+            foreignField: '_id',
+            as: 'subreddit'
+          }
+        },
+        { $unwind: { path: '$subreddit', preserveNullAndEmptyArrays: false } },
+        { $replaceRoot: { newRoot: '$subreddit' } },
+        { $sort: { createdAt: -1 } }
+      ]
+      const col = db.collection('subredditmembers')
+      const results = await col.aggregate(pipeline).toArray()
+      return results
+    } catch (e) {
+      return []
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('me/create')
   async createForAuth(@Req() req: any, @Body() body: CreateUserDto) {
     const authId = req.user?.id

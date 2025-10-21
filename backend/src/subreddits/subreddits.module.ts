@@ -7,10 +7,13 @@ import { SubredditMember, SubredditMemberSchema } from './schemas/subreddit-memb
 import { Role, RoleSchema } from 'src/roles/schemas/role.schema'
 import { UserRole, UserRoleSchema } from 'src/roles/schemas/user-role.schema'
 import { ModerationModule } from 'src/moderation/moderation.module'
+import { NotificationsModule } from 'src/notifications/notifications.module'
+import { UsersModule } from 'src/users/users.module'
 import { SubredditMembersController } from './subreddit-members.controller'
 import { SubredditMembersService } from './subreddit-members.service'
 import { SubredditRbacGuard } from './guards/subreddit-rbac.guard'
 import { AttachmentsModule } from 'src/attachments/attachments.module'
+import { SubredditSchedulerService } from './subreddit-scheduler.service'
 
 @Module({
   imports: [
@@ -22,10 +25,12 @@ import { AttachmentsModule } from 'src/attachments/attachments.module'
       { name: UserRole.name, schema: UserRoleSchema }
     ]),
     ModerationModule,
+    NotificationsModule,
+    UsersModule,
     AttachmentsModule
   ],
   controllers: [SubredditsController, SubredditMembersController],
-  providers: [SubredditsService, SubredditMembersService, SubredditRbacGuard],
-  exports: [SubredditsService, SubredditMembersService, SubredditRbacGuard]
+  providers: [SubredditsService, SubredditMembersService, SubredditRbacGuard, SubredditSchedulerService],
+  exports: [SubredditsService, SubredditMembersService, SubredditRbacGuard, SubredditSchedulerService]
 })
 export class SubredditsModule {}

@@ -123,4 +123,14 @@ export class UsersService {
     const doc = await this.feedPreferencesModel.findOneAndUpdate({ userId }, patch, { upsert: true, new: true }).exec()
     return doc
   }
+
+  // Adjust user's karma atomically. type='post'|'comment'
+  async adjustKarma(userId: string | Types.ObjectId, type: 'post' | 'comment', delta: number) {
+    const field = type === 'post' ? { postKarma: delta } : { commentKarma: delta }
+    const update: any = {}
+    if (type === 'post') update.$inc = { postKarma: delta }
+    else update.$inc = { commentKarma: delta }
+    const doc = await this.userModel.findByIdAndUpdate(userId, update, { new: true }).exec()
+    return doc
+  }
 }

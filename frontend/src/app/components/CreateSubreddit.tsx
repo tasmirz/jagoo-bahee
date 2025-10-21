@@ -22,10 +22,38 @@ export default function CreateSubreddit({ onCreated }: { onCreated?: (name: stri
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nameAvailable, setNameAvailable] = useState<boolean | null>(null);
+  const [checkingName, setCheckingName] = useState(false);
 
   function normalizeName(v: string) {
     return v.replace(/[^a-z0-9_\-]/gi, "").toLowerCase();
   }
+
+  // live name availability check (debounced)
+  React.useEffect(() => {
+    let mounted = true;
+    const n = normalizeName(name || '');
+    if (!n) { setNameAvailable(null); return; }
+    setCheckingName(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/subreddits/check-name?name=${encodeURIComponent(n)}`);
+        if (!mounted) return;
+        if (!res.ok) {
+          setNameAvailable(null);
+        } else {
+          const body = await res.json();
+          setNameAvailable(!!body.available);
+        }
+      } catch (e) {
+        if (!mounted) return;
+        setNameAvailable(null);
+      } finally {
+        if (mounted) setCheckingName(false);
+      }
+    }, 450);
+    return () => { mounted = false; clearTimeout(t); };
+  }, [name]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -33,6 +61,11 @@ export default function CreateSubreddit({ onCreated }: { onCreated?: (name: stri
 
     if (!name || !displayName) {
       setError("Name and display name are required");
+      return;
+    }
+
+    if (nameAvailable === false) {
+      setError('Community name is already taken');
       return;
     }
 
@@ -126,6 +159,11 @@ export default function CreateSubreddit({ onCreated }: { onCreated?: (name: stri
       }
 
       const data = await res.json();
+      // ensure creator is joined (backend already sets creator as member but call join for proxy flow and client state)
+      try {
+        const joinRes = await fetch(`/api/subreddits/${data.name || payload.name}/join`, { method: 'POST', headers: { ...(authHeader ? { Authorization: authHeader } : {}) } })
+        // ignore join errors
+      } catch (e) {}
       if (onCreated) onCreated(data.name || payload.name);
     } catch (err: any) {
       setError(err.message || "Failed to create subreddit");
@@ -164,6 +202,15 @@ export default function CreateSubreddit({ onCreated }: { onCreated?: (name: stri
               <label className="block text-sm font-medium mb-1">Community name</label>
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder="communityname" className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2" />
               <p className="text-xs text-[var(--text-secondary)] mt-1">This will be the unique URL name (lowercase, letters/numbers/_-)</p>
+              <div className="mt-1 text-xs">
+                {checkingName ? (
+                  <span className="text-[var(--text-secondary)]">Checking name…</span>
+                ) : nameAvailable === true ? (
+                  <span className="text-green-600">Name is available</span>
+                ) : nameAvailable === false ? (
+                  <span className="text-red-600">Name is already taken</span>
+                ) : null}
+              </div>
             </div>
 
             <div>

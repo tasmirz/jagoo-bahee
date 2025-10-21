@@ -5,6 +5,7 @@ import { PostsService } from './posts.service'
 import { Post, PostSchema } from './schemas/post.schema'
 import { ModerationModule } from 'src/moderation/moderation.module'
 import { SharedModule } from 'src/common/shared.module'
+import { AttachmentsModule } from 'src/attachments/attachments.module'
 import { SubredditsModule } from 'src/subreddits/subreddits.module'
 
 @Module({
@@ -12,6 +13,7 @@ import { SubredditsModule } from 'src/subreddits/subreddits.module'
     MongooseModule.forFeature([{ name: Post.name, schema: PostSchema }]),
     ModerationModule,
     SharedModule,
+    AttachmentsModule,
     SubredditsModule
   ],
   controllers: [PostsController],
