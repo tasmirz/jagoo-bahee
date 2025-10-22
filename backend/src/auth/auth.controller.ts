@@ -22,7 +22,7 @@ export class AuthController {
 
     return token
   }
-  @Get('challenge/') // TODO: add PoW and rate limit
+  @Get('challenge') // TODO: add PoW and rate limit
   challenge(): string {
     return this.authService.challenge()
   }

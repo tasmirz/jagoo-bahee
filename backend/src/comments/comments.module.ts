@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common'
+import { Module, forwardRef } from '@nestjs/common'
 import { MongooseModule } from '@nestjs/mongoose'
 import { CommentsController } from './comments.controller'
 import { CommentsService } from './comments.service'
@@ -18,7 +18,7 @@ import { RedisModule } from 'src/redis/redis.module'
     AttachmentsModule,
     NotificationsModule,
     RedisModule,
-    PostsModule
+    forwardRef(() => PostsModule)
   ],
   controllers: [CommentsController],
   providers: [CommentsService],

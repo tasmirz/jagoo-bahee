@@ -112,6 +112,20 @@
         ]
       }
     },
+    "/users/me/subreddits": {
+      "get": {
+        "operationId": "UsersController_mySubreddits",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Users"
+        ]
+      }
+    },
     "/users/me/create": {
       "post": {
         "operationId": "UsersController_createForAuth",
@@ -331,9 +345,37 @@
         ]
       }
     },
+    "/attachments/presigned-upload": {
+      "post": {
+        "operationId": "AttachmentsController_presignedUpload",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Attachments"
+        ]
+      }
+    },
     "/attachments/confirm": {
       "post": {
         "operationId": "AttachmentsController_confirm",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Attachments"
+        ]
+      }
+    },
+    "/attachments/confirm-upload": {
+      "post": {
+        "operationId": "AttachmentsController_confirmUploadAlias",
         "parameters": [],
         "responses": {
           "201": {
@@ -566,6 +608,296 @@
         ]
       }
     },
+    "/subreddits/{id}/join": {
+      "post": {
+        "operationId": "SubredditsController_join",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "subreddits"
+        ]
+      }
+    },
+    "/subreddits/{id}/leave": {
+      "post": {
+        "operationId": "SubredditsController_leave",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "subreddits"
+        ]
+      }
+    },
+    "/subreddits/{id}/kick": {
+      "post": {
+        "operationId": "SubredditsController_kick",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "subreddits"
+        ]
+      }
+    },
+    "/subreddits/{id}/ban": {
+      "post": {
+        "operationId": "SubredditsController_ban",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "subreddits"
+        ]
+      }
+    },
+    "/subreddits/{id}/ban/{userId}": {
+      "delete": {
+        "operationId": "SubredditsController_unban",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "subreddits"
+        ]
+      }
+    },
+    "/subreddits/{id}/is-moderator": {
+      "get": {
+        "operationId": "SubredditsController_isModerator",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "subreddits"
+        ]
+      }
+    },
+    "/subreddits/{id}/moderators": {
+      "get": {
+        "operationId": "SubredditsController_listModerators",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "subreddits"
+        ]
+      },
+      "post": {
+        "operationId": "SubredditsController_addModerator",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "subreddits"
+        ]
+      }
+    },
+    "/subreddits/{id}/modlogs": {
+      "get": {
+        "operationId": "SubredditsController_listModLogs",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "subreddits"
+        ]
+      }
+    },
+    "/subreddits/{id}/bans": {
+      "get": {
+        "operationId": "SubredditsController_listBans",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "subreddits"
+        ]
+      }
+    },
+    "/subreddits/{id}/moderators/{userId}": {
+      "delete": {
+        "operationId": "SubredditsController_removeModerator",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "subreddits"
+        ]
+      }
+    },
+    "/subreddits/check-name/{name}": {
+      "get": {
+        "operationId": "SubredditsController_getByName",
+        "parameters": [
+          {
+            "name": "name",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "subreddits"
+        ]
+      }
+    },
     "/subreddits/{subredditId}/members": {
       "post": {
         "operationId": "SubredditMembersController_add",
@@ -771,6 +1103,107 @@
         ]
       }
     },
+    "/moderation/server-public-key": {
+      "get": {
+        "operationId": "ModerationController_getServerPublicKey",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "moderation"
+        ]
+      }
+    },
+    "/notifications": {
+      "post": {
+        "operationId": "NotificationsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateNotificationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Notifications"
+        ]
+      },
+      "get": {
+        "operationId": "NotificationsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/notifications/read": {
+      "patch": {
+        "operationId": "NotificationsController_markRead",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/notifications/unread": {
+      "patch": {
+        "operationId": "NotificationsController_markUnread",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
+    "/notifications/{id}": {
+      "delete": {
+        "operationId": "NotificationsController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Notifications"
+        ]
+      }
+    },
     "/posts": {
       "post": {
         "operationId": "PostsController_create",
@@ -787,6 +1220,27 @@
         },
         "responses": {
           "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "posts"
+        ]
+      },
+      "get": {
+        "operationId": "PostsController_listAll",
+        "parameters": [
+          {
+            "name": "subreddit",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": ""
           }
         },
@@ -949,18 +1403,54 @@
             }
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PostModRemoveDto"
-              }
-            }
-          }
-        },
         "responses": {
           "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "posts"
+        ]
+      }
+    },
+    "/posts/{id}/verify": {
+      "get": {
+        "operationId": "PostsController_getVerify",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "posts"
+        ]
+      }
+    },
+    "/posts/{id}/audit-trail": {
+      "get": {
+        "operationId": "PostsController_getAudit",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": ""
           }
         },
@@ -1159,6 +1649,29 @@
         },
         "responses": {
           "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "posts"
+        ]
+      }
+    },
+    "/posts/{id}/comments": {
+      "get": {
+        "operationId": "PostsController_getComments",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
             "description": ""
           }
         },
@@ -1497,90 +2010,17 @@
         ]
       }
     },
-    "/notifications": {
+    "/votes": {
       "post": {
-        "operationId": "NotificationsController_create",
+        "operationId": "VotesController_cast",
         "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateNotificationDto"
-              }
-            }
-          }
-        },
         "responses": {
           "201": {
             "description": ""
           }
         },
         "tags": [
-          "Notifications"
-        ]
-      },
-      "get": {
-        "operationId": "NotificationsController_list",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Notifications"
-        ]
-      }
-    },
-    "/notifications/read": {
-      "patch": {
-        "operationId": "NotificationsController_markRead",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Notifications"
-        ]
-      }
-    },
-    "/notifications/unread": {
-      "patch": {
-        "operationId": "NotificationsController_markUnread",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Notifications"
-        ]
-      }
-    },
-    "/notifications/{id}": {
-      "delete": {
-        "operationId": "NotificationsController_remove",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Notifications"
+          "Votes"
         ]
       }
     },
@@ -1906,12 +2346,36 @@
           "nsfw": {
             "type": "boolean",
             "example": true
+          },
+          "theme": {
+            "type": "object",
+            "example": {
+              "primary": "#053326",
+              "accent": "#053326",
+              "background": "#ffffff"
+            }
+          },
+          "iconAttachmentId": {
+            "type": "string",
+            "example": "64a7f2e5..."
+          },
+          "bannerAttachmentId": {
+            "type": "string",
+            "example": "64a7f2e5..."
+          },
+          "rules": {
+            "type": "string",
+            "example": "# Community rules in markdown"
           }
         },
         "required": [
           "name",
           "displayName"
         ]
+      },
+      "CreateNotificationDto": {
+        "type": "object",
+        "properties": {}
       },
       "CreatePostDto": {
         "type": "object",
@@ -2048,27 +2512,6 @@
           "moderatorId"
         ]
       },
-      "PostModRemoveDto": {
-        "type": "object",
-        "properties": {
-          "subredditId": {
-            "type": "string",
-            "example": "665b3f2a9c5a7d0012a1b210"
-          },
-          "moderatorId": {
-            "type": "string",
-            "example": "665b3f2a9c5a7d0012a1b200"
-          },
-          "reason": {
-            "type": "string",
-            "example": "Off-topic"
-          }
-        },
-        "required": [
-          "subredditId",
-          "moderatorId"
-        ]
-      },
       "CreateCommentDto": {
         "type": "object",
         "properties": {
@@ -2187,10 +2630,6 @@
           "subredditId",
           "moderatorId"
         ]
-      },
-      "CreateNotificationDto": {
-        "type": "object",
-        "properties": {}
       },
       "CreateAwardTypeDto": {
         "type": "object",

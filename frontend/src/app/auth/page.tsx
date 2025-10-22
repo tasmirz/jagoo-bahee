@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import styles from "./auth.module.css";
 import {
   deriveBip32Keypair,
   signChallenge,
@@ -12,6 +11,7 @@ import {
   getToken,
 } from "../../lib/auth";
 import * as bip39 from 'bip39';
+import Image from 'next/image';
 
 export default function AuthPage() {
   const [challenge, setChallenge] = useState<string>("");
@@ -177,58 +177,144 @@ export default function AuthPage() {
   }
 
   return (
-    <div className={styles.pageWrap}>
-      <div className={styles.card}>
-        <header className={styles.header}>
-          <h1 className={styles.title}>Sign in</h1>
-        </header>
-        <form
-          className={styles.form}
-          onSubmit={(e) => {
-            e.preventDefault();
-            signAndAuthenticate();
-          }}
-        >
-          <div className={styles.tabs}>
-            <button type="button" className={`${styles.tabBtn} ${isNewUser ? styles.selected : ""}`} onClick={() => setIsNewUser(true)}>New user</button>
-            <button type="button" className={`${styles.tabBtn} ${!isNewUser ? styles.selected : ""}`} onClick={handleReturningUserOpen}>Returning user</button>
+    <div className="min-h-screen bg-[var(--background)] flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg shadow-lg p-6">
+          <div className="flex items-center justify-center mb-6">
+            <div className="w-12 h-12 relative">
+              <Image src="/jagoo-bahee.svg" alt="Jagoo Bahee" fill sizes="48px" />
+            </div>
+            <h1 className="text-2xl font-bold ml-3">Jagoo Bahee</h1>
           </div>
+          
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              signAndAuthenticate();
+            }}
+          >
+            <div className="flex bg-[var(--muted)] rounded-lg p-1 mb-6">
+              <button 
+                type="button" 
+                className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                  isNewUser 
+                    ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" 
+                    : "text-[var(--text-secondary)] hover:text-[var(--foreground)]"
+                }`} 
+                onClick={() => setIsNewUser(true)}
+              >
+                New User
+              </button>
+              <button 
+                type="button" 
+                className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                  !isNewUser 
+                    ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" 
+                    : "text-[var(--text-secondary)] hover:text-[var(--foreground)]"
+                }`} 
+                onClick={handleReturningUserOpen}
+              >
+                Returning User
+              </button>
+            </div>
 
-          <label className={styles.label}>Passphrase (optional)</label>
-          <input type="password" className={styles.textarea} value={passphrase} onChange={(e) => setPassphrase(e.target.value)} placeholder="Optional passphrase" />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-[var(--foreground)] mb-2">
+                  Passphrase (optional)
+                </label>
+                <input 
+                  type="password" 
+                  className="w-full px-3 py-2 border border-[var(--border)] rounded-md bg-[var(--background)] text-[var(--foreground)] placeholder-[var(--placeholder)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent" 
+                  value={passphrase} 
+                  onChange={(e) => setPassphrase(e.target.value)} 
+                  placeholder="Optional passphrase for additional security" 
+                />
+              </div>
 
-          <label className={styles.label}>Mnemonic (BIP39)</label>
-          <textarea
-            className={styles.textarea}
-            value={mnemonic}
-            onChange={(e) => setMnemonic(e.target.value)}
-            readOnly={isNewUser}
-            rows={4}
-            placeholder={isNewUser ? "Will be generated for new users" : "Paste or type your mnemonic here"}
-            autoFocus={!isNewUser}
-          />
+              <div>
+                <label className="block text-sm font-medium text-[var(--foreground)] mb-2">
+                  Mnemonic (BIP39)
+                </label>
+                <textarea
+                  className="w-full px-3 py-2 border border-[var(--border)] rounded-md bg-[var(--background)] text-[var(--foreground)] placeholder-[var(--placeholder)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent resize-none"
+                  value={mnemonic}
+                  onChange={(e) => setMnemonic(e.target.value)}
+                  readOnly={isNewUser}
+                  rows={4}
+                  placeholder={isNewUser ? "Will be generated for new users" : "Paste or type your 24-word mnemonic here"}
+                  autoFocus={!isNewUser}
+                />
+                <div className="mt-2 text-sm">
+                  {mnemonic && (
+                    <span className={`${mnemonicError ? "text-[var(--error)]" : "text-[var(--text-secondary)]"}`}>
+                      {mnemonic.trim().split(/\s+/).filter(Boolean).length} words
+                    </span>
+                  )}
+                  {mnemonicError && (
+                    <div className="text-[var(--error)] mt-1">{mnemonicError}</div>
+                  )}
+                </div>
+              </div>
 
-          <div style={{ marginTop: 8, fontSize: 13, color: mnemonicError ? "#b00020" : "#666" }}>
-            <span>{mnemonic ? `${mnemonic.trim().split(/\s+/).filter(Boolean).length} words` : ""}</span>
-            {mnemonicError && <div style={{ marginTop: 6 }}>{mnemonicError}</div>}
-          </div>
+              <div className="flex gap-3">
+                {isNewUser ? (
+                  !mnemonic ? (
+                    <button 
+                      type="button" 
+                      className="flex-1 bg-[var(--primary)] text-white py-2 px-4 rounded-md font-medium hover:opacity-90 transition-opacity" 
+                      onClick={generateMnemonic}
+                    >
+                      Generate Mnemonic
+                    </button>
+                  ) : !copied ? (
+                    <button 
+                      type="button" 
+                      className="flex-1 bg-[var(--secondary)] text-[var(--foreground)] py-2 px-4 rounded-md font-medium hover:opacity-90 transition-opacity" 
+                      onClick={copyMnemonic} 
+                      disabled={isBackingUp}
+                    >
+                      Copy Mnemonic
+                    </button>
+                  ) : (
+                    <button 
+                      type="submit" 
+                      className="flex-1 bg-[var(--primary)] text-white py-2 px-4 rounded-md font-medium hover:opacity-90 transition-opacity disabled:opacity-50" 
+                      disabled={autoSigning}
+                    >
+                      {autoSigning ? "Signing..." : "Authenticate"}
+                    </button>
+                  )
+                ) : (
+                  <button 
+                    type="submit" 
+                    className="flex-1 bg-[var(--primary)] text-white py-2 px-4 rounded-md font-medium hover:opacity-90 transition-opacity disabled:opacity-50" 
+                    disabled={!mnemonic || !!mnemonicError || autoSigning}
+                  >
+                    {autoSigning ? "Signing..." : "Authenticate"}
+                  </button>
+                )}
+              </div>
 
-          <div style={{ display: "flex", gap: "8px" }}>
-            {isNewUser ? (
-              !mnemonic ? (
-                <button type="button" className={styles.submit} onClick={generateMnemonic}>Generate</button>
-              ) : !copied ? (
-                <button type="button" className={styles.submit} onClick={copyMnemonic} disabled={isBackingUp}>Copy</button>
-              ) : (
-                <button type="submit" className={styles.submit} disabled={autoSigning}>{autoSigning ? "Signing..." : "Authenticate"}</button>
-              )
-            ) : (
-              <button type="submit" className={styles.submit} disabled={!mnemonic || !!mnemonicError || autoSigning}>{autoSigning ? "Signing..." : "Authenticate"}</button>
-            )}
-          </div>
-
-          {message && <div className={styles.message}>{message}</div>}
-        </form>
+              {message && (
+                <div className={`p-3 rounded-md text-sm ${
+                  message.includes("successful") || message.includes("detected") 
+                    ? "bg-[var(--success)]/10 text-[var(--success)] border border-[var(--success)]/20" 
+                    : message.includes("failed") || message.includes("Invalid")
+                    ? "bg-[var(--error)]/10 text-[var(--error)] border border-[var(--error)]/20"
+                    : "bg-[var(--info)]/10 text-[var(--info)] border border-[var(--info)]/20"
+                }`}>
+                  {message}
+                </div>
+              )}
+            </div>
+          </form>
+        </div>
+        
+        <div className="mt-6 text-center text-sm text-[var(--text-secondary)]">
+          <p>🔐 Your private keys are stored locally and never sent to our servers</p>
+          <p className="mt-1">⚠️ Keep your mnemonic safe - we cannot recover lost accounts</p>
+        </div>
       </div>
     </div>
   );

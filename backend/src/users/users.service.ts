@@ -43,23 +43,54 @@ export class UsersService {
     const existing = await this.findByAuthId(authId)
     if (existing) return existing
 
-    const base = preferredUsername ?? `user_${String(authId).slice(-8)}`
-    const maxAttempts = 6
+    const base = (preferredUsername || `user_${String(authId).slice(-8)}`).slice(0, 30)
+    const maxAttempts = 10
+
+    // Quick re-check in case another process created the user between calls
+    const existingRetry = await this.findByAuthId(authId)
+    if (existingRetry) return existingRetry
+
+    const crypto = await import('crypto')
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const candidate = attempt === 0 ? base : `${base}_${Math.floor(Math.random() * 90000) + 10000}`
+      const suffix = attempt === 0 ? '' : `_${crypto.randomInt(10000, 999999)}`
+      const candidate = `${base}${suffix}`.slice(0, 50)
       try {
         // create with _id equal to authId
+        console.log(`Attempting to create user for authId ${authId} with username candidate: ${candidate}`)
         const created = await this.userModel.create({ _id: authId, username: candidate } as any)
         return created
       } catch (err: any) {
         // Duplicate key error code from MongoDB is 11000
         if (err && err.code === 11000) {
-          // username conflict — retry
+          // Determine which field caused conflict if possible
+          const keyValue = err.keyValue || {}
+          if (keyValue._id) {
+            // Another process created the user with this authId — return it
+            const found = await this.findByAuthId(authId)
+            if (found) return found
+            // otherwise continue trying
+            continue
+          }
+          if (keyValue.username) {
+            // username conflict — try another candidate
+            continue
+          }
+          // unknown 11000 source — retry a few times
           continue
         }
         // any other error, rethrow
         throw err
       }
+    }
+
+    // Final attempt: try upsert by _id to ensure the user record exists
+    try {
+      const up = await this.userModel
+        .findOneAndUpdate({ _id: authId }, { $setOnInsert: { username: base } }, { upsert: true, new: true })
+        .exec()
+      if (up) return up
+    } catch (e) {
+      // fall through to error
     }
 
     throw new Error('Could not generate a unique username after multiple attempts')

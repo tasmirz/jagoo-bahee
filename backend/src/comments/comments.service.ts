@@ -1,10 +1,12 @@
 import {
+  Inject,
   Injectable,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
   HttpException,
-  HttpStatus
+  HttpStatus,
+  forwardRef
 } from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
 import { Model, Types } from 'mongoose'
@@ -32,7 +34,7 @@ export class CommentsService {
     @InjectModel(Comment.name) private readonly model: Model<Comment>,
     private readonly modLog: ModLogService,
     private readonly attachments: AttachmentsService,
-    private readonly postsService: PostsService,
+    @Inject(forwardRef(() => PostsService)) private readonly postsService: PostsService,
     private readonly notifications: NotificationsService,
     private readonly redis: RedisService
   ) {}
@@ -78,12 +80,17 @@ export class CommentsService {
     // Verify user signature: canonical JSON ordering
     const payloadObj = {
       content: String(data.content),
-      postId: String(data.postId),
-      parentId: data.parentId ? String(data.parentId) : null,
-      attachmentIds: (attachmentIds || []).slice().sort(),
-      timestamp: data.createdAt ? Number(new Date(data.createdAt)) : Date.now()
+      postId: data.postId,
+      parentId: data.parentId || null,
+      attachmentIds,
+      authorId: data.authorId
     }
     const canonical = JSON.stringify(payloadObj)
+    console.log('Verifying comment signature', {
+      authorId: String(data.authorId),
+      canonical,
+      providedSignaturePreview: String(data.userSignature || '').slice(0, 40)
+    })
     const pub = await getAuthPublicKeyById((this as any).model.db, String(data.authorId))
     if (!pub) throw new BadRequestException('author public key not found')
     let ok = verifySignature(pub, canonical, String(data.userSignature))
@@ -102,10 +109,22 @@ export class CommentsService {
     }
     if (!ok) {
       try {
-        console.warn('Signature verification failed for comment creation', { authorId: String(data.authorId), canonical, providedSignaturePreview: (String(data.userSignature || '')).slice(0, 40), pubHex: pub.toString('hex') })
+        console.warn('Signature verification failed for comment creation', {
+          authorId: String(data.authorId),
+          canonical,
+          providedSignaturePreview: String(data.userSignature || '').slice(0, 40),
+          pubHex: pub.toString('hex')
+        })
       } catch (e) {}
       if (process.env.NODE_ENV !== 'production') {
-        throw new BadRequestException({ message: 'user signature verification failed', debug: { canonical, providedSignaturePreview: (String(data.userSignature || '')).slice(0, 80), pubHex: pub.toString('hex') } })
+        throw new BadRequestException({
+          message: 'user signature verification failed',
+          debug: {
+            canonical,
+            providedSignaturePreview: String(data.userSignature || '').slice(0, 80),
+            pubHex: pub.toString('hex')
+          }
+        })
       }
       throw new BadRequestException('user signature verification failed')
     }
@@ -117,89 +136,88 @@ export class CommentsService {
     if (depth > maxDepth) throw new BadRequestException('Max comment depth exceeded')
     const path = this.buildPath(String(data.postId), parent)
 
-    // Create comment in a transaction and update counters
-    const session = await (this.model.db as any).startSession()
-    session.startTransaction()
+    // Create comment and update counters
+    const doc = await this.model.create([{ ...data, depth, path, statusFlags: BigInt(COMMENT_FLAGS.ACTIVE) }])
+    const created = Array.isArray(doc) ? doc[0] : doc
+    // update parent replyCount
+    if (parent) await this.model.updateOne({ _id: parent._id }, { $inc: { replyCount: 1 } })
+    // update post comment count
+    await this.postsService.incCommentCount(String(data.postId), 1)
+
+    // server acknowledgement
     try {
-      const doc = await this.model.create([{ ...data, depth, path, statusFlags: BigInt(COMMENT_FLAGS.ACTIVE) }], {
-        session
+      const payload = `${String((created as any)._id)}|created|${String(data.contentHash)}`
+      const serverSig = signServerMessage(payload)
+      const coll = (this as any).model.db.collection('serveracknowledgements')
+      await coll.insertOne({
+        contentType: 'comment',
+        contentId: (created as any)._id,
+        authorId: new Types.ObjectId(data.authorId),
+        action: 'created',
+        contentHash: data.contentHash,
+        userSignature: data.userSignature,
+        serverSignature: serverSig,
+        metadata: { serverKeyId },
+        createdAt: new Date()
       })
-      const created = Array.isArray(doc) ? doc[0] : doc
-      // update parent replyCount
-      if (parent) await this.model.updateOne({ _id: parent._id }, { $inc: { replyCount: 1 } }).session(session)
-      // update post comment count
-      await this.postsService.incCommentCount(String(data.postId), 1)
-
-      // server acknowledgement
-      try {
-        const payload = `${String((created as any)._id)}|created|${String(data.contentHash)}`
-        const serverSig = signServerMessage(payload)
-        const coll = (this as any).model.db.collection('serveracknowledgements')
-        await coll.insertOne({
-          contentType: 'comment',
-          contentId: (created as any)._id,
-          authorId: new Types.ObjectId(data.authorId),
-          action: 'created',
-          contentHash: data.contentHash,
-          userSignature: data.userSignature,
-          serverSignature: serverSig,
-          metadata: { serverKeyId },
-          createdAt: new Date()
-        })
-      } catch (e) {
-        // swallow ack errors
-      }
-
-      // notifications: reply and mentions
-      try {
-        if (parent) {
-          // notify parent author
-          await this.notifications.create({
-            userId: String((parent as any).authorId),
-            type: 'comment_reply',
-            actorId: String(data.authorId),
-            targetId: String((created as any)._id),
-            targetType: 'comment',
-            message: `u/${String(data.authorId)} replied to your comment`
-          })
-        }
-        // mentions: simple regex for @username
-        const mentionRe = /@([a-zA-Z0-9_\-]+)/g
-        const mentions = new Set<string>()
-        let m: RegExpExecArray | null
-        while ((m = mentionRe.exec(String(data.content)))) {
-          mentions.add(m[1])
-        }
-        for (const username of Array.from(mentions)) {
-          try {
-            const user = await (this as any).model.db.collection('users').findOne({ username })
-            if (user)
-              await this.notifications.create({
-                userId: String(user._id),
-                type: 'mention',
-                actorId: String(data.authorId),
-                targetId: String((created as any)._id),
-                targetType: 'comment',
-                message: `u/${String(data.authorId)} mentioned you`
-              })
-          } catch (e) {}
-        }
-      } catch (e) {}
-
-      await session.commitTransaction()
-      session.endSession()
-      return created
     } catch (e) {
-      await session.abortTransaction()
-      session.endSession()
-      throw e
+      // swallow ack errors
     }
+
+    // notifications: reply and mentions
+    try {
+      if (parent) {
+        // notify parent author
+        await this.notifications.create({
+          userId: String((parent as any).authorId),
+          type: 'comment_reply',
+          actorId: String(data.authorId),
+          targetId: String((created as any)._id),
+          targetType: 'comment',
+          message: `u/${String(data.authorId)} replied to your comment`
+        })
+      }
+      // mentions: simple regex for @username
+      const mentionRe = /@([a-zA-Z0-9_\-]+)/g
+      const mentions = new Set<string>()
+      let m: RegExpExecArray | null
+      while ((m = mentionRe.exec(String(data.content)))) {
+        mentions.add(m[1])
+      }
+      for (const username of Array.from(mentions)) {
+        try {
+          const user = await (this as any).model.db.collection('users').findOne({ username })
+          if (user)
+            await this.notifications.create({
+              userId: String(user._id),
+              type: 'mention',
+              actorId: String(data.authorId),
+              targetId: String((created as any)._id),
+              targetType: 'comment',
+              message: `u/${String(data.authorId)} mentioned you`
+            })
+        } catch (e) {}
+      }
+    } catch (e) {}
+
+    return created
   }
 
   async findById(id: string) {
     const doc = await this.model.findById(id)
     if (!doc) throw new NotFoundException('Comment not found')
     return doc
+  }
+
+  async findByPost(postId: string, limit = 100, skip = 0) {
+    const docs = await this.model
+      .find({ postId: new Types.ObjectId(postId) })
+      .sort({ createdAt: 1 })
+      .limit(Number(limit))
+      .skip(Number(skip))
+      .lean()
+      .exec()
+    return docs
   }
 
   async updateByAuthor(id: string, authorId: string, update: Partial<Comment>) {

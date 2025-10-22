@@ -1,16 +1,31 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post as HttpPost, UseGuards, Query } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post as HttpPost,
+  UseGuards,
+  Query,
+  NotFoundException
+} from '@nestjs/common'
 import { PostsService } from './posts.service'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
 import { SubredditRbacGuard } from 'src/subreddits/guards/subreddit-rbac.guard'
 import { CreatePostDto, UpdatePostDto, VotePostDto } from './dto'
 import { PostModBaseDto, PostModRemoveDto } from './dto/moderate-post.dto'
+import { CommentsService } from 'src/comments/comments.service'
 
 import { ApiTags } from '@nestjs/swagger'
 
 @ApiTags('posts')
 @Controller('posts')
 export class PostsController {
-  constructor(private readonly posts: PostsService) {}
+  constructor(
+    private readonly posts: PostsService,
+    private readonly commentsService: CommentsService
+  ) {}
 
   @UseGuards(JwtAuthGuard)
   @HttpPost()
@@ -118,5 +133,10 @@ export class PostsController {
   @HttpPost(':id/mod/unflag')
   modUnflag(@Param('id') id: string, @Body() body: PostModBaseDto) {
     return this.posts.modUnflag(id, String(body.subredditId), String(body.moderatorId))
+  }
+
+  @Get(':id/comments')
+  async getComments(@Param('id') id: string) {
+    return this.commentsService.findByPost(id)
   }
 }

@@ -108,6 +108,20 @@ export function getToken(): string | null {
   }
 }
 
+export function getAuthIdFromToken(): string | null {
+  try {
+    const tok = getToken();
+    if (!tok) return null;
+    const parts = tok.split(".");
+    if (parts.length !== 3) return null;
+    const payload = base64UrlDecode(parts[1]);
+    const obj = JSON.parse(payload);
+    return obj?.id || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 export function getPrivateKey(): Uint8Array | null {
   try {
     const maybe =
@@ -142,4 +156,13 @@ export function clearCredentials() {
     localStorage.removeItem(PUB_KEY);
     sessionStorage.removeItem(PRIV_KEY);
   } catch (e) {}
+}
+
+// Verify a signature using public key and message hash
+export function verifySignature(publicKey: Uint8Array, messageHash: Uint8Array, signature: Uint8Array): boolean {
+  try {
+    return tinySecp.verify(messageHash, signature, publicKey);
+  } catch (e) {
+    return false;
+  }
 }

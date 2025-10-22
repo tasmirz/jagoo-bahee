@@ -9,6 +9,7 @@ import { UsersService } from 'src/users/users.service'
 import 'dotenv/config'
 import { InjectModel } from '@nestjs/mongoose'
 import { Model, Types } from 'mongoose'
+import { getPublicKey } from '../../../frontend/src/lib/auth'
 
 @Injectable()
 export class AuthService {
@@ -46,7 +47,7 @@ export class AuthService {
     if (!signValidity) throw new UnauthorizedException('Sign Verification Failed')
 
     // Getting user id
-
+    console.log(auth)
     // Mongoose stores buffers as Buffer; query by publicKey directly
     let authDoc = await this.authModel.findOne({ publicKey }).exec()
     if (authDoc == null) {
@@ -63,5 +64,10 @@ export class AuthService {
     }
 
     return this.jwtService.sign({ id: String((authDoc as any)._id), abac: authDoc.abac })
+  }
+  async getPublicKeyById(_id: Object): Promise<Buffer | null> {
+    const authRec = await this.authModel.findOne({ _id }).exec()
+    if (!authRec || !authRec.publicKey) return null
+    return Buffer.from(authRec.publicKey)
   }
 }

@@ -33,11 +33,8 @@ export class VotesService {
     if (!['post', 'comment'].includes(targetType)) throw new BadRequestException('invalid targetType')
     await this.checkRateLimit(userId)
 
-    // Use mongoose session transaction when available
-    const session = await (this.voteModel.db as any).startSession()
-    session.startTransaction()
     try {
-      const existing = await this.voteModel.findOne({ userId, targetId, targetType }).session(session)
+      const existing = await this.voteModel.findOne({ userId, targetId, targetType })
 
       // Prevent banned users from voting: find subreddit of target (if post/comment)
       let subredditId: string | null = null
@@ -57,14 +54,12 @@ export class VotesService {
 
       if (value === 0) {
         if (!existing) {
-          await session.commitTransaction()
-          session.endSession()
           return { action: 'noop' }
         }
         // remove existing
         const prev = existing.value as -1 | 1
-        await this.voteModel.deleteOne({ _id: existing._id }).session(session)
-        // update counters atomically
+        await this.voteModel.deleteOne({ _id: existing._id })
+        // update counters
         if (targetType === 'post') {
           const post = await this.postsService.applyVoteChange(targetId, prev, 0 as 0)
           // adjust author karma by -prev
@@ -73,17 +68,17 @@ export class VotesService {
           const comment = await this.commentsService.applyVoteChange(targetId, prev, 0 as 0)
           await this.usersService.adjustKarma(String((comment as any).authorId), 'comment', -prev)
         }
-        await session.commitTransaction()
-        session.endSession()
         return { action: 'removed' }
       }
 
       if (!existing) {
         // create new
-        await this.voteModel.create(
-          [{ userId: new Types.ObjectId(userId), targetId: new Types.ObjectId(targetId), targetType, value }],
-          { session }
-        )
+        await this.voteModel.create({
+          userId: new Types.ObjectId(userId),
+          targetId: new Types.ObjectId(targetId),
+          targetType,
+          value
+        })
         // inc counters
         if (targetType === 'post') {
           const post = await this.postsService.applyVoteChange(targetId, 0 as 0, value)
@@ -92,15 +87,13 @@ export class VotesService {
           const comment = await this.commentsService.applyVoteChange(targetId, 0 as 0, value)
           await this.usersService.adjustKarma(String((comment as any).authorId), 'comment', value)
         }
-        await session.commitTransaction()
-        session.endSession()
         return { action: 'created', value }
       }
 
       // existing found
       if (existing.value === value) {
         // toggle off
-        await this.voteModel.deleteOne({ _id: existing._id }).session(session)
+        await this.voteModel.deleteOne({ _id: existing._id })
         if (targetType === 'post') {
           const prev = existing.value as -1 | 1
           const post = await this.postsService.applyVoteChange(targetId, prev, 0 as 0)
@@ -110,14 +103,12 @@ export class VotesService {
           const comment = await this.commentsService.applyVoteChange(targetId, prev, 0 as 0)
           await this.usersService.adjustKarma(String((comment as any).authorId), 'comment', -prev)
         }
-        await session.commitTransaction()
-        session.endSession()
         return { action: 'removed' }
       }
 
       // switch
       const prevVal = existing.value as -1 | 1
-      await this.voteModel.updateOne({ _id: existing._id }, { $set: { value } }).session(session)
+      await this.voteModel.updateOne({ _id: existing._id }, { $set: { value } })
       if (targetType === 'post') {
         const post = await this.postsService.applyVoteChange(targetId, prevVal, value as -1 | 1)
         await this.usersService.adjustKarma(String((post as any).authorId), 'post', (value as number) - prevVal)
@@ -125,12 +116,8 @@ export class VotesService {
         const comment = await this.commentsService.applyVoteChange(targetId, prevVal, value as -1 | 1)
         await this.usersService.adjustKarma(String((comment as any).authorId), 'comment', (value as number) - prevVal)
       }
-      await session.commitTransaction()
-      session.endSession()
       return { action: 'updated', value }
     } catch (e) {
-      await session.abortTransaction()
-      session.endSession()
       throw e
     }
   }

@@ -1,51 +1,145 @@
-"use client"
-import { useState } from 'react'
-import { getToken } from '@/lib/auth'
-import { useRouter } from 'next/navigation'
+"use client";
 
-export default function useVote(initial: { value: 0 | 1 | -1; score: number; upvoteCount: number; downvoteCount: number }, targetId: string, targetType: 'post' | 'comment') {
-  const [state, setState] = useState(initial)
-  const [loading, setLoading] = useState(false)
-  const router = useRouter()
+import { useState, useCallback } from 'react';
+import { getToken } from '@/lib/auth';
 
-  async function cast(v: 0 | 1 | -1) {
-    const prev = state.value
-    let scoreDelta = 0
-    if (v === prev) {
-      // toggling off
-      if (v === 1) scoreDelta = -1
-      else if (v === -1) scoreDelta = 1
-    } else {
-      // new vote or switch
-      if (prev === 0) scoreDelta = v
-      else scoreDelta = v - prev
+interface VoteState {
+  value: 0 | 1 | -1;
+  score: number;
+  upvoteCount: number;
+  downvoteCount: number;
+}
+
+interface UseVoteProps {
+  value: 0 | 1 | -1;
+  score: number;
+  upvoteCount: number;
+  downvoteCount: number;
+}
+
+interface VoteResult {
+  ok: boolean;
+  value: 0 | 1 | -1;
+  score: number;
+  upvoteCount: number;
+  downvoteCount: number;
+}
+
+export default function useVote(
+  initial: UseVoteProps,
+  targetId: string,
+  targetType: 'post' | 'comment'
+) {
+  const [state, setState] = useState<VoteState>({
+    value: initial.value,
+    score: initial.score,
+    upvoteCount: initial.upvoteCount,
+    downvoteCount: initial.downvoteCount,
+  });
+
+  const [loading, setLoading] = useState(false);
+
+  const cast = useCallback(async (newValue: 1 | -1 | 0): Promise<VoteResult | null> => {
+    const token = getToken();
+    if (!token) {
+      // Store intended vote for after authentication
+      try {
+        localStorage.setItem('intended:vote', JSON.stringify({
+          targetId,
+          targetType,
+          value: newValue
+        }));
+        window.location.href = '/auth';
+      } catch (e) {
+        console.error('Failed to store intended vote:', e);
+      }
+      return null;
     }
-    // optimistic
-    setState(s => ({ ...s, value: v === prev ? 0 : v, score: s.score + scoreDelta }))
-    setLoading(true)
+
+    setLoading(true);
+    
+    // Optimistic update
+    const previousState = { ...state };
+    const previousValue = state.value;
+    
+    // Calculate new vote counts
+    let newUpvoteCount = state.upvoteCount;
+    let newDownvoteCount = state.downvoteCount;
+    let newScore = state.score;
+
+    // Remove previous vote effect
+    if (previousValue === 1) {
+      newUpvoteCount -= 1;
+      newScore -= 1;
+    } else if (previousValue === -1) {
+      newDownvoteCount -= 1;
+      newScore += 1;
+    }
+
+    // Apply new vote effect
+    if (newValue === 1) {
+      newUpvoteCount += 1;
+      newScore += 1;
+    } else if (newValue === -1) {
+      newDownvoteCount += 1;
+      newScore -= 1;
+    }
+
+    // Update state optimistically
+    setState({
+      value: newValue,
+      score: newScore,
+      upvoteCount: newUpvoteCount,
+      downvoteCount: newDownvoteCount,
+    });
+
     try {
-        const token = getToken()
-        if (!token) {
-          // persist intended action and redirect to auth
-          try { localStorage.setItem('intended:vote', JSON.stringify({ targetId, targetType, value: v === prev ? 0 : v })) } catch (e) {}
-          router.push('/auth')
-          return
-        }
-        const backend = await import('@/lib/backend')
-        const res = await backend.backendJson('POST', `/votes`, { targetId, targetType, value: v === prev ? 0 : v })
-        if (!res.ok) {
-          // rollback
-          setState(s => ({ ...s, value: prev }))
-        } else {
-          const data = await res.json()
-          // reconcile with server data if provided
-        }
-    } catch (e) {
-      setState(s => ({ ...s, value: prev }))
-    } finally {
-      setLoading(false)
-    }
-  }
+      const backend = await import('@/lib/backend');
+      
+      const payload = {
+        targetId,
+        targetType,
+        value: newValue
+      };
 
-  return { state, cast, loading }
+      const res = await backend.backendJson('POST', '/votes', payload);
+      
+      if (!res.ok) {
+        // Revert optimistic update on failure
+        setState(previousState);
+        throw new Error('Vote failed');
+      }
+
+      const result = await res.json();
+      
+      // Update with server response
+      setState({
+        value: result.value || newValue,
+        score: result.score || newScore,
+        upvoteCount: result.upvoteCount || newUpvoteCount,
+        downvoteCount: result.downvoteCount || newDownvoteCount,
+      });
+
+      return {
+        ok: true,
+        value: result.value || newValue,
+        score: result.score || newScore,
+        upvoteCount: result.upvoteCount || newUpvoteCount,
+        downvoteCount: result.downvoteCount || newDownvoteCount,
+      };
+    } catch (error) {
+      // Revert optimistic update on error
+      setState(previousState);
+      console.error('Vote error:', error);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, [state, targetId, targetType]);
+
+  return {
+    state,
+    cast,
+    loading,
+  };
 }
