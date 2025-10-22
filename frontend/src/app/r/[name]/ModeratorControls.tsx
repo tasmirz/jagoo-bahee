@@ -28,7 +28,8 @@ export default function ModeratorControls({ subredditName }: { subredditName: st
       const payload = `kick|${subredditName}|${targetUser}|${reason || ''}`
       const signature = await signPayload(payload)
       const token = getToken()
-      const res = await fetch(`/api/subreddits/${subredditName}/kick`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ userId: targetUser, reason, signature }) })
+  const backend = await import('@/lib/backend')
+  const res = await backend.backendJson('POST', `/subreddits/${subredditName}/kick`, { userId: targetUser, reason, signature })
       if (!res.ok) throw new Error(await res.text())
       alert('Kick successful')
     } catch (e) {
@@ -44,7 +45,8 @@ export default function ModeratorControls({ subredditName }: { subredditName: st
       const payload = `ban|${subredditName}|${targetUser}|${banType}|${duration || 0}|${reason || ''}`
       const signature = await signPayload(payload)
       const token = getToken()
-      const res = await fetch(`/api/subreddits/${subredditName}/ban`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ userId: targetUser, reason, duration, banType, signature, deleteContent: false }) })
+  const backend = await import('@/lib/backend')
+  const res = await backend.backendJson('POST', `/subreddits/${subredditName}/ban`, { userId: targetUser, reason, duration, banType, signature, deleteContent: false })
       if (!res.ok) throw new Error(await res.text())
       alert('Ban successful')
     } catch (e) {
@@ -59,7 +61,8 @@ export default function ModeratorControls({ subredditName }: { subredditName: st
       const payload = `unban|${subredditName}|${targetUser}|${reason || ''}`
       const signature = await signPayload(payload)
       const token = getToken()
-      const res = await fetch(`/api/subreddits/${subredditName}/ban/${targetUser}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ signature, reason }) })
+  const backend = await import('@/lib/backend')
+  const res = await backend.backendFetch(`/subreddits/${subredditName}/ban/${targetUser}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signature, reason }) })
       if (!res.ok) throw new Error(await res.text())
       alert('Unbanned')
     } catch (e) {

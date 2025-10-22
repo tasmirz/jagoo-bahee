@@ -26,11 +26,19 @@ export class UsersController {
   async mySubreddits(@Req() req: any) {
     // Return the list of subreddits the current authenticated user is a member of
     const authId = req.user?.id
+    console.log(`Fetching subreddits for authId ${authId}`)
     if (!authId) return []
-    // find the User document for this auth
-    const me = await this.usersService.findByAuthId(authId)
-    if (!me || !me._id) return []
-
+    // find the User document for this auth; if missing, create one so membership records can be resolved
+    let me = await this.usersService.findByAuthId(authId)
+    if (!me || !(me as any)._id) {
+      try {
+        me = await this.usersService.ensureUserForAuth(authId)
+      } catch (e) {
+        me = null as any
+      }
+    }
+    if (!me || !(me as any)._id) return []
+    console.log(`Fetching subreddits for user ${me._id}`)
     try {
       // Use a direct collection aggregation to avoid changing module DI.
       const { Types } = await import('mongoose')

@@ -12,9 +12,9 @@ export default function ModerationPage({ params }: any) {
 
   useEffect(() => {
     async function check() {
-      const token = getToken()
       try {
-        const res = await fetch(`/api/subreddits/${name}/is-moderator`, { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } })
+        const backend = await import('@/lib/backend')
+        const res = await backend.backendFetch(`/subreddits/${name}/is-moderator`)
         if (!res.ok) throw new Error('Not allowed')
         const data = await res.json()
         setIsMod(!!data.isModerator)
@@ -30,9 +30,10 @@ export default function ModerationPage({ params }: any) {
     const token = getToken()
     async function fetchLists() {
       try {
+        const backend = await import('@/lib/backend')
         const [logsRes, bansRes] = await Promise.all([
-          fetch(`/api/subreddits/${name}/modlogs?limit=50`, { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } }),
-          fetch(`/api/subreddits/${name}/bans`, { headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } })
+          backend.backendFetch(`/subreddits/${name}/modlogs?limit=50`),
+          backend.backendFetch(`/subreddits/${name}/bans`)
         ])
         if (logsRes.ok) setModLogs(await logsRes.json())
         if (bansRes.ok) setBans(await bansRes.json())

@@ -3,8 +3,7 @@ import { Document, Types } from 'mongoose'
 
 @Schema({ timestamps: true })
 export class User extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'Auth', required: true, unique: true })
-  authId: Types.ObjectId
+  // NOTE: user _id will be the same as the Auth document _id. Do not store a separate authId field.
 
   @Prop({ type: String, required: true, unique: true, trim: true })
   username: string

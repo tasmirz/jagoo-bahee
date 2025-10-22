@@ -21,13 +21,16 @@ export class UsersService {
     return this.userModel.findById(id).exec()
   }
 
+  // With the new schema the User document _id will be the same as the Auth document _id.
+  // findByAuthId is equivalent to findById on this model.
   async findByAuthId(authId: string | Types.ObjectId): Promise<User | null> {
-    return this.userModel.findOne({ authId }).exec()
+    return this.userModel.findById(authId).exec()
   }
 
   async createForAuth(authId: Types.ObjectId, username: string): Promise<User> {
-    const user = await this.userModel.create({ authId, username })
-    return user
+    // create user with explicit _id equal to authId
+    const created = await this.userModel.create({ _id: authId, username } as any)
+    return created
   }
 
   /**
@@ -45,7 +48,8 @@ export class UsersService {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const candidate = attempt === 0 ? base : `${base}_${Math.floor(Math.random() * 90000) + 10000}`
       try {
-        const created = await this.userModel.create({ authId, username: candidate })
+        // create with _id equal to authId
+        const created = await this.userModel.create({ _id: authId, username: candidate } as any)
         return created
       } catch (err: any) {
         // Duplicate key error code from MongoDB is 11000

@@ -23,7 +23,9 @@ export class SubredditsService {
     private readonly modLog: ModLogService,
     private readonly usersService: UsersService
   ) {}
-
+  public async nameAvailability(name: string) {
+    return await this.model.findOne({ name: this.escapeRegExp(name.toLowerCase().trim()) }).exec()
+  }
   // helper: check if an actor (auth id) has a permission in subreddit via UserRole->Role or global ABAC admin
   private async hasPermission(actorAuthId: string, subredditId: any, permission: string): Promise<boolean> {
     if (!actorAuthId) return false
@@ -505,9 +507,9 @@ export class SubredditsService {
       const doc = new this.model(toCreate)
       createdSub = await doc.save()
 
-  // create subreddit member for creator with moderator bit set
-  const userId = creatorProfileId || (data.createdBy as any)
-  if (!userId) throw new HttpException('creator user id missing', HttpStatus.BAD_REQUEST)
+      // create subreddit member for creator with moderator bit set
+      const userId = creatorProfileId || (data.createdBy as any)
+      if (!userId) throw new HttpException('creator user id missing', HttpStatus.BAD_REQUEST)
 
       // set member + moderator bits: member(1) | moderator(8) => 9
       const statusFlags = BigInt(1) | BigInt(8)

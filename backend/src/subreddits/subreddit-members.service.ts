@@ -69,7 +69,8 @@ export class SubredditMembersService {
           pipeline.push({
             $lookup: {
               from: 'auths',
-              localField: 'user.authId',
+              // user._id corresponds to the Auth document _id
+              localField: 'user._id',
               foreignField: '_id',
               as: 'auth'
             }

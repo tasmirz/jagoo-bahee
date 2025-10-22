@@ -18,7 +18,7 @@ function timeAgo(iso?: string | number) {
     return `${days}d`;
 }
 
-export default function PostList() {
+export default function PostList({ filterSubreddit }: { filterSubreddit?: string }) {
     const [posts, setPosts] = useState<ApiPost[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -27,11 +27,13 @@ export default function PostList() {
         let mounted = true;
         const ctrl = new AbortController();
 
-        async function load() {
+    async function load() {
             setLoading(true);
             setError(null);
             try {
-                const res = await fetch(`/api/posts?limit=50&skip=0`, { signal: ctrl.signal });
+        const qs = new URLSearchParams({ limit: '50', skip: '0' })
+        if (filterSubreddit) qs.set('subreddit', String(filterSubreddit))
+                const res = await (await import('@/lib/backend')).backendFetch(`/posts?${qs.toString()}`, { signal: ctrl.signal });
                 if (!res.ok) throw new Error(`Failed to load posts (${res.status})`);
                 const body = await res.json();
                 if (!mounted) return;

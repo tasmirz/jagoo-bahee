@@ -86,8 +86,29 @@ export class CommentsService {
     const canonical = JSON.stringify(payloadObj)
     const pub = await getAuthPublicKeyById((this as any).model.db, String(data.authorId))
     if (!pub) throw new BadRequestException('author public key not found')
-    const ok = verifySignature(pub, canonical, String(data.userSignature))
-    if (!ok) throw new BadRequestException('user signature verification failed')
+    let ok = verifySignature(pub, canonical, String(data.userSignature))
+    if (!ok) {
+      try {
+        const sigStr = String(data.userSignature || '')
+        const b64 = sigStr.replace(/-/g, '+').replace(/_/g, '/')
+        const pad = b64.length % 4
+        const padded = pad ? b64 + '='.repeat(4 - pad) : b64
+        ok = verifySignature(pub, canonical, padded)
+        if (!ok) {
+          const maybeHex = Buffer.from(sigStr, 'hex')
+          ok = verifySignature(pub, canonical, maybeHex)
+        }
+      } catch (e) {}
+    }
+    if (!ok) {
+      try {
+        console.warn('Signature verification failed for comment creation', { authorId: String(data.authorId), canonical, providedSignaturePreview: (String(data.userSignature || '')).slice(0, 40), pubHex: pub.toString('hex') })
+      } catch (e) {}
+      if (process.env.NODE_ENV !== 'production') {
+        throw new BadRequestException({ message: 'user signature verification failed', debug: { canonical, providedSignaturePreview: (String(data.userSignature || '')).slice(0, 80), pubHex: pub.toString('hex') } })
+      }
+      throw new BadRequestException('user signature verification failed')
+    }
 
     // depth and path
     const parent = data.parentId ? await this.model.findById(data.parentId) : null

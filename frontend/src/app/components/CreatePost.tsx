@@ -27,16 +27,20 @@ export default function CreatePost({ subredditName, onCancel }: { subredditName?
 		let mounted = true;
 		const token = getToken();
 		if (!token) return;
-			fetch('/api/subreddits/mine', { headers: { Authorization: token ? `Bearer ${token}` : '' } })
-			.then((r) => r.ok ? r.json() : [])
-			.then((data) => {
+		(async () => {
+			const backend = await import('@/lib/backend')
+			try {
+				const r = await backend.backendFetch('/users/me/subreddits')
+				const data = r.ok ? await r.json() : []
 				if (!mounted) return;
 				if (Array.isArray(data)) {
 					setAvailableSubs(data);
 					if (!selectedSub && data.length > 0) setSelectedSub(data[0]._id || data[0].name);
 				}
-			})
-			.catch(() => {})
+			} catch (e) {
+				// ignore
+			}
+		})();
 		return () => { mounted = false }
 	}, []);
 
@@ -70,10 +74,7 @@ export default function CreatePost({ subredditName, onCancel }: { subredditName?
 
 		// request presigned upload
 		const token = getToken();
-		const res = await fetch(`/api/attachments/presigned-upload`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json", Authorization: token ? `Bearer ${token}` : "" },
-			body: JSON.stringify({
+		const res = await (await import('@/lib/backend')).backendJson('POST', '/attachments/presigned-upload', {
 				type: file.type.startsWith("image") ? "image" : file.type.startsWith("video") ? "video" : "document",
 				originalFilename: file.name,
 				mimeType: file.type,
@@ -83,7 +84,6 @@ export default function CreatePost({ subredditName, onCancel }: { subredditName?
 				contentHash,
 				signature: signatureB64
 			})
-		});
 		if (!res.ok) {
 			const txt = await res.text();
 			throw new Error(`presigned-upload failed: ${txt}`);
@@ -103,11 +103,7 @@ export default function CreatePost({ subredditName, onCancel }: { subredditName?
 		if (!putRes.ok) throw new Error(`upload to storage failed: ${putRes.status}`);
 
 		// confirm upload
-		const confirmRes = await fetch(`/api/attachments/confirm-upload`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json", Authorization: token ? `Bearer ${token}` : "" },
-			body: JSON.stringify({ key: minioKey, ownerId: null })
-		});
+	const confirmRes = await (await import('@/lib/backend')).backendJson('POST', '/attachments/confirm-upload', { key: minioKey, ownerId: null })
 		if (!confirmRes.ok) {
 			const txt = await confirmRes.text();
 			throw new Error(`confirm upload failed: ${txt}`);
@@ -133,9 +129,12 @@ export default function CreatePost({ subredditName, onCancel }: { subredditName?
 				if (aid) attachmentIds.push(aid);
 			}
 
-			// build canonical payload and sign
+			// build canonical payload and sign — use the trimmed title so the canonical
+			// string matches the title value we later send in the payload (backend
+			// uses the provided data.title when verifying).
+			const titleTrimmed = title.trim();
 			const attachmentsSorted = attachmentIds.slice().sort().join(",");
-			const canonical = `${title}|${content || ""}|${tab === "link" ? linkUrl : ""}|${attachmentsSorted}`;
+			const canonical = `${titleTrimmed}|${content || ""}|${tab === "link" ? linkUrl : ""}|${attachmentsSorted}`;
 			const contentHashBytes = await sha256(canonical);
 			const contentHashHex = hexFromU8(contentHashBytes);
 
@@ -154,10 +153,50 @@ export default function CreatePost({ subredditName, onCancel }: { subredditName?
 				window.location.href = '/auth';
 				return;
 			}
+					// resolve subredditId: selectedSub may be an id or a name; subredditName may be a name
+					function isObjectId(v?: string) {
+						return !!v && /^[0-9a-fA-F]{24}$/.test(v)
+					}
+					let resolvedSubId: string | undefined = undefined
+					if (selectedSub && isObjectId(selectedSub)) resolvedSubId = selectedSub
+					else if (selectedSub) {
+						// selectedSub might be a name — try to fetch
+						try {
+							const backend = await import('@/lib/backend')
+							const r = await backend.backendFetch(`/subreddits/${encodeURIComponent(selectedSub)}`)
+							if (r.ok) {
+								const j = await r.json()
+								resolvedSubId = j._id || j.id || undefined
+							}
+						} catch (e) {}
+					}
+					if (!resolvedSubId && subredditName && isObjectId(subredditName)) resolvedSubId = subredditName
+					if (!resolvedSubId && subredditName) {
+						try {
+							const backend = await import('@/lib/backend')
+							const r2 = await backend.backendFetch(`/subreddits/${encodeURIComponent(subredditName)}`)
+							if (r2.ok) {
+								const j2 = await r2.json()
+								resolvedSubId = j2._id || j2.id || undefined
+							}
+						} catch (e) {}
+					}
+
+					// resolve authorId via users/me/profile (requires auth)
+					let resolvedAuthorId: string | undefined = undefined
+					try {
+						const backend = await import('@/lib/backend')
+						const meRes = await backend.backendFetch('/users/me/profile')
+						if (meRes.ok) {
+							const meJson = await meRes.json()
+							resolvedAuthorId = meJson._id || meJson.id || undefined
+						}
+					} catch (e) {}
+
 					const payload: any = {
-						subredditId: selectedSub || subredditName || undefined,
-						authorId: undefined,
-				title: title.trim(),
+						subredditId: resolvedSubId || undefined,
+						authorId: resolvedAuthorId || undefined,
+						title: titleTrimmed,
 				type: tab === "media" ? (files.length && files[0].type.startsWith("video") ? "video" : "image") : tab === "link" ? "link" : "text",
 				content: tab === "post" ? content : undefined,
 				url: tab === "link" ? linkUrl : undefined,
@@ -169,16 +208,13 @@ export default function CreatePost({ subredditName, onCancel }: { subredditName?
 				userSignature: sigB64
 			};
 
-					const postRes = await fetch(`/api/posts`, {
-						method: "POST",
-						headers: { "Content-Type": "application/json", Authorization: token ? `Bearer ${token}` : "" },
-				body: JSON.stringify(payload)
-			});
-			if (!postRes.ok) {
-				const txt = await postRes.text();
-				throw new Error(`post creation failed: ${txt}`);
-			}
-			const postBody = await postRes.json();
+					const backend = await import('@/lib/backend')
+					const postRes = await backend.backendJson('POST', '/posts', payload)
+					if (!postRes.ok) {
+						const txt = await postRes.text();
+						throw new Error(`post creation failed: ${txt}`);
+					}
+					const postBody = await postRes.json();
 			// TODO: redirect to post page or show success
 			console.log("post created", postBody);
 			// clear form

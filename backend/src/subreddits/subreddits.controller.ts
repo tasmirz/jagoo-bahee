@@ -10,7 +10,8 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
-  Req
+  Req,
+  ConflictException
 } from '@nestjs/common'
 import { SubredditsService } from './subreddits.service'
 import { SubredditRbacGuard } from './guards/subreddit-rbac.guard'
@@ -146,5 +147,16 @@ export class SubredditsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('id') id: string) {
     await this.service.remove(id)
+  }
+  @Get('check-name/:name')
+  async getByName(@Param('name') name: string) {
+    const res = await this.service.nameAvailability(name)
+    console.log(res)
+    if (res != null) {
+      // throw  409 Conflict
+      throw new ConflictException('Subreddit name is already taken')
+    } else {
+      return { available: true }
+    }
   }
 }

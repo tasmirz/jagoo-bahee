@@ -31,7 +31,8 @@ export default function useVote(initial: { value: 0 | 1 | -1; score: number; upv
           router.push('/auth')
           return
         }
-        const res = await fetch('/api/votes', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' }, body: JSON.stringify({ targetId, targetType, value: v === prev ? 0 : v }) })
+        const backend = await import('@/lib/backend')
+        const res = await backend.backendJson('POST', `/votes`, { targetId, targetType, value: v === prev ? 0 : v })
         if (!res.ok) {
           // rollback
           setState(s => ({ ...s, value: prev }))

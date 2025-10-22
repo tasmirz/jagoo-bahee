@@ -150,11 +150,12 @@ export default function AuthPage() {
       setMessage("Authentication successful");
       // replay intended actions (vote/comment) if any
       try {
+        const backend = await import('@/lib/backend')
         const intendedVote = localStorage.getItem('intended:vote')
         if (intendedVote) {
           try {
             const v = JSON.parse(intendedVote)
-            await fetch('/api/votes', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` }, body: JSON.stringify(v) })
+            await backend.backendJson('POST', `/votes`, v)
             localStorage.removeItem('intended:vote')
           } catch (e) {}
         }
@@ -162,7 +163,7 @@ export default function AuthPage() {
         if (intendedComment) {
           try {
             const c = JSON.parse(intendedComment)
-            await fetch('/api/comments', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` }, body: JSON.stringify(c) })
+            await backend.backendJson('POST', `/comments`, c)
             localStorage.removeItem('intended:comment')
           } catch (e) {}
         }

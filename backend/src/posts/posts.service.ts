@@ -76,8 +76,44 @@ export class PostsService {
     const canonical = `${String(data.title)}|${data.content ?? ''}|${data.url ?? ''}|${attachmentsSorted}`
     const pub = await getAuthPublicKeyById((this as any).model.db, String(data.authorId))
     if (!pub) throw new BadRequestException('author public key not found')
-    const ok = verifySignature(pub, canonical, data.userSignature)
-    if (!ok) throw new BadRequestException('user signature verification failed')
+
+    // Primary verification attempt
+    let ok = verifySignature(pub, canonical, data.userSignature)
+
+    // If verification fails, attempt common alternate decodings (base64url, hex)
+    if (!ok) {
+      try {
+        const sigStr = String(data.userSignature || '')
+        // try base64url -> base64
+        const b64 = sigStr.replace(/-/g, '+').replace(/_/g, '/')
+        const pad = b64.length % 4
+        const padded = pad ? b64 + '='.repeat(4 - pad) : b64
+        ok = verifySignature(pub, canonical, padded)
+        if (!ok) {
+          // try hex
+          const maybeHex = Buffer.from(sigStr, 'hex')
+          ok = verifySignature(pub, canonical, maybeHex)
+        }
+      } catch (e) {
+        // ignore decoding errors
+      }
+    }
+
+    if (!ok) {
+      // Diagnostic logging to help debug mismatched signatures
+      try {
+        console.warn('Signature verification failed for post creation', {
+          authorId: String(data.authorId),
+          canonical,
+          providedSignaturePreview: (String(data.userSignature || '')).slice(0, 40),
+          pubHex: pub.toString('hex')
+        })
+      } catch (e) {}
+      if (process.env.NODE_ENV !== 'production') {
+        throw new BadRequestException({ message: 'user signature verification failed', debug: { canonical, providedSignaturePreview: (String(data.userSignature || '')).slice(0, 80), pubHex: pub.toString('hex') } })
+      }
+      throw new BadRequestException('user signature verification failed')
+    }
 
     // Create the post
     const doc = await this.model.create({ ...data, statusFlags: BigInt(POST_FLAGS.ACTIVE) })

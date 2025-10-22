@@ -7,19 +7,26 @@ type Subreddit = { _id: string; name: string; displayName?: string };
 export default function Sidebar() {
 	const [subs, setSubs] = useState<Subreddit[] | null>(null);
 	const [loading, setLoading] = useState(false);
-	const token = getToken();
+	const [mounted, setMounted] = useState(false);
+	const [token, setToken] = useState<string | null>(null);
 
 	useEffect(() => {
-		let mounted = true;
-			const load = async () => {
-				if (!token) {
-					setSubs(null);
-					return;
-				}
-				setLoading(true);
-				try {
-					const res = await fetch('/api/subreddits/mine', { headers: { Authorization: token ? `Bearer ${token}` : '' } });
-				if (!mounted) return;
+		// run only on client
+		let alive = true;
+		const t = getToken();
+		setToken(t);
+		setMounted(true);
+
+		const load = async () => {
+			if (!t) {
+				if (alive) setSubs(null);
+				return;
+			}
+			if (alive) setLoading(true);
+			try {
+				const backend = await import('@/lib/backend')
+				const res = await backend.backendFetch('/users/me/subreddits')
+				if (!alive) return;
 				if (res.ok) {
 					const data = await res.json();
 					setSubs(data || []);
@@ -27,16 +34,48 @@ export default function Sidebar() {
 					setSubs([]);
 				}
 			} catch (e) {
-				setSubs([]);
+				if (alive) setSubs([]);
 			} finally {
-				if (mounted) setLoading(false);
+				if (alive) setLoading(false);
 			}
 		};
+
 		load();
-		return () => {
-			mounted = false;
-		};
-	}, [token]);
+
+		return () => { alive = false };
+	}, []);
+
+	// Avoid rendering dynamic membership state until after client mount to prevent SSR/client hydration mismatch
+	if (!mounted) {
+		return (
+			<div className="space-y-4">
+				<div className="bg-[var(--card)] border border-[var(--border)] rounded-md p-4">
+					<h4 className="text-sm font-semibold">Custom feeds</h4>
+					<ul className="mt-3 text-sm text-[var(--text-secondary)] space-y-2">
+						<li className="hover:text-[var(--foreground)]">Create Custom Feed</li>
+					</ul>
+				</div>
+
+				<div className="bg-[var(--card)] border border-[var(--border)] rounded-md p-4">
+					<h4 className="text-sm font-semibold">Communities</h4>
+					<ul className="mt-3 text-sm text-[var(--text-secondary)] space-y-2">
+						<li>
+							<a href="/subreddits/create" className="text-[var(--primary)] font-medium">+ Create Community</a>
+						</li>
+						<li className="text-sm text-[var(--text-secondary)]">Loading…</li>
+					</ul>
+				</div>
+
+				<div className="bg-[var(--card)] border border-[var(--border)] rounded-md p-4">
+					<h4 className="text-sm font-semibold">Resources</h4>
+					<ul className="mt-3 text-sm text-[var(--text-secondary)] space-y-2">
+						<li>About</li>
+						<li>Help</li>
+					</ul>
+				</div>
+			</div>
+		)
+	}
 
 	return (
 		<div className="space-y-4">

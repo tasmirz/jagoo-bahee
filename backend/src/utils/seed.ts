@@ -58,12 +58,12 @@ async function run() {
     }
 
     // Optionally create a minimal User tied to this Auth if none exists
-    const userExists = await UserModel.findOne({ authId: authDoc._id })
+    const userExists = await UserModel.findById(authDoc._id)
     if (!userExists) {
       const buf = pubBuf
       const short = buf.subarray(buf.length - 6).toString('hex')
       const username = `seed_user_${i}_${short}`
-      const user = new UserModel({ authId: authDoc._id, username })
+      const user = new UserModel({ _id: authDoc._id, username } as any)
       await user.save()
       console.log(`Created User '${username}' for auth ${authDoc._id.toString()}`)
     } else {

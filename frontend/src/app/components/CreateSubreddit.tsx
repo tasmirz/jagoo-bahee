@@ -37,7 +37,7 @@ export default function CreateSubreddit({ onCreated }: { onCreated?: (name: stri
     setCheckingName(true);
     const t = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/subreddits/check-name?name=${encodeURIComponent(n)}`);
+  const res = await fetch(`${(await import('@/lib/backend')).getBackendOrigin()}/subreddits/${encodeURIComponent(n)}`);
         if (!mounted) return;
         if (!res.ok) {
           setNameAvailable(null);
@@ -113,11 +113,8 @@ export default function CreateSubreddit({ onCreated }: { onCreated?: (name: stri
           contentHash: contentHashHex,
         };
 
-        const presignedRes = await fetch("/api/attachments/presigned-upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
-          body: JSON.stringify(meta),
-        });
+        const backend = await import('@/lib/backend')
+        const presignedRes = await backend.backendJson('POST', '/attachments/presigned-upload', meta, { headers: { ...(authHeader ? { Authorization: authHeader } : {}) } })
         if (!presignedRes.ok) throw new Error(await presignedRes.text());
         const presignedBody = await presignedRes.json();
         const uploadUrl = presignedBody.uploadUrl;
@@ -126,11 +123,7 @@ export default function CreateSubreddit({ onCreated }: { onCreated?: (name: stri
   const putRes = await fetch(uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
         if (!putRes.ok) throw new Error("Upload failed");
 
-        const confirmRes = await fetch("/api/attachments/confirm-upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
-          body: JSON.stringify({ key: minioKey, ownerId: undefined }),
-        });
+        const confirmRes = await backend.backendJson('POST', '/attachments/confirm-upload', { key: minioKey, ownerId: undefined }, { headers: { ...(authHeader ? { Authorization: authHeader } : {}) } })
         if (!confirmRes.ok) throw new Error(await confirmRes.text());
         const confirmed = await confirmRes.json();
         return confirmed._id || confirmed.id || confirmed?._id || null;
@@ -147,21 +140,22 @@ export default function CreateSubreddit({ onCreated }: { onCreated?: (name: stri
         payload.bannerAttachmentId = id;
       }
 
-      const res = await fetch("/api/subreddits", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(authHeader ? { Authorization: authHeader } : {}) },
-        body: JSON.stringify(payload),
-      });
+      const backend = await import('@/lib/backend')
+      const res = await backend.backendJson('POST', '/subreddits', payload, { headers: { ...(authHeader ? { Authorization: authHeader } : {}) } })
 
       if (!res.ok) {
         const text = await res.text();
+        if (res.status === 409) {
+          // Conflict — name taken
+          throw new Error('Name is already taken');
+        }
         throw new Error(text || res.statusText);
       }
 
       const data = await res.json();
       // ensure creator is joined (backend already sets creator as member but call join for proxy flow and client state)
       try {
-        const joinRes = await fetch(`/api/subreddits/${data.name || payload.name}/join`, { method: 'POST', headers: { ...(authHeader ? { Authorization: authHeader } : {}) } })
+  const joinRes = await backend.backendJson('POST', `/subreddits/${data.name || payload.name}/join`, undefined, { headers: { ...(authHeader ? { Authorization: authHeader } : {}) } })
         // ignore join errors
       } catch (e) {}
       if (onCreated) onCreated(data.name || payload.name);

@@ -15,6 +15,7 @@ import {
 import { ApiQuery } from '@nestjs/swagger'
 import { SubredditMembersService } from './subreddit-members.service'
 import { UseGuards, Req, Post as PostMethod } from '@nestjs/common'
+import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
 import { SubredditRbacGuard } from './guards/subreddit-rbac.guard'
 
 @Controller('subreddits/:subredditId/members')
@@ -22,13 +23,20 @@ export class SubredditMembersController {
   constructor(private readonly service: SubredditMembersService) {}
 
   @Post()
-  async add(@Param('subredditId') subredditId: string, @Body() body: import('./dto/add-member.dto').AddMemberDto) {
+  @UseGuards(JwtAuthGuard)
+  async add(
+    @Param('subredditId') subredditId: string,
+    @Body() body: import('./dto/add-member.dto').AddMemberDto,
+    @Req() req?: any
+  ) {
     const payload: any = { ...body, subredditId }
     // Service expects ObjectId for subredditId
     try {
       const { Types } = await import('mongoose')
       payload.subredditId = new Types.ObjectId(subredditId)
     } catch {}
+    // attach actor info if available
+    if (req && req.user && req.user.id) payload.actorAuthId = req.user.id
     return this.service.addMember(payload)
   }
 
@@ -53,6 +61,7 @@ export class SubredditMembersController {
   }
 
   @Patch(':id')
+  @UseGuards(JwtAuthGuard)
   async update(@Param('id') id: string, @Body() body: any, @Req() req?: any) {
     if (body.statusFlags === undefined) return this.service.findOne(id)
     // accept numeric or bigint-ish values
