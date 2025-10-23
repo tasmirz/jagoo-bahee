@@ -251,18 +251,7 @@ export default function CreateSubredditPage() {
           </div>
 
           {/* Options */}
-          <div className="space-y-3">
 
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={isPrivate}
-                onChange={(e) => setIsPrivate(e.target.checked)}
-                className="w-4 h-4 text-[var(--primary)] border-[var(--border)] rounded focus:ring-[var(--primary)]"
-              />
-              <span className="text-sm">Private Community (members only)</span>
-            </label>
-          </div>
 
           {/* Error Message */}
           {error && (

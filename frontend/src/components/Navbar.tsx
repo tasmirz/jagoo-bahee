@@ -5,17 +5,21 @@ import { useAuth } from '@/lib/context/AuthContext';
 import { useUser } from '@/lib/context/UserContext';
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { getAllAcknowledgements, refreshDB } from '@/lib/indexeddb';
 
 export default function Navbar() {
   const { isAuthenticated, logout } = useAuth();
   const { user } = useUser();
   const router = useRouter();
+  const pathname = usePathname();
   const [searchQuery, setSearchQuery] = useState('');
   const [ackCount, setAckCount] = useState<number>(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+
+  // Hide search bar on /search page
+  const isSearchPage = pathname === '/search';
 
   useEffect(() => {
     const loadCount = async () => {
@@ -53,24 +57,26 @@ export default function Navbar() {
           </Link>
 
           {/* Desktop Search */}
-          <form 
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (searchQuery.trim()) {
-                router.push(`/search?q=${encodeURIComponent(searchQuery)}`);
-                setMobileMenuOpen(false);
-              }
-            }}
-            className="hidden md:flex flex-1 max-w-2xl mx-8"
-          >
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search communities, posts..."
-              className="w-full px-4 py-2 bg-[var(--muted)] border border-[var(--border)] rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
-            />
-          </form>
+          {!isSearchPage && (
+            <form 
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (searchQuery.trim()) {
+                  router.push(`/search?q=${encodeURIComponent(searchQuery)}`);
+                  setMobileMenuOpen(false);
+                }
+              }}
+              className="hidden md:flex flex-1 max-w-2xl mx-8"
+            >
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search communities, posts..."
+                className="w-full px-4 py-2 bg-[var(--muted)] border border-[var(--border)] rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
+              />
+            </form>
+          )}
 
           {/* Desktop Actions */}
           <div className="hidden md:flex items-center gap-3">
@@ -164,25 +170,27 @@ export default function Navbar() {
         {/* Mobile Menu */}
         {mobileMenuOpen && (
           <div className="md:hidden py-4 border-t border-[var(--border)]">
-            {/* Mobile Search */}
-            <form 
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (searchQuery.trim()) {
-                  router.push(`/search?q=${encodeURIComponent(searchQuery)}`);
-                  setMobileMenuOpen(false);
-                }
-              }}
-              className="mb-4"
-            >
-              <input
-                type="search"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search..."
-                className="w-full px-4 py-2 bg-[var(--muted)] border border-[var(--border)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-              />
-            </form>
+            {/* Mobile Search - Hide on search page */}
+            {!isSearchPage && (
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (searchQuery.trim()) {
+                    router.push(`/search?q=${encodeURIComponent(searchQuery)}`);
+                    setMobileMenuOpen(false);
+                  }
+                }}
+                className="mb-4"
+              >
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search..."
+                  className="w-full px-4 py-2 bg-[var(--muted)] border border-[var(--border)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                />
+              </form>
+            )}
 
             {isAuthenticated ? (
               <div className="space-y-1">

@@ -322,8 +322,8 @@ export default function CreatePostPage() {
             <div>
               <label className="block text-sm font-medium mb-2">
                 {type === "text" && "Add Attachments (optional)"}
-                {type === "image" && "Upload Image *"}
-                {type === "video" && "Upload Video *"}
+                {type === "image" && "Upload Images *"}
+                {type === "video" && "Upload Videos *"}
                 {type === "audio" && "Upload Audio *"}
               </label>
               <FileUploader
@@ -335,24 +335,49 @@ export default function CreatePostPage() {
                 }
                 maxSizeMB={type === "video" ? 500 : type === "audio" ? 100 : 10}
                 onUploadComplete={(fileId) => {
-                  setAttachmentIds([fileId]);
+                  // Allow multiple attachments for text, image, and video posts
+                  setAttachmentIds(prev => [...prev, fileId]);
                 }}
                 label={
                   type === "text" ? "Add Images, Videos, or Audio" :
-                  type === "image" ? "Upload Image" :
-                  type === "video" ? "Upload Video" :
+                  type === "image" ? "Upload Images" :
+                  type === "video" ? "Upload Videos" :
                   type === "audio" ? "Upload Audio" :
                   "Upload"
                 }
               />
+              {attachmentIds.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  <div className="text-sm text-[var(--text-secondary)]">
+                    {attachmentIds.length} file(s) uploaded
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAttachmentIds([])}
+                    className="text-sm text-red-500 hover:text-red-600"
+                  >
+                    Clear all
+                  </button>
+                </div>
+              )}
               {type === "text" && (
                 <p className="text-xs text-[var(--text-secondary)] mt-1">
-                  Text posts can include images, GIFs, videos, and audio
+                  Text posts can include multiple images, GIFs, videos, and audio files. Upload one at a time.
                 </p>
               )}
-              {["image", "video", "audio"].includes(type) && (
+              {type === "image" && (
                 <p className="text-xs text-[var(--text-secondary)] mt-1">
-                  Required for {type} posts
+                  Upload images one at a time. Multiple images are supported.
+                </p>
+              )}
+              {type === "video" && (
+                <p className="text-xs text-[var(--text-secondary)] mt-1">
+                  Upload videos one at a time. Multiple videos are supported.
+                </p>
+              )}
+              {type === "audio" && (
+                <p className="text-xs text-[var(--text-secondary)] mt-1">
+                  Required for audio posts
                 </p>
               )}
             </div>

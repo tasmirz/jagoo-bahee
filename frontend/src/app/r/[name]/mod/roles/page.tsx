@@ -110,7 +110,7 @@ interface Role {
   _id: string;
   name: string;
   subredditId: string;
-  permissions: string;
+  permissions: string | bigint;
   isSystemRole: boolean;
 }
 
@@ -120,6 +120,7 @@ export default function RolesPage() {
   const params = useParams();
   const subredditName = params?.name as string;
 
+  const [subredditId, setSubredditId] = useState<string>('');
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
@@ -132,15 +133,35 @@ export default function RolesPage() {
       router.push('/auth');
       return;
     }
-    fetchRoles();
+    fetchSubredditAndRoles();
   }, [isAuthenticated, router, subredditName]);
 
-  const fetchRoles = async () => {
+  const fetchSubredditAndRoles = async () => {
     try {
+      // First fetch subreddit to get ID
+      const subRes = await backendFetch(`/subreddits/${subredditName}`);
+      if (!subRes.ok) {
+        console.error('Failed to fetch subreddit');
+        setLoading(false);
+        return;
+      }
+      const subData = await subRes.json();
+      setSubredditId(subData._id);
+
+      // Then fetch roles using subreddit name (backend handles it)
       const res = await backendFetch(`/roles/subreddit/${subredditName}`);
       if (res.ok) {
         const data = await res.json();
-        setRoles(Array.isArray(data) ? data : []);
+        // Convert BigInt permissions to strings for safe handling
+        const rolesWithStringPerms = Array.isArray(data) 
+          ? data.map((role: any) => ({
+              ...role,
+              permissions: typeof role.permissions === 'bigint' 
+                ? role.permissions.toString() 
+                : role.permissions
+            }))
+          : [];
+        setRoles(rolesWithStringPerms);
       }
     } catch (error) {
       console.error('Failed to fetch roles:', error);
@@ -171,7 +192,7 @@ export default function RolesPage() {
 
       if (res.ok) {
         alert('✅ Role permissions updated!');
-        fetchRoles();
+        fetchSubredditAndRoles();
         setSelectedRole(null);
       } else {
         const error = await res.json();
@@ -204,7 +225,7 @@ export default function RolesPage() {
         alert('✅ Role created!');
         setNewRoleName('');
         setShowCreateModal(false);
-        fetchRoles();
+        fetchSubredditAndRoles();
       } else {
         const error = await res.json();
         alert(`Failed to create role: ${error.message || 'Unknown error'}`);

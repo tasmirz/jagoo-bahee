@@ -57,7 +57,7 @@ export default function HomePage() {
       
       try {
         const params = new URLSearchParams({
-          limit: '25',
+          limit: '10',
           skip: '0',
           sort: sortBy,
         });
@@ -83,7 +83,7 @@ export default function HomePage() {
         }
         
         setPosts(newPosts);
-        setHasMore(newPosts.length === 25);
+        setHasMore(newPosts.length === 10);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load posts');
       } finally {
@@ -105,8 +105,8 @@ export default function HomePage() {
     try {
       setLoading(true);
       const params = new URLSearchParams({
-        limit: '25',
-        skip: String(pageNum * 25),
+        limit: '10',
+        skip: String(pageNum * 10),
         sort: sortBy,
       });
       
@@ -137,7 +137,7 @@ export default function HomePage() {
         }
         
         setPage(pageNum);
-        setHasMore(newPosts.length === 25);
+        setHasMore(newPosts.length === 10);
       }
     } catch (err) {
       console.error('Failed to load posts:', err);
@@ -201,7 +201,7 @@ export default function HomePage() {
                 </p>
                 {!isAuthenticated ? (
                   <Link
-                    href="/auth/login"
+                    href="/auth/"
                     className="inline-block px-6 py-2 bg-[var(--primary)] text-white rounded-full hover:opacity-90 transition-opacity"
                   >
                     Sign In

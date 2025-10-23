@@ -54,9 +54,16 @@ export default function ModToolsPage() {
       color: 'from-teal-500 to-cyan-500',
     },
     {
+      title: 'Members',
+      description: 'View and manage members',
+      icon: '👥',
+      href: `/r/${subredditName}/mod/members`,
+      color: 'from-blue-500 to-indigo-500',
+    },
+    {
       title: 'Moderators',
       description: 'Manage moderator team',
-      icon: '👥',
+      icon: '�',
       href: `/r/${subredditName}/mod/moderators`,
       color: 'from-yellow-500 to-amber-500',
     },
@@ -96,9 +103,9 @@ export default function ModToolsPage() {
             <Link
               key={tool.href}
               href={tool.href}
-              className="group bg-[var(--card)] border border-[var(--border)] rounded-lg p-6 hover:shadow-lg transition-all hover:-translate-y-1"
+              className="group bg-[var(--card)] border border-[var(--border)] rounded-lg p-6 hover:border-[var(--primary)] hover:shadow-md transition-all"
             >
-              <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${tool.color} flex items-center justify-center text-2xl mb-4`}>
+              <div className="w-12 h-12 rounded-lg bg-[var(--muted)] flex items-center justify-center text-2xl mb-4 group-hover:bg-[var(--primary)]/10 transition-colors">
                 {tool.icon}
               </div>
               <h3 className="font-bold text-lg mb-2 group-hover:text-[var(--primary)] transition-colors">

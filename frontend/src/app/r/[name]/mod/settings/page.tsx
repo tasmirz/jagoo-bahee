@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/context/AuthContext';
 import { backendFetch } from '@/lib/backend';
 import { Subreddit } from '@/lib/types';
+import FileUploader from '@/components/FileUploader';
 
 export default function SubredditSettingsPage() {
   const { isAuthenticated } = useAuth();
@@ -24,6 +25,8 @@ export default function SubredditSettingsPage() {
   const [allowVideos, setAllowVideos] = useState(true);
   const [allowPolls, setAllowPolls] = useState(true);
   const [requireApproval, setRequireApproval] = useState(false);
+  const [iconAttachmentId, setIconAttachmentId] = useState<string>('');
+  const [bannerAttachmentId, setBannerAttachmentId] = useState<string>('');
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -40,6 +43,8 @@ export default function SubredditSettingsPage() {
           setDescription(data.description || '');
           setRules(data.rules || '');
           setIsPublic(data.isPublic !== false);
+          setIconAttachmentId(data.iconAttachmentId || '');
+          setBannerAttachmentId(data.bannerAttachmentId || '');
           // These would come from backend settings
           setAllowImages(true);
           setAllowVideos(true);
@@ -68,6 +73,8 @@ export default function SubredditSettingsPage() {
           description: description.trim(),
           rules: rules.trim(),
           isPublic,
+          iconAttachmentId: iconAttachmentId || undefined,
+          bannerAttachmentId: bannerAttachmentId || undefined,
           // Additional settings would be sent here
         }),
       });
@@ -150,6 +157,53 @@ export default function SubredditSettingsPage() {
                 <div className="text-xs text-[var(--text-secondary)] mt-1">
                   {rules.length}/2000 characters
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Appearance */}
+          <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg p-6">
+            <h2 className="text-xl font-bold mb-4">Appearance</h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Subreddit Icon
+                </label>
+                <p className="text-xs text-[var(--text-secondary)] mb-2">
+                  Upload a square image for your subreddit icon (max 2MB)
+                </p>
+                <FileUploader
+                  onUploadComplete={(fileId) => setIconAttachmentId(fileId)}
+                  acceptedTypes="image/*"
+                  maxSizeMB={2}
+                  label="Upload Icon"
+                />
+                {iconAttachmentId && (
+                  <div className="mt-2 text-xs text-green-600">
+                    ✓ Icon uploaded
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Banner Image
+                </label>
+                <p className="text-xs text-[var(--text-secondary)] mb-2">
+                  Upload a banner image for your subreddit (recommended: 1920x384px, max 5MB)
+                </p>
+                <FileUploader
+                  onUploadComplete={(fileId) => setBannerAttachmentId(fileId)}
+                  acceptedTypes="image/*"
+                  maxSizeMB={5}
+                  label="Upload Banner"
+                />
+                {bannerAttachmentId && (
+                  <div className="mt-2 text-xs text-green-600">
+                    ✓ Banner uploaded
+                  </div>
+                )}
               </div>
             </div>
           </div>

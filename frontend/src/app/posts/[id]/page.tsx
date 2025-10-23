@@ -8,10 +8,14 @@ import VoteButtons from "@/components/VoteButtons";
 import CommentTree from "@/components/CommentTree";
 import MoreOptionsMenu from "@/components/MoreOptionsMenu";
 import MarkdownRenderer from "@/components/MarkdownRenderer";
+import ShareButton from "@/components/ShareButton";
+import ReportModal from "@/components/moderation/ReportModal";
 import { useAuth } from "@/lib/context/AuthContext";
 import { useUser } from "@/lib/context/UserContext";
 import { getPrivateKey, signHash, toB64, toHex } from "@/lib/auth";
 import { sha256 } from "@/lib/crypto";
+import { StoredAcknowledgement, getAcknowledgementsByContentId } from "@/lib/indexeddb";
+import { downloadProof } from "@/lib/proofVerification";
 import Link from "next/link";
 
 // Helper to safely extract subreddit name
@@ -43,7 +47,22 @@ export default function PostPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
-  const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
+  const [isSaved, setIsSaved] = useState(false);
+  const [savingPost, setSavingPost] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [hasProof, setHasProof] = useState(false);
+  const [proofData, setProofData] = useState<StoredAcknowledgement | null>(null);
+
+  // Get attachments array (populated by backend with viewUrls)
+  const attachments = (post as any)?.attachments || [];
+
+  // Check if current user is the post author
+  const postAuthorId = post?.author?._id || post?.authorId;
+  const currentUserId = user?._id;
+  const isOwnPost = currentUserId && postAuthorId && String(currentUserId) === String(postAuthorId);
+
+  // Get subreddit ID for reporting
+  const subredditId = typeof post?.subreddit === 'object' ? post?.subreddit?._id : post?.subredditId;
 
   useEffect(() => {
     if (!id) return;
@@ -74,24 +93,116 @@ export default function PostPage() {
     fetchData();
   }, [id]);
 
-  // Fetch attachment presigned URL
+  // Check if post is saved
   useEffect(() => {
-    async function fetchAttachmentUrl() {
-      if (!post?.attachmentIds || post.attachmentIds.length === 0) return;
-
+    async function checkSaved() {
+      if (!isAuthenticated || !id) return;
+      
       try {
-        const presignedResponse = await backendFetch(`/attachments/${post.attachmentIds[0]}/presigned-get`);
-        if (presignedResponse.ok) {
-          const { url } = await presignedResponse.json();
-          setAttachmentUrl(url);
+        const res = await backendFetch(`/users/me/is-saved/${id}`);
+        if (res.ok) {
+          const data = await res.json();
+          setIsSaved(data.saved);
         }
       } catch (error) {
-        console.error('[PostPage] Error fetching attachment URL:', error);
+        console.error('Failed to check saved status:', error);
       }
     }
 
-    fetchAttachmentUrl();
-  }, [post?.attachmentIds]);
+    checkSaved();
+  }, [id, isAuthenticated]);
+
+  // Check if post has proof in IndexedDB
+  useEffect(() => {
+    async function checkProof() {
+      if (!isOwnPost || !id) return;
+
+      try {
+        const acknowledgements = await getAcknowledgementsByContentId(id);
+        const proofAck = acknowledgements.find(
+          (ack) => ack.proofHash && ack.proofSignature
+        );
+
+        if (proofAck) {
+          setHasProof(true);
+          setProofData(proofAck);
+        }
+      } catch (error) {
+        console.error('[PostPage] Error checking proof:', error);
+      }
+    }
+
+    checkProof();
+  }, [id, isOwnPost]);
+
+  // Save/unsave handler
+  const handleSaveToggle = async () => {
+    if (!isAuthenticated) {
+      alert('Please log in to save posts');
+      return;
+    }
+
+    setSavingPost(true);
+    
+    try {
+      if (isSaved) {
+        // Unsave
+        const res = await backendFetch('/users/me/unsave', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            targetId: id,
+            targetType: 'post',
+          }),
+        });
+
+        if (res.ok) {
+          setIsSaved(false);
+        } else {
+          alert('Failed to unsave post');
+        }
+      } else {
+        // Save
+        const res = await backendFetch('/users/me/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            targetId: id,
+            targetType: 'post',
+          }),
+        });
+
+        if (res.ok) {
+          setIsSaved(true);
+        } else {
+          alert('Failed to save post');
+        }
+      }
+    } catch (error) {
+      console.error('Save/unsave error:', error);
+      alert('Failed to save/unsave post');
+    } finally {
+      setSavingPost(false);
+    }
+  };
+
+  // Download proof handler
+  const handleDownloadProof = () => {
+    if (!proofData) {
+      alert('No proof data available');
+      return;
+    }
+
+    downloadProof({
+      userId: proofData.userId,
+      postId: proofData.contentId,
+      proofHash: proofData.proofHash,
+      proofSignature: proofData.proofSignature,
+      serverPublicKey: proofData.serverPublicKey,
+      postTitle: proofData.postTitle,
+      createdAt: proofData.createdAt,
+    });
+  };
 
   const handleCommentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -297,29 +408,103 @@ export default function PostPage() {
                 </a>
               )}
 
-              {/* Image/Video */}
-              {(post.type === 'image' || post.type === 'video') && post.attachmentIds && post.attachmentIds.length > 0 && (
-                <div className="mb-4 rounded-md overflow-hidden">
-                  {post.type === 'image' && attachmentUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={attachmentUrl}
-                      alt={post.title}
-                      className="w-full h-auto"
-                    />
-                  )}
-                  {post.type === 'video' && attachmentUrl && (
-                    <video
-                      src={attachmentUrl}
-                      controls
-                      className="w-full h-auto"
-                    />
-                  )}
+              {/* Image/Video - Support Multiple Attachments */}
+              {(post.type === 'image' || post.type === 'video') && attachments && attachments.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  {attachments.map((attachment: any, index: number) => (
+                    <div key={attachment._id || index} className="rounded-md overflow-hidden">
+                      {post.type === 'image' && attachment.viewUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={attachment.viewUrl}
+                          alt={`${post.title} - Image ${index + 1}`}
+                          className="w-full h-auto"
+                        />
+                      )}
+                      {post.type === 'video' && attachment.viewUrl && (
+                        <video
+                          src={attachment.viewUrl}
+                          controls
+                          className="w-full h-auto"
+                        />
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 sm:gap-4 mt-4 text-xs text-[var(--text-secondary)] flex-wrap border-t border-[var(--border)] pt-3">
+                <div className="flex items-center gap-1">
+                  <ShareButton
+                    title={post.title}
+                    url={`${typeof window !== 'undefined' ? window.location.origin : ''}/posts/${post._id}`}
+                    text={post.title}
+                  />
+                </div>
+
+                <button
+                  onClick={handleSaveToggle}
+                  disabled={savingPost}
+                  className={`flex items-center gap-1 hover:bg-[var(--muted)] px-2 py-1 rounded transition-colors ${
+                    isSaved ? 'text-[var(--primary)]' : ''
+                  } ${savingPost ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  <svg 
+                    className="w-5 h-5" 
+                    fill={isSaved ? 'currentColor' : 'none'}
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                  </svg>
+                  <span>{isSaved ? 'Saved' : 'Save'}</span>
+                </button>
+
+                {/* Download Proof Button - Only show for own posts with proof */}
+                {isOwnPost && hasProof && (
+                  <button
+                    onClick={handleDownloadProof}
+                    className="flex items-center gap-1 hover:bg-[var(--muted)] px-2 py-1 rounded transition-colors text-purple-500 hover:text-purple-600"
+                    title="Download ownership proof"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    <span>Proof</span>
+                  </button>
+                )}
+
+                {/* Report Button - Don't show for own posts */}
+                {!isOwnPost && (
+                  <button
+                    onClick={() => setShowReportModal(true)}
+                    className="flex items-center gap-1 hover:bg-[var(--muted)] px-2 py-1 rounded transition-colors text-red-500 hover:text-red-600"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+                    </svg>
+                    <span>Report</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
+
+        {/* Report Modal */}
+        {subredditId && (
+          <ReportModal
+            targetId={post._id}
+            targetType="post"
+            subredditId={subredditId}
+            isOpen={showReportModal}
+            onClose={() => setShowReportModal(false)}
+            onSuccess={() => {
+              setShowReportModal(false);
+            }}
+          />
+        )}
 
         {/* Comment Form */}
         <div className="mt-4 bg-[var(--card)] border border-[var(--border)] rounded-md p-4">

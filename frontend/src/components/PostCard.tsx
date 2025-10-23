@@ -45,7 +45,9 @@ export default function PostCard({ post }: PostCardProps) {
   const [savingPost, setSavingPost] = useState(false);
   const [hasProof, setHasProof] = useState(false);
   const [proofData, setProofData] = useState<StoredAcknowledgement | null>(null);
-  const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
+
+  // Get attachments array (populated by backend with viewUrls)
+  const attachments = (post as any).attachments || [];
 
   // Check if current user is the post author
   const postAuthorId = post.author?._id || post.authorId;
@@ -107,25 +109,6 @@ export default function PostCard({ post }: PostCardProps) {
 
     checkProof();
   }, [post._id, isOwnPost]);
-
-  // Fetch attachment presigned URL
-  useEffect(() => {
-    async function fetchAttachmentUrl() {
-      if (!post.attachmentIds || post.attachmentIds.length === 0) return;
-
-      try {
-        const presignedResponse = await backendFetch(`/attachments/${post.attachmentIds[0]}/presigned-get`);
-        if (presignedResponse.ok) {
-          const { url } = await presignedResponse.json();
-          setAttachmentUrl(url);
-        }
-      } catch (error) {
-        console.error('[PostCard] Error fetching attachment URL:', error);
-      }
-    }
-
-    fetchAttachmentUrl();
-  }, [post.attachmentIds]);
 
   // Save/unsave handler
   const handleSaveToggle = async () => {
@@ -241,8 +224,16 @@ export default function PostCard({ post }: PostCardProps) {
         // Add optional fields based on type (matching create logic)
         if (post.type !== "link") {
           if (post.content?.trim()) payload.content = post.content.trim();
+          // IMPORTANT: Use raw ObjectId strings, not populated objects
           if (post.attachmentIds && post.attachmentIds.length > 0) {
-            payload.attachmentIds = post.attachmentIds;
+            payload.attachmentIds = post.attachmentIds.map((att: any) => {
+              // If populated (has _id property), extract just the _id
+              if (typeof att === 'object' && att._id) {
+                return String(att._id);
+              }
+              // Otherwise use as-is (already a string ID)
+              return String(att);
+            });
           }
         }
 
@@ -458,24 +449,28 @@ export default function PostCard({ post }: PostCardProps) {
             </a>
           )}
 
-          {/* Image/Video Preview */}
-          {(post.type === 'image' || post.type === 'video') && post.attachmentIds && post.attachmentIds.length > 0 && (
-            <div className="mt-2 rounded-md overflow-hidden max-h-96">
-              {post.type === 'image' && attachmentUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={attachmentUrl}
-                  alt={post.title}
-                  className="w-full h-auto object-cover"
-                />
-              )}
-              {post.type === 'video' && attachmentUrl && (
-                <video
-                  src={attachmentUrl}
-                  controls
-                  className="w-full h-auto"
-                />
-              )}
+          {/* Image/Video Preview - Support Multiple Attachments */}
+          {(post.type === 'image' || post.type === 'video') && attachments && attachments.length > 0 && (
+            <div className="mt-2 space-y-2">
+              {attachments.map((attachment: any, index: number) => (
+                <div key={attachment._id || index} className="rounded-md overflow-hidden max-h-96">
+                  {post.type === 'image' && attachment.viewUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={attachment.viewUrl}
+                      alt={`${post.title} - Image ${index + 1}`}
+                      className="w-full h-auto object-cover"
+                    />
+                  )}
+                  {post.type === 'video' && attachment.viewUrl && (
+                    <video
+                      src={attachment.viewUrl}
+                      controls
+                      className="w-full h-auto"
+                    />
+                  )}
+                </div>
+              ))}
             </div>
           )}
 

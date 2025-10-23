@@ -58,7 +58,7 @@ export default function SubredditPage() {
         // Fetch posts with sort parameter
         const params = new URLSearchParams({
           subreddit: name,
-          limit: '25',
+          limit: '10',
           skip: '0',
           sort: sortBy,
         });
@@ -307,7 +307,7 @@ export default function SubredditPage() {
                 {isModerator && (
                   <Link
                     href={`/r/${name}/mod`}
-                    className="px-6 py-2 rounded-full font-medium bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:from-blue-600 hover:to-purple-700 transition-all shadow-lg flex items-center gap-2"
+                    className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white rounded-full hover:opacity-90 transition-opacity font-medium"
                   >
                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M9.504 1.132a1 1 0 01.992 0l1.75 1a1 1 0 11-.992 1.736L10 3.152l-1.254.716a1 1 0 11-.992-1.736l1.75-1zM5.618 4.504a1 1 0 01-.372 1.364L5.016 6l.23.132a1 1 0 11-.992 1.736L4 7.723V8a1 1 0 01-2 0V6a.996.996 0 01.52-.878l1.734-.99a1 1 0 011.364.372zm8.764 0a1 1 0 011.364-.372l1.733.99A1.002 1.002 0 0118 6v2a1 1 0 11-2 0v-.277l-.254.145a1 1 0 11-.992-1.736l.23-.132-.23-.132a1 1 0 01-.372-1.364zm-7 4a1 1 0 011.364-.372L10 8.848l1.254-.716a1 1 0 11.992 1.736L11 10.58V12a1 1 0 11-2 0v-1.42l-1.246-.712a1 1 0 01-.372-1.364zM3 11a1 1 0 011 1v1.42l1.246.712a1 1 0 11-.992 1.736l-1.75-1A1 1 0 012 14v-2a1 1 0 011-1zm14 0a1 1 0 011 1v2a1 1 0 01-.504.868l-1.75 1a1 1 0 11-.992-1.736L16 13.42V12a1 1 0 011-1zm-9.618 5.504a1 1 0 011.364-.372l.254.145V16a1 1 0 112 0v.277l.254-.145a1 1 0 11.992 1.736l-1.735.992a.995.995 0 01-1.022 0l-1.735-.992a1 1 0 01-.372-1.364z" clipRule="evenodd" />
@@ -365,7 +365,7 @@ export default function SubredditPage() {
                         : 'text-[var(--text-secondary)] hover:bg-[var(--muted)]'
                     }`}
                   >
-                    <span className="emoji">✨</span> New
+                    ✨ New
                   </button>
                   <button
                     onClick={() => setSortBy('top')}
@@ -375,7 +375,7 @@ export default function SubredditPage() {
                         : 'text-[var(--text-secondary)] hover:bg-[var(--muted)]'
                     }`}
                   >
-                    <span className="emoji">⬆️</span> Top
+                    ⬆️ Top
                   </button>
                 </div>
 
@@ -421,96 +421,96 @@ export default function SubredditPage() {
           <div className="space-y-4">
             {/* Moderator Tools */}
             {isModerator && (
-              <div className="bg-gradient-to-br from-blue-500 to-purple-600 border-2 border-blue-400 rounded-md p-4 text-white">
-                <div className="flex items-center gap-2 mb-3">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M9.504 1.132a1 1 0 01.992 0l1.75 1a1 1 0 11-.992 1.736L10 3.152l-1.254.716a1 1 0 11-.992-1.736l1.75-1zM5.618 4.504a1 1 0 01-.372 1.364L5.016 6l.23.132a1 1 0 11-.992 1.736L4 7.723V8a1 1 0 01-2 0V6a.996.996 0 01.52-.878l1.734-.99a1 1 0 011.364.372zm8.764 0a1 1 0 011.364-.372l1.733.99A1.002 1.002 0 0118 6v2a1 1 0 11-2 0v-.277l-.254.145a1 1 0 11-.992-1.736l.23-.132-.23-.132a1 1 0 01-.372-1.364zm-7 4a1 1 0 011.364-.372L10 8.848l1.254-.716a1 1 0 11.992 1.736L11 10.58V12a1 1 0 11-2 0v-1.42l-1.246-.712a1 1 0 01-.372-1.364zM3 11a1 1 0 011 1v1.42l1.246.712a1 1 0 11-.992 1.736l-1.75-1A1 1 0 012 14v-2a1 1 0 011-1zm14 0a1 1 0 011 1v2a1 1 0 01-.504.868l-1.75 1a1 1 0 11-.992-1.736L16 13.42V12a1 1 0 011-1zm-9.618 5.504a1 1 0 011.364-.372l.254.145V16a1 1 0 112 0v.277l.254-.145a1 1 0 11.992 1.736l-1.735.992a.995.995 0 01-1.022 0l-1.735-.992a1 1 0 01-.372-1.364z" clipRule="evenodd" />
-                  </svg>
-                  <h3 className="font-bold">Moderator Tools</h3>
-                </div>
-                <div className="space-y-2">
-                  <Link
-                    href={`/r/${name}/mod/queue`}
-                    className="block px-4 py-2 bg-white/20 hover:bg-white/30 rounded-md transition-colors text-sm font-medium"
-                  >
-                    📥 Mod Queue
-                  </Link>
-                  <Link
-                    href={`/r/${name}/mod/settings`}
-                    className="block px-4 py-2 bg-white/20 hover:bg-white/30 rounded-md transition-colors text-sm font-medium"
-                  >
-                    <span className="emoji">⚙️</span> Settings
-                  </Link>
-                  <Link
-                    href={`/r/${name}/mod`}
-                    className="block px-4 py-2 bg-white/20 hover:bg-white/30 rounded-md transition-colors text-sm font-medium"
-                  >
-                    <span className="emoji">🛡️</span> All Mod Tools
-                  </Link>
-                </div>
+              <div className="bg-[var(--card)] border border-[var(--border)] rounded-md p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <svg className="w-5 h-5 text-[var(--primary)]" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M9.504 1.132a1 1 0 01.992 0l1.75 1a1 1 0 11-.992 1.736L10 3.152l-1.254.716a1 1 0 11-.992-1.736l1.75-1zM5.618 4.504a1 1 0 01-.372 1.364L5.016 6l.23.132a1 1 0 11-.992 1.736L4 7.723V8a1 1 0 01-2 0V6a.996.996 0 01.52-.878l1.734-.99a1 1 0 011.364.372zm8.764 0a1 1 0 011.364-.372l1.733.99A1.002 1.002 0 0118 6v2a1 1 0 11-2 0v-.277l-.254.145a1 1 0 11-.992-1.736l.23-.132-.23-.132a1 1 0 01-.372-1.364zm-7 4a1 1 0 011.364-.372L10 8.848l1.254-.716a1 1 0 11.992 1.736L11 10.58V12a1 1 0 11-2 0v-1.42l-1.246-.712a1 1 0 01-.372-1.364zM3 11a1 1 0 011 1v1.42l1.246.712a1 1 0 11-.992 1.736l-1.75-1A1 1 0 012 14v-2a1 1 0 011-1zm14 0a1 1 0 011 1v2a1 1 0 01-.504.868l-1.75 1a1 1 0 11-.992-1.736L16 13.42V12a1 1 0 011-1zm-9.618 5.504a1 1 0 011.364-.372l.254.145V16a1 1 0 112 0v.277l.254-.145a1 1 0 11.992 1.736l-1.735.992a.995.995 0 01-1.022 0l-1.735-.992a1 1 0 01-.372-1.364z" clipRule="evenodd" />
+                </svg>
+                <h3 className="font-bold text-[var(--foreground)]">Moderator Tools</h3>
+              </div>
+              <div className="space-y-2">
+                <Link
+                href={`/r/${name}/mod/queue`}
+                className="block px-4 py-2 bg-[var(--muted)] hover:bg-[var(--border)] rounded-md transition-colors text-sm font-medium text-[var(--foreground)]"
+                >
+                📥 Mod Queue
+                </Link>
+                <Link
+                href={`/r/${name}/mod/settings`}
+                className="block px-4 py-2 bg-[var(--muted)] hover:bg-[var(--border)] rounded-md transition-colors text-sm font-medium text-[var(--foreground)]"
+                >
+                ⚙️ Settings
+                </Link>
+                <Link
+                href={`/r/${name}/mod`}
+                className="block px-4 py-2 bg-[var(--muted)] hover:bg-[var(--border)] rounded-md transition-colors text-sm font-medium text-[var(--foreground)]"
+                >
+                🛡️ All Mod Tools
+                </Link>
+              </div>
               </div>
             )}
 
             {/* Creator Tools - Only for Creators */}
             {isCreator && (
-              <div className="bg-gradient-to-br from-amber-500 to-orange-600 border-2 border-amber-400 rounded-md p-4 text-white">
-                <div className="flex items-center gap-2 mb-3">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                  </svg>
-                  <h3 className="font-bold">Creator Tools</h3>
-                </div>
-                <div className="space-y-2">
-                  <button
-                    onClick={() => {
-                      if (confirm('⚠️ WARNING: Transfer ownership will give another user full control of this subreddit. This action cannot be undone. Are you sure?')) {
-                        const newOwner = prompt('Enter the username of the new owner:');
-                        if (newOwner) {
-                          handleTransferOwnership(newOwner);
-                        }
-                      }
-                    }}
-                    className="w-full px-4 py-2 bg-white/20 hover:bg-white/30 rounded-md transition-colors text-sm font-medium text-left"
-                  >
-                    <span className="emoji">🔄</span> Transfer Ownership
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (confirm('⚠️ DANGER: This will permanently delete the entire subreddit, including all posts, comments, and members. This action CANNOT be undone!\n\nType the subreddit name to confirm.')) {
-                        const confirmation = prompt(`Type "${subreddit.name}" to confirm deletion:`);
-                        if (confirmation === subreddit.name) {
-                          handleDeleteSubreddit();
-                        } else if (confirmation) {
-                          alert('Confirmation failed. Subreddit name did not match.');
-                        }
-                      }
-                    }}
-                    className="w-full px-4 py-2 bg-red-600/80 hover:bg-red-700 rounded-md transition-colors text-sm font-medium text-left"
-                  >
-                    <span className="emoji">🗑️</span> Delete Subreddit
-                  </button>
-                </div>
+              <div className="bg-[var(--card)] border border-[var(--border)] rounded-md p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <svg className="w-5 h-5 text-[var(--primary)]" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                </svg>
+                <h3 className="font-bold text-[var(--foreground)]">Creator Tools</h3>
+              </div>
+              <div className="space-y-2">
+                <button
+                onClick={() => {
+                  if (confirm('⚠️ WARNING: Transfer ownership will give another user full control of this subreddit. This action cannot be undone. Are you sure?')) {
+                  const newOwner = prompt('Enter the username of the new owner:');
+                  if (newOwner) {
+                    handleTransferOwnership(newOwner);
+                  }
+                  }
+                }}
+                className="w-full px-4 py-2 bg-[var(--muted)] hover:bg-[var(--border)] rounded-md transition-colors text-sm font-medium text-[var(--foreground)] text-left"
+                >
+                🔄 Transfer Ownership
+                </button>
+                <button
+                onClick={() => {
+                  if (confirm('⚠️ DANGER: This will permanently delete the entire subreddit, including all posts, comments, and members. This action CANNOT be undone!\n\nType the subreddit name to confirm.')) {
+                  const confirmation = prompt(`Type "${subreddit.name}" to confirm deletion:`);
+                  if (confirmation === subreddit.name) {
+                    handleDeleteSubreddit();
+                  } else if (confirmation) {
+                    alert('Confirmation failed. Subreddit name did not match.');
+                  }
+                  }
+                }}
+                className="w-full px-4 py-2 bg-[var(--error)] hover:opacity-90 rounded-md transition-colors text-sm font-medium text-white text-left"
+                >
+                🗑️ Delete Subreddit
+                </button>
+              </div>
               </div>
             )}
 
             {/* About */}
             <div className="bg-[var(--card)] border border-[var(--border)] rounded-md p-4">
-              <h3 className="font-semibold mb-3">About Community</h3>
+              <h3 className="font-semibold mb-3 text-[var(--foreground)]">About Community</h3>
               {subreddit.description && (
-                <p className="text-sm text-[var(--text-secondary)] mb-4">
-                  {subreddit.description}
-                </p>
+              <p className="text-sm text-[var(--text-secondary)] mb-4">
+                {subreddit.description}
+              </p>
               )}
               <div className="text-xs text-[var(--text-secondary)] mb-4">
-                Created {subreddit?.createdAt ? new Date(subreddit.createdAt).toLocaleDateString() : 'recently'}
+              Created {subreddit?.createdAt ? new Date(subreddit.createdAt).toLocaleDateString() : 'recently'}
               </div>
               {isAuthenticated && (
-                <Link
-                  href={`/posts/create?subreddit=${subreddit?._id || ''}`}
-                  className="block w-full px-4 py-2 bg-[var(--primary)] text-white text-center rounded-md hover:opacity-90 transition-opacity"
-                >
-                  Create Post
-                </Link>
+              <Link
+                href={`/posts/create?subreddit=${subreddit?._id || ''}`}
+                className="block w-full px-4 py-2 bg-[var(--primary)] text-white text-center rounded-md hover:opacity-90 transition-opacity"
+              >
+                Create Post
+              </Link>
               )}
             </div>
 

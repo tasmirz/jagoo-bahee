@@ -8,14 +8,15 @@ import { getToken } from '@/lib/auth';
 interface Subreddit {
   _id: string;
   name: string;
-  title: string;
+  displayName: string;
   description: string;
   memberCount: number;
   postCount: number;
   isPrivate: boolean;
   createdAt: string;
-  owner?: {
-    username?: string;
+  createdBy?: {
+    _id: string;
+    username: string;
   };
   isJoined?: boolean;
 }
@@ -105,7 +106,7 @@ export default function SubredditsListPage() {
 
   const filteredSubreddits = subreddits.filter(sub => 
     sub.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    sub.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    sub.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     sub.description.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -207,7 +208,7 @@ export default function SubredditsListPage() {
                         r/{subreddit.name}
                       </h3>
                       <p className="text-sm text-[var(--text-secondary)] mt-1">
-                        {subreddit.title}
+                        {subreddit.displayName}
                       </p>
                     </Link>
                   </div>
@@ -230,7 +231,7 @@ export default function SubredditsListPage() {
 
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-[var(--text-secondary)]">
-                    by u/{subreddit.owner?.username ?? 'unknown'}
+                    by u/{subreddit.createdBy?.username ?? 'unknown'}
                   </div>
                   
                   {token && (

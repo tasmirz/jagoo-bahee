@@ -18,7 +18,7 @@ export class AuthController {
       httpOnly: true,
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
-      maxAge: 1000 * 60 * 15, // 15 minutes
+      maxAge: 1000 * 60 * 1500, // 15 minutes
       path: '/'
     })
 
@@ -51,7 +51,7 @@ export class AuthController {
       httpOnly: true,
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
-      maxAge: 1000 * 60 * 15, // 15 minutes
+      maxAge: 1000 * 60 * 1500, // 15 minutes
       path: '/'
     })
 

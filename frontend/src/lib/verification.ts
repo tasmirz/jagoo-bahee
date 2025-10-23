@@ -254,8 +254,8 @@ export async function cacheVerificationResult(
   result: VerificationResult
 ): Promise<void> {
   try {
-    // Use new IndexedDB implementation
-    await cacheVerificationToDB(id, "post", result.verified);
+    // Use new IndexedDB implementation with 5 minute TTL
+    await cacheVerificationToDB(id, "post", result.verified, 5 * 60 * 1000);
   } catch (error) {
     console.error("Failed to cache verification:", error);
   }
