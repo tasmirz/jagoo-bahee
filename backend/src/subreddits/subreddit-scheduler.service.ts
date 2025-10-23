@@ -18,14 +18,14 @@ export class SubredditSchedulerService {
   async handleCron() {
     try {
       const now = new Date()
-      // find members with bannedUntil in the past and banned bit set
+      // find members with bannedUntil in the past and banned bit set (BANNED = bit 0, value 1)
       const expired = await this.memberModel
-        .find({ bannedUntil: { $lte: now }, statusFlags: { $bitsAllSet: BigInt(4) } })
+        .find({ bannedUntil: { $lte: now }, statusFlags: { $bitsAllSet: BigInt(1) } })
         .exec()
       for (const m of expired) {
         try {
           const prev = BigInt(m.statusFlags || 0)
-          m.statusFlags = prev & ~BigInt(4)
+          m.statusFlags = prev & ~BigInt(1)
           m.bannedUntil = null as any
           m.banReason = null as any
           await m.save()

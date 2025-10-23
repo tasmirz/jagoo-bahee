@@ -10,10 +10,13 @@ import {
   saveToken,
   getToken,
 } from "../../lib/auth";
+import { getChallenge, authenticate } from "../../lib/api";
 import * as bip39 from 'bip39';
 import Image from 'next/image';
+import { useAuth } from '@/lib/context/AuthContext';
 
 export default function AuthPage() {
+  const { login } = useAuth();
   const [challenge, setChallenge] = useState<string>("");
   const [mnemonic, setMnemonic] = useState<string>("");
   const [passphrase, setPassphrase] = useState<string>("");
@@ -31,12 +34,9 @@ export default function AuthPage() {
       window.location.href = "/";
       return;
     }
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:3000";
     (async () => {
       try {
-        const res = await fetch(`${apiUrl}/auth/challenge`);
-        if (!res.ok) throw new Error(await res.text());
-        const jwt = await res.text();
+        const jwt = await getChallenge();
         setChallenge(jwt);
       } catch (err: unknown) {
         setMessage(`Failed to fetch challenge: ${(err as Error).message}`);
@@ -125,29 +125,18 @@ export default function AuthPage() {
       const signature = await signChallenge(privateKey, challengeStr);
       if (!signature) throw new Error("Failed to sign message");
 
-      // Send authentication request
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:3000";
-      const res = await fetch(`${apiUrl}/auth`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          challenge,
-          signedData: toB64(signature),
-          publicKey: toB64(publicKey),
-        }),
-      });
-
-      if (!res.ok) throw new Error(await res.text());
-      const jwt = await res.text();
-      // Save token, publicKey, and privateKey to localStorage
+      // Send authentication request via centralized api helper
+      const jwt = await authenticate(challenge, toB64(signature), toB64(publicKey));
+      
+      // Save keys using the helper functions (uses correct localStorage keys)
+      saveKeys(privateKey, publicKey);
       saveToken(jwt);
-      try {
-        localStorage.setItem("auth:publicKey", toB64(publicKey));
-        localStorage.setItem("auth:privateKey", toB64(privateKey));
-      } catch (e) {
-        // ignore storage errors
-      }
+      
+      // Notify AuthContext of successful login
+      login(jwt);
+      
       setMessage("Authentication successful");
+      
       // replay intended actions (vote/comment) if any
       try {
         const backend = await import('@/lib/backend')
@@ -182,7 +171,7 @@ export default function AuthPage() {
         <div className="bg-[var(--card)] border border-[var(--border)] rounded-lg shadow-lg p-6">
           <div className="flex items-center justify-center mb-6">
             <div className="w-12 h-12 relative">
-              <Image src="/jagoo-bahee.svg" alt="Jagoo Bahee" fill sizes="48px" />
+              <Image src="/jagoo-bahee.png" alt="Jagoo Bahee" fill sizes="48px" />
             </div>
             <h1 className="text-2xl font-bold ml-3">Jagoo Bahee</h1>
           </div>

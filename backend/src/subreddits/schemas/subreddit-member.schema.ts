@@ -1,6 +1,16 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose'
 import { Document, Types } from 'mongoose'
 
+/**
+ * Member status flags (bitmap)
+ * Only for restrictive states - permissions handled by Role/UserRole
+ */
+export enum MemberStatus {
+  BANNED = 1 << 0, // 1 - User is banned
+  MUTED = 1 << 1 // 2 - User is muted
+  // All other permissions (moderator, creator, etc.) handled by Role/UserRole system
+}
+
 @Schema({ timestamps: { createdAt: true, updatedAt: false } })
 export class SubredditMember extends Document {
   @Prop({ type: Types.ObjectId, ref: 'Subreddit', required: true })
@@ -10,14 +20,14 @@ export class SubredditMember extends Document {
   userId: Types.ObjectId
 
   /**
-   * Member status bitmap
-   * Bit 0: isMember
-   * Bit 1: isMuted
-   * Bit 2: isBanned
-   * Bit 3: isModerator
-   * Bit 4: isContributor
+   * Member status bitmap (restrictive flags only)
+   * Bit 0: isBanned (1)
+   * Bit 1: isMuted (2)
+   *
+   * Note: Permissions like moderator, creator, etc. are managed through
+   * the Role and UserRole system for better granularity.
    */
-  @Prop({ type: BigInt, default: BigInt(1) })
+  @Prop({ type: BigInt, default: BigInt(0) })
   statusFlags: bigint
 
   @Prop({ type: Date })

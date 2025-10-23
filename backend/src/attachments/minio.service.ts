@@ -1,18 +1,22 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, OnModuleInit } from '@nestjs/common'
 import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
-  DeleteObjectCommand
+  DeleteObjectCommand,
+  CreateBucketCommand,
+  HeadBucketCommand,
+  PutBucketCorsCommand
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import config from 'src/config'
 
 @Injectable()
-export class MinioService {
+export class MinioService implements OnModuleInit {
   private client: S3Client
   private bucket = config.minio.bucket
+  private bucketReady = false
 
   constructor() {
     const endpoint = config.minio.endpoint
@@ -27,10 +31,53 @@ export class MinioService {
     } as any)
   }
 
+  async onModuleInit() {
+    // Ensure bucket exists on startup
+    await this.ensureBucket()
+  }
+
   async ensureBucket() {
-    // MinIO bucket creation can be performed via S3 API, but leaving as no-op —
-    // assume the bucket exists or is created by provisioning.
-    return
+    if (this.bucketReady) return
+
+    try {
+      // Check if bucket exists
+      await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }))
+      console.log(`[MinIO] Bucket "${this.bucket}" already exists`)
+    } catch (error) {
+      // Bucket doesn't exist, create it
+      try {
+        await this.client.send(new CreateBucketCommand({ Bucket: this.bucket }))
+        console.log(`[MinIO] Created bucket "${this.bucket}"`)
+      } catch (createError) {
+        console.error(`[MinIO] Error creating bucket:`, createError)
+        throw createError
+      }
+    }
+
+    // Set CORS policy for browser uploads
+    try {
+      await this.client.send(
+        new PutBucketCorsCommand({
+          Bucket: this.bucket,
+          CORSConfiguration: {
+            CORSRules: [
+              {
+                AllowedOrigins: ['*'], // In production, restrict this to your domain
+                AllowedMethods: ['GET', 'PUT', 'POST', 'DELETE', 'HEAD'],
+                AllowedHeaders: ['*'],
+                ExposeHeaders: ['ETag'],
+                MaxAgeSeconds: 3600
+              }
+            ]
+          }
+        })
+      )
+      console.log(`[MinIO] CORS configured for bucket "${this.bucket}"`)
+    } catch (corsError) {
+      console.warn(`[MinIO] Could not set CORS (might already be set):`, corsError.message)
+    }
+
+    this.bucketReady = true
   }
 
   async presignedPutObject(objectName: string, expiresSeconds = 60 * 5): Promise<string> {

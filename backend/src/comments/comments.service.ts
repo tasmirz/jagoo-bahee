@@ -18,6 +18,7 @@ import { NotificationsService } from 'src/notifications/notifications.service'
 import { verifySignature, getAuthPublicKeyById } from 'src/common/signature.util'
 import { signServerMessage, serverKeyId } from 'src/common/server-sign.util'
 import { RedisService } from 'src/redis/redis.service'
+import { ObjectId } from 'mongoose'
 
 const COMMENT_FLAGS = {
   ACTIVE: 1 << 0,
@@ -26,6 +27,24 @@ const COMMENT_FLAGS = {
   COLLAPSED: 1 << 3,
   FLAGGED: 1 << 4,
   APPROVED: 1 << 5
+}
+
+// Helper to serialize comment - convert BigInt to string for JSON
+function serializeComment(comment: any) {
+  const obj = comment.toObject ? comment.toObject() : comment
+  const serialized = JSON.parse(JSON.stringify(obj, (_, v) => (typeof v === 'bigint' ? v.toString() : v)))
+
+  // Check if comment is deleted (REMOVED flag is set)
+  const flags = Number(serialized.statusFlags || 0)
+  const isRemoved = (flags & COMMENT_FLAGS.REMOVED) !== 0
+
+  if (isRemoved) {
+    serialized.isDeleted = true
+    // Clear content for deleted comments
+    serialized.content = '[deleted]'
+  }
+
+  return serialized
 }
 
 @Injectable()
@@ -55,6 +74,13 @@ export class CommentsService {
     if (!data.userSignature) throw new BadRequestException('userSignature required')
     if (!data.contentHash) throw new BadRequestException('contentHash required')
     if (!data.content || String(data.content).trim().length === 0) throw new BadRequestException('content required')
+
+    // convert IDs to ObjectId
+    data.postId = this.toId(String(data.postId))
+    data.authorId = this.toId(String(data.authorId))
+    if (data.parentId) data.parentId = this.toId(String(data.parentId))
+    if (data.subredditId) data.subredditId = this.toId(String(data.subredditId))
+
     // rate limit: 1 comment per N seconds
     const userKey = `comment-rate:${String(data.authorId)}:${process.env.COMMENT_RATE_LIMIT_SECONDS || 10}`
     try {
@@ -137,8 +163,22 @@ export class CommentsService {
     const path = this.buildPath(String(data.postId), parent)
 
     // Create comment and update counters
+    console.log('Creating comment with data:', {
+      postId: data.postId,
+      subredditId: data.subredditId,
+      authorId: data.authorId,
+      parentId: data.parentId,
+      content: String(data.content).slice(0, 50),
+      depth,
+      path
+    })
     const doc = await this.model.create([{ ...data, depth, path, statusFlags: BigInt(COMMENT_FLAGS.ACTIVE) }])
     const created = Array.isArray(doc) ? doc[0] : doc
+    console.log('Comment created successfully:', {
+      _id: created._id,
+      postId: created.postId,
+      createdAt: created.createdAt
+    })
     // update parent replyCount
     if (parent) await this.model.updateOne({ _id: parent._id }, { $inc: { replyCount: 1 } })
     // update post comment count
@@ -200,43 +240,143 @@ export class CommentsService {
       }
     } catch (e) {}
 
-    return created
+    return serializeComment(created)
   }
 
   async findById(id: string) {
-    const doc = await this.model.findById(id)
+    const doc = await this.model
+      .findById(id)
+      .populate({ path: 'authorId', select: 'username displayName avatar karma' })
+      .exec()
     if (!doc) throw new NotFoundException('Comment not found')
-    return doc
+    const result = doc.toObject ? doc.toObject() : doc
+    // Add populated field as expected by frontend
+    if (result.authorId) (result as any).author = result.authorId
+    return serializeComment(result)
   }
 
   async findByPost(postId: string, limit = 100, skip = 0) {
-    const docs = await this.model
-      .find({ postId: new Types.ObjectId(postId) })
-      .sort({ createdAt: 1 })
-      .limit(Number(limit))
-      .skip(Number(skip))
-      .lean()
+    console.log('findByPost called with:', { postId, limit, skip })
+    const postObjId = new Types.ObjectId(postId)
+
+    // Get ALL comments for this post (no limit/skip for tree building)
+    const allDocs = await this.model
+      .find({ postId: postObjId })
+      .populate({ path: 'authorId', select: 'username displayName avatar karma' })
       .exec()
-    return docs
+
+    console.log('Found total documents:', allDocs.length)
+    if (allDocs.length === 0) {
+      console.log('No comments found for postId:', postId)
+      return []
+    }
+
+    // Build a map of comments by ID
+    const commentMap = new Map()
+    allDocs.forEach((doc: any) => {
+      const serialized = serializeComment({
+        ...doc.toObject(),
+        author: doc.authorId || undefined,
+        replies: []
+      })
+      commentMap.set(String(doc._id), serialized)
+    })
+
+    // Build tree structure by linking children to parents
+    const rootComments: any[] = []
+    commentMap.forEach((comment: any) => {
+      if (!comment.parentId) {
+        // Root comment (depth 0)
+        rootComments.push(comment)
+      } else {
+        // Child comment - add to parent's replies
+        const parent = commentMap.get(String(comment.parentId))
+        if (parent) {
+          if (!parent.replies) parent.replies = []
+          parent.replies.push(comment)
+        }
+      }
+    })
+
+    // Sort root comments by creation date
+    rootComments.sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+
+    // Apply limit/skip to root comments only
+    return rootComments.slice(Number(skip), Number(skip) + Number(limit))
   }
 
   async updateByAuthor(id: string, authorId: string, update: Partial<Comment>) {
     const doc = await this.findById(id)
-    if (String(doc.authorId) !== String(authorId)) throw new ForbiddenException('Not the author')
-    Object.assign(doc, update, {
-      editedAt: new Date(),
-      statusFlags: BigInt(Number(doc.statusFlags) | COMMENT_FLAGS.EDITED)
+
+    // Extract the actual author ID (might be populated as an object)
+    const docAuthorId =
+      typeof doc.authorId === 'object' && doc.authorId !== null
+        ? String((doc.authorId as any)._id)
+        : String(doc.authorId)
+    const reqAuthorId = String(authorId)
+
+    console.log('[updateByAuthor] Ownership check:', {
+      commentId: id,
+      docAuthorId,
+      reqAuthorId,
+      match: docAuthorId === reqAuthorId,
+      docAuthorIdType: typeof doc.authorId,
+      reqAuthorIdType: typeof authorId
     })
-    await doc.save()
-    return doc
+
+    if (docAuthorId !== reqAuthorId) {
+      throw new ForbiddenException('Not the author')
+    }
+
+    // Update the document directly in database (not the populated one)
+    const result = await this.model.findByIdAndUpdate(
+      id,
+      {
+        ...update,
+        editedAt: new Date(),
+        statusFlags: BigInt(Number(doc.statusFlags) | COMMENT_FLAGS.EDITED)
+      },
+      { new: true }
+    )
+
+    if (!result) throw new NotFoundException('Comment not found')
+    return serializeComment(result)
   }
 
   async removeByAuthor(id: string, authorId: string) {
     const doc = await this.findById(id)
-    if (String(doc.authorId) !== String(authorId)) throw new ForbiddenException('Not the author')
-    doc.statusFlags = BigInt(Number(doc.statusFlags) & ~COMMENT_FLAGS.ACTIVE) | BigInt(COMMENT_FLAGS.REMOVED)
-    await doc.save()
-    return doc
+
+    // Extract the actual author ID (might be populated as an object)
+    const docAuthorId =
+      typeof doc.authorId === 'object' && doc.authorId !== null
+        ? String((doc.authorId as any)._id)
+        : String(doc.authorId)
+    const reqAuthorId = String(authorId)
+
+    console.log('[removeByAuthor] Ownership check:', {
+      commentId: id,
+      docAuthorId,
+      reqAuthorId,
+      match: docAuthorId === reqAuthorId,
+      docAuthorIdType: typeof doc.authorId,
+      reqAuthorIdType: typeof authorId
+    })
+
+    if (docAuthorId !== reqAuthorId) {
+      throw new ForbiddenException('Not the author')
+    }
+
+    // Update the document directly in database
+    const result = await this.model.findByIdAndUpdate(
+      id,
+      {
+        statusFlags: BigInt(Number(doc.statusFlags) & ~COMMENT_FLAGS.ACTIVE) | BigInt(COMMENT_FLAGS.REMOVED)
+      },
+      { new: true }
+    )
+
+    if (!result) throw new NotFoundException('Comment not found')
+    return serializeComment(result)
   }
 
   async vote(id: string, delta: -1 | 0 | 1) {
@@ -250,7 +390,7 @@ export class CommentsService {
     }
     const doc = await this.model.findByIdAndUpdate(id, { $inc: inc }, { new: true })
     if (!doc) throw new NotFoundException('Comment not found')
-    return doc
+    return serializeComment(doc)
   }
 
   async applyVoteChange(id: string, prevValue: -1 | 0 | 1, newValue: -1 | 0 | 1) {
@@ -271,7 +411,7 @@ export class CommentsService {
     }
     const doc = await this.model.findByIdAndUpdate(id, { $inc: inc }, { new: true })
     if (!doc) throw new NotFoundException('Comment not found')
-    return doc
+    return serializeComment(doc)
   }
 
   // Moderation actions
@@ -287,7 +427,7 @@ export class CommentsService {
       targetType: 'comment',
       targetId: commentId
     })
-    return doc
+    return serializeComment(doc)
   }
 
   async modRemove(commentId: string, subredditId: string, moderatorId: string, reason?: string) {
@@ -304,7 +444,7 @@ export class CommentsService {
       targetId: commentId,
       reason
     })
-    return doc
+    return serializeComment(doc)
   }
 
   async modCollapse(commentId: string, subredditId: string, moderatorId: string) {
@@ -318,7 +458,7 @@ export class CommentsService {
       targetType: 'comment',
       targetId: commentId
     })
-    return doc
+    return serializeComment(doc)
   }
 
   async modUncollapse(commentId: string, subredditId: string, moderatorId: string) {
@@ -332,7 +472,7 @@ export class CommentsService {
       targetType: 'comment',
       targetId: commentId
     })
-    return doc
+    return serializeComment(doc)
   }
 
   async modFlag(commentId: string, subredditId: string, moderatorId: string) {
@@ -346,7 +486,7 @@ export class CommentsService {
       targetType: 'comment',
       targetId: commentId
     })
-    return doc
+    return serializeComment(doc)
   }
 
   async modUnflag(commentId: string, subredditId: string, moderatorId: string) {
@@ -360,6 +500,31 @@ export class CommentsService {
       targetType: 'comment',
       targetId: commentId
     })
-    return doc
+    return serializeComment(doc)
+  }
+
+  async findAll(limit = 100, skip = 0, searchQuery?: string) {
+    // Add search filter if provided
+    const filter: any = {}
+    if (searchQuery && searchQuery.trim()) {
+      const searchRegex = new RegExp(searchQuery.trim(), 'i') // case-insensitive
+      filter.content = searchRegex
+    }
+
+    const docs = await this.model
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
+      .skip(Number(skip))
+      .populate({ path: 'authorId', select: 'username displayName avatar karma' })
+      .populate({ path: 'postId', select: '_id' })
+      .lean()
+      .exec()
+
+    return docs.map((d: any) => ({
+      ...d,
+      author: d.authorId || undefined,
+      statusFlags: d.statusFlags !== undefined && d.statusFlags !== null ? String(d.statusFlags) : d.statusFlags
+    }))
   }
 }

@@ -24,7 +24,7 @@ export class AuthService {
     return this.jwtService.sign({ challenge: randomBytes(32).toString('base64') }, { expiresIn: '60m' }) // TODO : move to config and 2m
   }
 
-  async authenticate(auth: AuthenticationDto): Promise<string> {
+  async authenticate(auth: AuthenticationDto): Promise<{ accessToken: string; refreshToken: string }> {
     // DTO transforms produce Uint8Array; convert to Buffer for mongoose and tiny-secp256k1
     const publicKey = Buffer.from(auth.publicKey as any)
     const signedData = Buffer.from(auth.signedData as any)
@@ -63,7 +63,39 @@ export class AuthService {
       console.warn('Failed to ensure user profile for auth:', e)
     }
 
-    return this.jwtService.sign({ id: String((authDoc as any)._id), abac: authDoc.abac })
+    const authId = String((authDoc as any)._id)
+
+    // Generate access token (short-lived: 15 minutes)
+    const accessToken = this.jwtService.sign({ id: authId, abac: authDoc.abac }, { expiresIn: '15m' })
+
+    // Generate refresh token (long-lived: 7 days)
+    const refreshToken = this.jwtService.sign({ id: authId, type: 'refresh' }, { expiresIn: '7d' })
+
+    return { accessToken, refreshToken }
+  }
+
+  async refreshAccessToken(refreshToken: string): Promise<string> {
+    try {
+      const payload = this.jwtService.verify(refreshToken)
+
+      if (payload.type !== 'refresh') {
+        throw new UnauthorizedException('Invalid token type')
+      }
+
+      // Fetch auth document to get latest abac permissions
+      const authDoc = await this.authModel.findById(payload.id).exec()
+      if (!authDoc) {
+        throw new UnauthorizedException('User not found')
+      }
+
+      // Generate new access token
+      return this.jwtService.sign({ id: String(authDoc._id), abac: authDoc.abac }, { expiresIn: '15m' })
+    } catch (error) {
+      if (error instanceof TokenExpiredError) {
+        throw new UnauthorizedException('Refresh token expired')
+      }
+      throw new UnauthorizedException('Invalid refresh token')
+    }
   }
   async getPublicKeyById(_id: Object): Promise<Buffer | null> {
     const authRec = await this.authModel.findOne({ _id }).exec()

@@ -12,7 +12,7 @@ export class Post extends Document {
   @Prop({ type: String, required: true, maxlength: 300 })
   title: string
 
-  @Prop({ type: String, required: true, enum: ['text', 'link', 'image', 'video', 'crosspost'] })
+  @Prop({ type: String, required: true, enum: ['text', 'link', 'image', 'video', 'audio', 'crosspost'] })
   type: string
 
   @Prop({ type: String })

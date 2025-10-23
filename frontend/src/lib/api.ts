@@ -17,14 +17,17 @@ export async function authenticate(
     publicKey,
   });
   if (!res.ok) throw new Error(`Authenticate failed: ${res.status}`);
-  return res.text();
+  const data = await res.json();
+  // Backend returns { accessToken, refreshToken } but we only need accessToken
+  // Cookies are automatically set by the backend
+  return data.accessToken;
 }
 
-export async function postComment(body: any) {
+export async function postComment(body: object) {
   return backendJson("POST", "/comments", body);
 }
 
-export async function postVote(body: any) {
+export async function postVote(body: object) {
   return backendJson("POST", "/votes", body);
 }
 

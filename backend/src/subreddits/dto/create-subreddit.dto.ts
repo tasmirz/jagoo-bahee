@@ -21,10 +21,7 @@ export class CreateSubredditDto {
   @IsArray()
   tags?: string[]
 
-  @ApiPropertyOptional({ example: true })
-  @IsOptional()
-  @IsBoolean()
-  nsfw?: boolean
+
 
   @ApiPropertyOptional({ example: { primary: '#053326', accent: '#053326', background: '#ffffff' } })
   @IsOptional()

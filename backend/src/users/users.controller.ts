@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common'
 import { UsersService } from './users.service'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
 import { CreateUserDto } from './dto/create-user.dto'
@@ -9,9 +9,79 @@ import { Types } from 'mongoose'
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @Get()
+  async list(@Query('q') q?: string, @Query('limit') limit = '50', @Query('skip') skip = '0') {
+    let filter: any = {}
+    if (q) {
+      const searchRegex = { $regex: q, $options: 'i' }
+      filter = { $or: [{ username: searchRegex }, { displayName: searchRegex }, { bio: searchRegex }] }
+    }
+    return this.usersService.findAll(filter, Number(limit), Number(skip))
+  }
+
   @Get(':id')
   async getUser(@Param('id') id: string) {
     return this.usersService.findById(id)
+  }
+
+  @Get('username/:username')
+  async getUserByUsername(@Param('username') username: string) {
+    // Find user by username
+    return this.usersService.findByUsername(username)
+  }
+
+  @Get(':id/posts')
+  async getUserPosts(@Param('id') id: string, @Query('limit') limit = '50', @Query('skip') skip = '0') {
+    // Get posts by user ID
+    console.log('[getUserPosts] Fetching posts for user ID:', id)
+    const db = (this as any).usersService?.userModel?.db
+    if (!db) {
+      console.warn('[getUserPosts] Database not available')
+      return []
+    }
+
+    try {
+      const posts = await db
+        .collection('posts')
+        .find({ authorId: new Types.ObjectId(id) })
+        .sort({ createdAt: -1 })
+        .limit(Number(limit))
+        .skip(Number(skip))
+        .toArray()
+
+      console.log(`[getUserPosts] Found ${posts.length} posts for user ${id}`)
+      return posts
+    } catch (error) {
+      console.error('[getUserPosts] Error fetching posts:', error)
+      return []
+    }
+  }
+
+  @Get(':id/comments')
+  async getUserComments(@Param('id') id: string, @Query('limit') limit = '50', @Query('skip') skip = '0') {
+    // Get comments by user ID
+    console.log('[getUserComments] Fetching comments for user ID:', id)
+    const db = (this as any).usersService?.userModel?.db
+    if (!db) {
+      console.warn('[getUserComments] Database not available')
+      return []
+    }
+
+    try {
+      const comments = await db
+        .collection('comments')
+        .find({ authorId: new Types.ObjectId(id) })
+        .sort({ createdAt: -1 })
+        .limit(Number(limit))
+        .skip(Number(skip))
+        .toArray()
+
+      console.log(`[getUserComments] Found ${comments.length} comments for user ${id}`)
+      return comments
+    } catch (error) {
+      console.error('[getUserComments] Error fetching comments:', error)
+      return []
+    }
   }
 
   @UseGuards(JwtAuthGuard)
@@ -109,10 +179,13 @@ export class UsersController {
     const authId = req.user?.id
     const me = await this.usersService.findByAuthId(authId)
     if (!me) return null
+    // Normalize targetType to capitalized model name
+    const normalizedType =
+      body.targetType === 'post' ? 'Post' : body.targetType === 'comment' ? 'Comment' : body.targetType
     return this.usersService.saveContent(
       me._id as Types.ObjectId,
       new Types.ObjectId(body.targetId),
-      body.targetType,
+      normalizedType,
       body.category
     )
   }
@@ -123,7 +196,31 @@ export class UsersController {
     const authId = req.user?.id
     const me = await this.usersService.findByAuthId(authId)
     if (!me) return null
-    return this.usersService.unsaveContent(me._id as Types.ObjectId, new Types.ObjectId(body.targetId), body.targetType)
+    // Normalize targetType to capitalized model name
+    const normalizedType =
+      body.targetType === 'post' ? 'Post' : body.targetType === 'comment' ? 'Comment' : body.targetType
+    return this.usersService.unsaveContent(me._id as Types.ObjectId, new Types.ObjectId(body.targetId), normalizedType)
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me/saved/:targetType')
+  async getSavedContent(@Req() req: any, @Param('targetType') targetType: string) {
+    const authId = req.user?.id
+    const me = await this.usersService.findByAuthId(authId)
+    if (!me) return []
+    // Normalize targetType to capitalized model name
+    const normalizedType = targetType === 'posts' ? 'Post' : targetType === 'comments' ? 'Comment' : targetType
+    return this.usersService.getSavedContent(me._id as Types.ObjectId, normalizedType)
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me/is-saved/:targetId')
+  async isSaved(@Req() req: any, @Param('targetId') targetId: string) {
+    const authId = req.user?.id
+    const me = await this.usersService.findByAuthId(authId)
+    if (!me) return { saved: false }
+    const saved = await this.usersService.isSaved(me._id as Types.ObjectId, new Types.ObjectId(targetId))
+    return { saved }
   }
 
   // Block / Unblock

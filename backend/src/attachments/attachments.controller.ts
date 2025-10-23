@@ -9,6 +9,7 @@ import {
   Delete,
   HttpCode,
   HttpStatus,
+  HttpException,
   UseGuards,
   Req
 } from '@nestjs/common'
@@ -41,8 +42,21 @@ export class AttachmentsController {
   @Post('presigned-upload')
   @UseGuards(JwtAuthGuard)
   async presignedUpload(@Body() body: any, @Req() req: any) {
+    console.log('[presigned-upload] Request received')
+    console.log('[presigned-upload] Body:', JSON.stringify(body, null, 2))
+    console.log('[presigned-upload] User:', req.user?.id)
+
     body.ownerId = req.user?.id
-    return this.service.createUploadUrl(body)
+
+    try {
+      const result = await this.service.createUploadUrl(body)
+      console.log('[presigned-upload] Success! MinIO key:', result.minioKey)
+      console.log('[presigned-upload] Upload URL generated (length):', result.uploadUrl?.length)
+      return result
+    } catch (error) {
+      console.error('[presigned-upload] Error:', error.message)
+      throw error
+    }
   }
 
   /**
@@ -52,7 +66,9 @@ export class AttachmentsController {
   @Post('confirm')
   @UseGuards(JwtAuthGuard)
   async confirm(@Body() body: any, @Req() req: any) {
-    const { key, ownerId, filename, contentType } = body
+    const { key, filename, contentType } = body
+    // Use authenticated user's ID as ownerId
+    const ownerId = body.ownerId || req.user?.id
     // ensure requester is owner or has moderator/admin ABAC bits
     await this.service.assertOwnerOrAdminOrModerator(key, req.user)
     return this.service.confirmUpload(key, ownerId, { filename, contentType })
@@ -62,9 +78,22 @@ export class AttachmentsController {
   @Post('confirm-upload')
   @UseGuards(JwtAuthGuard)
   async confirmUploadAlias(@Body() body: any, @Req() req: any) {
-    const { key, ownerId, filename, contentType } = body
-    await this.service.assertOwnerOrAdminOrModerator(key, req.user)
-    return this.service.confirmUpload(key, ownerId, { filename, contentType })
+    console.log('[confirm-upload] Request received')
+    console.log('[confirm-upload] Body:', JSON.stringify(body, null, 2))
+    console.log('[confirm-upload] User:', req.user?.id)
+
+    const { key, filename, contentType } = body
+    const ownerId = body.ownerId || req.user?.id
+
+    try {
+      await this.service.assertOwnerOrAdminOrModerator(key, req.user)
+      const result = await this.service.confirmUpload(key, ownerId, { filename, contentType })
+      console.log('[confirm-upload] Success! Attachment ID:', result._id)
+      return result
+    } catch (error) {
+      console.error('[confirm-upload] Error:', error.message)
+      throw error
+    }
   }
 
   /** Return a presigned GET url for a minioKey (requires confirmed) */
@@ -92,6 +121,19 @@ export class AttachmentsController {
     const filter: any = {}
     if (ownerId) filter.ownerId = ownerId
     return this.service.findAll(filter, Number(limit), Number(skip))
+  }
+
+  /** Get a presigned URL for viewing an attachment */
+  @Get(':id/presigned-get')
+  async getPresignedUrl(@Param('id') id: string) {
+    const attachment = await this.service.findOne(id)
+    if (!attachment) {
+      throw new HttpException('Attachment not found', HttpStatus.NOT_FOUND)
+    }
+
+    // Generate a presigned GET URL (24 hours expiry)
+    const url = await this.service.minio.presignedGetObject(attachment.minioKey, 24 * 60 * 60)
+    return { url }
   }
 
   @Get(':id')

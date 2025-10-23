@@ -2,7 +2,6 @@ import * as bip39 from "bip39";
 import { BIP32Factory } from "bip32";
 import * as tinySecp from "tiny-secp256k1";
 import { toBase64 } from "./crypto";
-import { sha256 as webSha256, sha256 } from "./crypto";
 
 const bip32 = BIP32Factory(tinySecp);
 
@@ -20,11 +19,29 @@ export function toB64(u8: Uint8Array): string {
 }
 
 export function fromBase64(s: string): Uint8Array {
-  // atob -> binary -> Uint8Array
-  const bin = atob(s);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return arr;
+  // Validate base64 string
+  if (!s || typeof s !== "string") {
+    throw new Error("Invalid base64 input: input must be a non-empty string");
+  }
+
+  // Basic base64 validation
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(s)) {
+    throw new Error("Invalid base64 input: contains invalid characters");
+  }
+
+  try {
+    // atob -> binary -> Uint8Array
+    const bin = atob(s);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return arr;
+  } catch (error) {
+    throw new Error(
+      `Failed to decode base64: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`
+    );
+  }
 }
 
 export function toHex(u8: Uint8Array): string {
@@ -48,7 +65,7 @@ export function deriveBip32Keypair(mnemonic: string, passphrase = ""): KeyPair {
     // Some Buffer implementations provide a fill method
     if (
       (seed as unknown) &&
-      typeof (seed as { fill?: Function }).fill === "function"
+      typeof (seed as { fill?: (v: number) => void }).fill === "function"
     ) {
       (seed as unknown as { fill: (v: number) => void }).fill(0);
     }
@@ -96,12 +113,31 @@ export function saveKeys(privateKey: Uint8Array, publicKey: Uint8Array) {
 
 export function saveToken(token: string) {
   try {
+    // Note: Backend sets the token in 'jid' httpOnly cookie
+    // We also save to localStorage as fallback for compatibility
     localStorage.setItem(TOKEN_KEY, token);
   } catch (e) {}
 }
 
+// Helper to get cookie value
+function getCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) {
+    const cookieValue = parts.pop()?.split(";").shift();
+    return cookieValue || null;
+  }
+  return null;
+}
+
 export function getToken(): string | null {
   try {
+    // First try to get from jid cookie (preferred)
+    const jidToken = getCookie("jid");
+    if (jidToken) return jidToken;
+
+    // Fallback to localStorage for backward compatibility
     return localStorage.getItem(TOKEN_KEY);
   } catch (e) {
     return null;
@@ -159,7 +195,11 @@ export function clearCredentials() {
 }
 
 // Verify a signature using public key and message hash
-export function verifySignature(publicKey: Uint8Array, messageHash: Uint8Array, signature: Uint8Array): boolean {
+export function verifySignature(
+  publicKey: Uint8Array,
+  messageHash: Uint8Array,
+  signature: Uint8Array
+): boolean {
   try {
     return tinySecp.verify(messageHash, signature, publicKey);
   } catch (e) {

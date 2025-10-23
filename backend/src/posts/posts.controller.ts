@@ -1,3 +1,4 @@
+// ...existing complete controller retained below
 import {
   Body,
   Controller,
@@ -39,13 +40,20 @@ export class PostsController {
   }
 
   @Get()
-  listAll(@Query('limit') limit = '50', @Query('skip') skip = '0', @Query('subreddit') subreddit?: string) {
+  listAll(
+    @Query('limit') limit = '50',
+    @Query('skip') skip = '0',
+    @Query('subreddit') subreddit?: string,
+    @Query('q') searchQuery?: string,
+    @Query('sort') sort?: string,
+    @Query('time') time?: string
+  ) {
     const filter: any = {}
     if (subreddit) {
       // allow passing subreddit name or id
       filter.subredditId = subreddit
     }
-    return this.posts.findAll(filter, Number(limit), Number(skip))
+    return this.posts.findAll(filter, Number(limit), Number(skip), searchQuery, sort, time)
   }
 
   @UseGuards(JwtAuthGuard)
@@ -138,5 +146,10 @@ export class PostsController {
   @Get(':id/comments')
   async getComments(@Param('id') id: string) {
     return this.commentsService.findByPost(id)
+  }
+
+  @HttpPost('verify-proof')
+  async verifyProof(@Body() body: { userId: string; postId: string; proofHash: string; proofSignature: string }) {
+    return this.posts.verifyProofAndGetStatus(body.userId, body.postId, body.proofHash, body.proofSignature)
   }
 }

@@ -34,7 +34,19 @@ export class VotesService {
     await this.checkRateLimit(userId)
 
     try {
-      const existing = await this.voteModel.findOne({ userId, targetId, targetType })
+      // Convert to ObjectId for proper query
+      const userObjId = new Types.ObjectId(userId)
+      const targetObjId = new Types.ObjectId(targetId)
+
+      console.log('Voting - userId:', userId, 'targetId:', targetId, 'targetType:', targetType, 'value:', value)
+
+      const existing = await this.voteModel.findOne({
+        userId: userObjId,
+        targetId: targetObjId,
+        targetType
+      })
+
+      console.log('Existing vote found:', existing ? `Yes (value: ${existing.value})` : 'No')
 
       // Prevent banned users from voting: find subreddit of target (if post/comment)
       let subredditId: string | null = null
@@ -47,7 +59,8 @@ export class VotesService {
       }
       if (subredditId) {
         const member = await this.membersService.findBySubredditAndUser(subredditId, userId)
-        if (member && (Number(member.statusFlags) & 4) !== 0) {
+        // Check BANNED flag (bit 0, value 1)
+        if (member && (Number(member.statusFlags) & 1) !== 0) {
           throw new BadRequestException('You are banned from this subreddit')
         }
       }
@@ -73,12 +86,14 @@ export class VotesService {
 
       if (!existing) {
         // create new
+        console.log('Creating new vote...')
         await this.voteModel.create({
-          userId: new Types.ObjectId(userId),
-          targetId: new Types.ObjectId(targetId),
+          userId: userObjId,
+          targetId: targetObjId,
           targetType,
           value
         })
+        console.log('Vote created successfully')
         // inc counters
         if (targetType === 'post') {
           const post = await this.postsService.applyVoteChange(targetId, 0 as 0, value)
@@ -120,5 +135,21 @@ export class VotesService {
     } catch (e) {
       throw e
     }
+  }
+
+  async getUserVote(userId: string, targetId: string, targetType: 'post' | 'comment') {
+    const vote = await this.voteModel
+      .findOne({
+        userId: new Types.ObjectId(userId),
+        targetId: new Types.ObjectId(targetId),
+        targetType
+      })
+      .lean()
+
+    if (!vote) {
+      return { vote: 0 }
+    }
+
+    return { vote: vote.value }
   }
 }

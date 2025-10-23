@@ -14,6 +14,7 @@ import { SubredditMembersService } from './subreddit-members.service'
 import { SubredditRbacGuard } from './guards/subreddit-rbac.guard'
 import { AttachmentsModule } from 'src/attachments/attachments.module'
 import { SubredditSchedulerService } from './subreddit-scheduler.service'
+import { SubredditPermissionsCacheService } from './subreddit-permissions-cache.service'
 
 @Module({
   imports: [
@@ -30,7 +31,19 @@ import { SubredditSchedulerService } from './subreddit-scheduler.service'
     AttachmentsModule
   ],
   controllers: [SubredditsController, SubredditMembersController],
-  providers: [SubredditsService, SubredditMembersService, SubredditRbacGuard, SubredditSchedulerService],
-  exports: [SubredditsService, SubredditMembersService, SubredditRbacGuard, SubredditSchedulerService]
+  providers: [
+    SubredditsService,
+    SubredditMembersService,
+    SubredditRbacGuard,
+    SubredditSchedulerService,
+    SubredditPermissionsCacheService
+  ],
+  exports: [
+    SubredditsService,
+    SubredditMembersService,
+    SubredditRbacGuard,
+    SubredditSchedulerService,
+    SubredditPermissionsCacheService
+  ]
 })
 export class SubredditsModule {}

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post as HttpPost, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post as HttpPost, Query, UseGuards } from '@nestjs/common'
 import { CommentsService } from './comments.service'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
 import { SubredditRbacGuard } from 'src/subreddits/guards/subreddit-rbac.guard'
@@ -16,6 +16,23 @@ export class CommentsController {
   @HttpPost()
   create(@Body() body: CreateCommentDto) {
     return this.comments.create(body as any)
+  }
+
+  @Get()
+  list(
+    @Query('postId') postId?: string,
+    @Query('limit') limit = '100',
+    @Query('skip') skip = '0',
+    @Query('q') searchQuery?: string
+  ) {
+    if (postId) {
+      console.log('Fetching comments for postId:', postId, 'limit:', limit, 'skip:', skip)
+      const result = this.comments.findByPost(postId, Number(limit), Number(skip))
+      console.log('Comments query result:', result)
+      return result
+    }
+    // Return all comments with optional search
+    return this.comments.findAll(Number(limit), Number(skip), searchQuery)
   }
 
   @Get(':id')

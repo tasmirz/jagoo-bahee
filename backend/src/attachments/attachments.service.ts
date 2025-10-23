@@ -8,7 +8,7 @@ import { MinioService } from './minio.service'
 export class AttachmentsService {
   constructor(
     @InjectModel(Attachment.name) private readonly model: Model<Attachment>,
-    private readonly minio: MinioService
+    public readonly minio: MinioService
   ) {}
 
   async create(data: Partial<Attachment>): Promise<Attachment> {
@@ -47,12 +47,16 @@ export class AttachmentsService {
    */
   async createUploadUrl(payload: {
     ownerId: string
-    originalFilename: string
-    mimeType: string
-    sizeBytes: number
-    type: string
-    signature: string
-    contentHash: string
+    originalFilename?: string
+    filename?: string // alias for originalFilename
+    mimeType?: string
+    contentType?: string // alias for mimeType
+    sizeBytes?: number
+    size?: number // alias for sizeBytes
+    type?: string
+    signature?: string
+    contentHash?: string
+    hash?: string // alias for contentHash
     attachedToType?: string
     attachedToId?: string
     isPublic?: boolean
@@ -60,23 +64,53 @@ export class AttachmentsService {
   }) {
     const {
       ownerId,
-      originalFilename,
-      mimeType,
-      sizeBytes,
-      type,
-      signature,
-      contentHash,
+      originalFilename: origFilename,
+      filename,
+      mimeType: mime,
+      contentType,
+      sizeBytes: sizeBytesParam,
+      size,
+      type: typeParam,
+      signature: signatureParam,
+      contentHash: contentHashParam,
+      hash,
       attachedToType,
       attachedToId,
       isPublic = true,
       isNSFW = false
     } = payload
 
+    // Support both frontend conventions
+    const originalFilename = origFilename || filename || 'file'
+    const mimeType = mime || contentType || 'application/octet-stream'
+    const sizeBytes = sizeBytesParam || size || 0
+    const contentHash = contentHashParam || hash || ''
+
+    // Determine type from MIME type if not provided
+    let type = typeParam
+    if (!type || type === 'file') {
+      if (mimeType.startsWith('image/')) type = 'image'
+      else if (mimeType.startsWith('video/')) type = 'video'
+      else if (mimeType.startsWith('audio/')) type = 'audio'
+      else if (mimeType.includes('pdf') || mimeType.includes('document') || mimeType.includes('text')) type = 'document'
+      else type = 'other'
+    }
+
+    // For now, use a placeholder signature until we implement proper signing
+    const signature = signatureParam || 'unsigned'
+
     if (!ownerId) throw new HttpException('ownerId required', HttpStatus.BAD_REQUEST)
 
     // create a safe minio key: ownerId/timestamp-rand-original
     const safeName = originalFilename ? originalFilename.replace(/[^a-zA-Z0-9._-]/g, '-') : 'file'
     const minioKey = `${ownerId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safeName}`
+
+    console.log('[createUploadUrl] Creating attachment with:', {
+      ownerId,
+      originalFilename,
+      mimeType,
+      minioKey
+    })
 
     const doc = new this.model({
       ownerId: new Types.ObjectId(ownerId),
@@ -95,29 +129,44 @@ export class AttachmentsService {
 
     try {
       const saved = await doc.save()
+      console.log('[createUploadUrl] Attachment saved:', saved._id)
 
       // Ensure bucket exists (no-op if exists)
       await this.minio.ensureBucket()
 
       // Get a presigned PUT url (short expiry)
       const url = await this.minio.presignedPutObject(minioKey)
+      console.log('[createUploadUrl] Presigned URL generated for key:', minioKey)
 
-      return { attachment: saved, uploadUrl: url, minioKey }
+      // Generate a long-lived presigned GET URL for viewing (7 days)
+      const downloadUrl = await this.minio.presignedGetObject(minioKey, 7 * 24 * 60 * 60) // 7 days
+
+      return { attachment: saved, uploadUrl: url, minioKey, downloadUrl }
     } catch (err) {
+      console.error('[createUploadUrl] Error:', err)
       throw new HttpException(err.message || 'Could not create upload url', HttpStatus.INTERNAL_SERVER_ERROR)
     }
   }
 
   async confirmUpload(key: string, ownerId: string, opts: { filename?: string; contentType?: string } = {}) {
+    console.log('[confirmUpload] Confirming upload for key:', key)
+
     // verify object exists in MinIO
     try {
       const head = await this.minio.headObject(key)
       const size = (head as any).ContentLength ?? null
       const contentType = (head as any).ContentType ?? opts.contentType
 
+      console.log('[confirmUpload] Object found in MinIO:', {
+        key,
+        size,
+        contentType
+      })
+
       // find DB record by minioKey
       const doc = await this.model.findOne({ minioKey: key }).exec()
       if (!doc) {
+        console.log('[confirmUpload] No existing record, creating new one')
         // create record if it doesn't exist
         const created = new this.model({
           ownerId: new Types.ObjectId(ownerId),
@@ -130,17 +179,23 @@ export class AttachmentsService {
           confirmed: true,
           confirmedAt: new Date()
         })
-        return await created.save()
+        const saved = await created.save()
+        console.log('[confirmUpload] New attachment created:', saved._id)
+        return saved
       }
 
+      console.log('[confirmUpload] Updating existing record:', doc._id)
       doc.confirmed = true
       doc.confirmedAt = new Date()
       if (opts.filename) doc.originalFilename = opts.filename
       if (contentType) doc.mimeType = contentType
       if (size) doc.sizeBytes = size
-      return await doc.save()
+      const saved = await doc.save()
+      console.log('[confirmUpload] Attachment confirmed:', saved._id)
+      return saved
     } catch (err) {
-      throw new HttpException('Object not found in storage', HttpStatus.BAD_REQUEST)
+      console.error('[confirmUpload] Error:', err)
+      throw new HttpException(`Object not found in MinIO or confirmation failed: ${err.message}`, HttpStatus.NOT_FOUND)
     }
   }
 

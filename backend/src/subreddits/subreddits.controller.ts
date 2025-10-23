@@ -17,13 +17,23 @@ import { SubredditsService } from './subreddits.service'
 import { SubredditRbacGuard } from './guards/subreddit-rbac.guard'
 import { CreateSubredditDto } from './dto/create-subreddit.dto'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
+import { InjectModel } from '@nestjs/mongoose'
+import { Model } from 'mongoose'
+import { Role } from 'src/roles/schemas/role.schema'
+import { UserRole } from 'src/roles/schemas/user-role.schema'
+import { SubredditPermissionsCacheService } from './subreddit-permissions-cache.service'
 
 import { ApiTags } from '@nestjs/swagger'
 
 @ApiTags('subreddits')
 @Controller('subreddits')
 export class SubredditsController {
-  constructor(private readonly service: SubredditsService) {}
+  constructor(
+    private readonly service: SubredditsService,
+    @InjectModel(Role.name) private roleModel: Model<Role>,
+    @InjectModel(UserRole.name) private userRoleModel: Model<UserRole>,
+    private permissionsCache: SubredditPermissionsCacheService
+  ) {}
 
   @Post()
   @UseGuards(JwtAuthGuard)
@@ -101,16 +111,130 @@ export class SubredditsController {
   @Get(':id/is-moderator')
   @UseGuards(JwtAuthGuard)
   async isModerator(@Param('id') id: string, @Req() req: any) {
-    // return boolean if the current request user is a moderator of this subreddit
+    console.log('[is-moderator] Request for subreddit:', id)
+
+    // Return boolean if the current request user is a moderator of this subreddit
     const user = req?.user
-    if (!user || !user.id) return { isModerator: false }
-    // delegate to service to check membership
+    console.log('[is-moderator] User from JWT:', user?.id)
+
+    if (!user || !user.id) {
+      console.log('[is-moderator] No user, returning false')
+      return { isModerator: false, isCreator: false, isBanned: false, statusFlags: 0 }
+    }
+
+    // Get user from auth
+    const userDoc = await (this.service as any).usersService.findByAuthId(
+      new (require('mongoose').Types.ObjectId)(user.id)
+    )
+    console.log('[is-moderator] User doc found:', userDoc?._id)
+
+    if (!userDoc) {
+      console.log('[is-moderator] No user doc found')
+      return { isModerator: false, isCreator: false, isBanned: false, statusFlags: 0 }
+    }
+
+    // Check if user is the creator (via subreddit.createdBy)
+    // Use findOne to support both ID and name
+    const subreddit = await this.service.findOne(id)
+
+    if (!subreddit) {
+      console.log('[is-moderator] Subreddit not found')
+      return { isModerator: false, isCreator: false, isBanned: false, statusFlags: 0 }
+    }
+
+    // Check cache first
+    const cached = await this.permissionsCache.getModeratorStatus(String(subreddit._id), String(userDoc._id))
+
+    if (cached) {
+      console.log('[is-moderator] Returning cached result')
+      return {
+        isModerator: cached.isModerator,
+        isCreator: cached.isCreator,
+        isBanned: cached.isBanned,
+        statusFlags: cached.statusFlags
+      }
+    }
+
+    // Cache miss - perform full check
+    console.log('[is-moderator] Cache miss, performing full check')
+
+    const isCreator = subreddit && String(subreddit.createdBy) === String(userDoc._id)
+    console.log('[is-moderator] Creator check:', {
+      subredditCreatedBy: subreddit?.createdBy,
+      userId: userDoc._id,
+      isCreator
+    })
+
+    // Check banned status from SubredditMember
     const m = await (this.service as any).memberModel
-      .findOne({ subredditId: id, userId: new (require('mongoose').Types.ObjectId)(user.id) })
+      .findOne({ subredditId: subreddit._id, userId: new (require('mongoose').Types.ObjectId)(userDoc._id) })
       .exec()
       .catch(() => null)
-    const isMod = !!m && (BigInt(m.statusFlags) & BigInt(8)) !== BigInt(0)
-    return { isModerator: isMod }
+
+    if (!m) {
+      console.log('[is-moderator] No member record found, returning isCreator only')
+      return { isModerator: isCreator, isCreator, isBanned: false, statusFlags: 0 }
+    }
+
+    const flags = BigInt(m.statusFlags || 0)
+    const isBanned = (flags & BigInt(1)) !== BigInt(0) // Bit 0
+
+    // Check if user has a moderator role with permissions
+    // Step 1: Get user's role assignment from UserRole
+    const userRole = await this.userRoleModel
+      .findOne({
+        subredditId: subreddit._id,
+        userId: new (require('mongoose').Types.ObjectId)(userDoc._id)
+      })
+      .exec()
+      .catch(() => null)
+
+    let hasModPermissions = false
+
+    if (userRole) {
+      // Step 2: Get the role and check permissions from Role schema
+      const role = await this.roleModel
+        .findById(userRole.roleId)
+        .exec()
+        .catch(() => null)
+
+      if (role) {
+        const permissions = BigInt(role.permissions || 0)
+        // Check if role has ANY moderator permissions
+        // Moderator permissions: bits 15-19 (moderation) + bits 23-27 (settings) + bit 28 (all)
+        const modPermissionsMask = BigInt(0x1ffff8000) // Bits 15-28
+        hasModPermissions = (permissions & modPermissionsMask) !== BigInt(0)
+
+        console.log('[is-moderator] Role check:', {
+          roleId: role._id,
+          roleName: role.name,
+          permissions: permissions.toString(),
+          hasModPermissions
+        })
+      }
+    }
+
+    const hasModAccess = (isCreator || hasModPermissions) && !isBanned
+
+    const result = {
+      isModerator: hasModAccess,
+      isCreator,
+      isBanned,
+      statusFlags: Number(flags)
+    }
+
+    console.log('[is-moderator] Final result:', result)
+
+    // Cache the result for 5 minutes
+    await this.permissionsCache.setModeratorStatus(String(subreddit._id), String(userDoc._id), {
+      ...result,
+      hasModPermissions,
+      roleId: userRole?.roleId ? String(userRole.roleId) : undefined,
+      roleName: userRole ? 'assigned' : undefined,
+      permissions: hasModPermissions ? 'has_mod_perms' : 'none'
+    })
+
+    return result
   }
 
   @Get(':id/moderators')
@@ -145,9 +269,19 @@ export class SubredditsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async remove(@Param('id') id: string) {
-    await this.service.remove(id)
+  @UseGuards(JwtAuthGuard)
+  async remove(@Param('id') id: string, @Req() req: any) {
+    // Only the creator can delete the subreddit
+    await this.service.deleteSubreddit(id, req.user)
   }
+
+  @Post(':id/transfer-ownership')
+  @UseGuards(JwtAuthGuard)
+  async transferOwnership(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    const { newOwnerId } = body
+    return this.service.transferOwnership(id, req.user, newOwnerId)
+  }
+
   @Get('check-name/:name')
   async getByName(@Param('name') name: string) {
     const res = await this.service.nameAvailability(name)
@@ -158,5 +292,12 @@ export class SubredditsController {
     } else {
       return { available: true }
     }
+  }
+
+  @Post(':id/fix-creator-flags')
+  @UseGuards(JwtAuthGuard)
+  async fixCreatorFlags(@Param('id') id: string, @Req() req: any) {
+    // Migration endpoint to fix creator statusFlags for existing subreddits
+    return this.service.fixCreatorFlags(id, req.user)
   }
 }

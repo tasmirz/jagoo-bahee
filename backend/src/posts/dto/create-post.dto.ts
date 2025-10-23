@@ -1,6 +1,15 @@
 import { IsArray, IsEnum, IsMongoId, IsOptional, IsString, MaxLength, ArrayUnique } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 
+enum PostType {
+  TEXT = 'text',
+  LINK = 'link',
+  IMAGE = 'image',
+  VIDEO = 'video',
+  AUDIO = 'audio',
+  CROSSPOST = 'crosspost'
+}
+
 export class CreatePostDto {
   @ApiProperty({ example: '665b3f2a9c5a7d0012a1b234' })
   @IsMongoId()
@@ -15,9 +24,9 @@ export class CreatePostDto {
   @MaxLength(300)
   title: string
 
-  @ApiProperty({ enum: ['text', 'link', 'image', 'video', 'crosspost'] })
-  @IsEnum(['text', 'link', 'image', 'video', 'crosspost'])
-  type: 'text' | 'link' | 'image' | 'video' | 'crosspost'
+  @ApiProperty({ enum: PostType })
+  @IsEnum(PostType)
+  type: PostType
 
   @ApiPropertyOptional({ example: 'Markdown content' })
   @IsOptional()

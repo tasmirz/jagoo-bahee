@@ -9,6 +9,7 @@ import { AttachmentsModule } from 'src/attachments/attachments.module'
 import { SubredditsModule } from 'src/subreddits/subreddits.module'
 import { AuthModule } from 'src/auth/auth.module'
 import { CommentsModule } from 'src/comments/comments.module'
+
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: Post.name, schema: PostSchema }]),

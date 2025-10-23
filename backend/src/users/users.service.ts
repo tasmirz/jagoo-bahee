@@ -21,6 +21,10 @@ export class UsersService {
     return this.userModel.findById(id).exec()
   }
 
+  async findByUsername(username: string): Promise<User | null> {
+    return this.userModel.findOne({ username }).exec()
+  }
+
   // With the new schema the User document _id will be the same as the Auth document _id.
   // findByAuthId is equivalent to findById on this model.
   async findByAuthId(authId: string | Types.ObjectId): Promise<User | null> {
@@ -133,6 +137,30 @@ export class UsersService {
     return this.savedContentModel.findOneAndDelete({ userId, targetId, targetType }).exec()
   }
 
+  async getSavedContent(userId: Types.ObjectId, targetType?: string) {
+    console.log('[getSavedContent] userId:', userId, 'targetType:', targetType)
+    const filter: any = { userId }
+    if (targetType) filter.targetType = targetType
+
+    const savedItems = await this.savedContentModel.find(filter).populate('targetId').sort({ createdAt: -1 }).exec()
+    console.log(`[getSavedContent] Found ${savedItems.length} saved items`)
+
+    // Log what we got
+    savedItems.forEach((item, idx) => {
+      console.log(`[getSavedContent] Item ${idx}: targetType=${item.targetType}, targetId populated=${!!item.targetId}`)
+    })
+
+    // Return the actual posts/comments, not the SavedContent wrappers
+    const results = savedItems.map(item => item.targetId).filter(item => item != null)
+    console.log(`[getSavedContent] Returning ${results.length} populated items`)
+    return results
+  }
+
+  async isSaved(userId: Types.ObjectId, targetId: Types.ObjectId): Promise<boolean> {
+    const doc = await this.savedContentModel.findOne({ userId, targetId }).exec()
+    return !!doc
+  }
+
   // -- Blocking --
   async blockUser(blockerId: Types.ObjectId, blockedId: Types.ObjectId, reason?: string) {
     if (String(blockerId) === String(blockedId)) throw new Error('Cannot block yourself')
@@ -167,5 +195,17 @@ export class UsersService {
     else update.$inc = { commentKarma: delta }
     const doc = await this.userModel.findByIdAndUpdate(userId, update, { new: true }).exec()
     return doc
+  }
+
+  async findAll(filter: any = {}, limit = 50, skip = 0) {
+    const docs = await this.userModel
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
+      .skip(Number(skip))
+      .select('_id username displayName avatar bio karma createdAt')
+      .lean()
+      .exec()
+    return docs
   }
 }
