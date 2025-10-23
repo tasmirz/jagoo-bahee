@@ -562,6 +562,14 @@ export class SubredditsService {
     }
     if (!profileId) profileId = String(user.id)
 
+    // Prevent creator from leaving their own subreddit
+    if (String(subreddit.createdBy) === String(profileId)) {
+      throw new HttpException(
+        'Subreddit creator cannot leave. Transfer ownership or delete the subreddit instead.',
+        HttpStatus.FORBIDDEN
+      )
+    }
+
     const res = await this.memberModel
       .findOneAndDelete({ subredditId: subreddit._id, userId: new Types.ObjectId(profileId) })
       .exec()
@@ -628,6 +636,9 @@ export class SubredditsService {
       })
       await member.save()
 
+      // Increment memberCount for the creator
+      await this.model.findByIdAndUpdate(createdSub._id, { $inc: { memberCount: 1 } }).exec()
+
       // Create creator role with ALL permissions (use ALL_PERMISSIONS bit)
       const role = new this.roleModel({
         name: 'Creator',
@@ -687,7 +698,13 @@ export class SubredditsService {
   }
 
   async findAll(filter: any = {}, limit = 50, skip = 0): Promise<Subreddit[]> {
-    return this.model.find(filter).sort({ createdAt: -1 }).limit(limit).skip(skip).exec()
+    return this.model
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(skip)
+      .populate('createdBy', 'username')
+      .exec()
   }
 
   async findOne(idOrName: string): Promise<Subreddit | null> {

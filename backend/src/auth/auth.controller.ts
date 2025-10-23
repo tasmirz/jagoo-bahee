@@ -18,7 +18,8 @@ export class AuthController {
       httpOnly: true,
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
-      maxAge: 1000 * 60 * 1400 // 30 minutes
+      maxAge: 1000 * 60 * 15, // 15 minutes
+      path: '/'
     })
 
     // Set refresh token cookie (7 days)
@@ -26,8 +27,8 @@ export class AuthController {
       httpOnly: true,
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
-      maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days
-      // Removed path restriction so cookie is sent with all requests
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+      path: '/'
     })
 
     return { accessToken, refreshToken }
@@ -50,7 +51,8 @@ export class AuthController {
       httpOnly: true,
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
-      maxAge: 1000 * 60 * 15 // 15 minutes
+      maxAge: 1000 * 60 * 15, // 15 minutes
+      path: '/'
     })
 
     return { accessToken: newAccessToken }
@@ -64,15 +66,16 @@ export class AuthController {
     res.clearCookie('jid', {
       httpOnly: true,
       secure: isProd,
-      sameSite: isProd ? 'none' : 'lax'
+      sameSite: isProd ? 'none' : 'lax',
+      path: '/'
     })
 
     // Clear refresh token cookie
     res.clearCookie('refreshToken', {
       httpOnly: true,
       secure: isProd,
-      sameSite: isProd ? 'none' : 'lax'
-      // Removed path to match cookie creation
+      sameSite: isProd ? 'none' : 'lax',
+      path: '/'
     })
 
     return { success: true, message: 'Logged out successfully' }

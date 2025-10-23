@@ -82,6 +82,12 @@ export class SubredditsController {
     return this.service.join(id, req.user)
   }
 
+  @Delete(':id/join')
+  @UseGuards(JwtAuthGuard)
+  async unjoin(@Param('id') id: string, @Req() req: any) {
+    return this.service.leave(id, req.user)
+  }
+
   @Post(':id/leave')
   @UseGuards(JwtAuthGuard)
   async leave(@Param('id') id: string, @Req() req: any) {

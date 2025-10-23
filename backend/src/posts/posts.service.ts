@@ -53,6 +53,41 @@ export class PostsService {
     return obj
   }
 
+  /**
+   * Add presigned URLs to populated attachments
+   * Converts attachmentIds array from populated objects to include viewUrl
+   */
+  private async addPresignedUrlsToAttachments(post: any): Promise<any> {
+    if (!post.attachmentIds || !Array.isArray(post.attachmentIds) || post.attachmentIds.length === 0) {
+      return post
+    }
+
+    try {
+      const attachmentsWithUrls = await Promise.all(
+        post.attachmentIds.map(async (attachment: any) => {
+          // If it's a populated object with minioKey
+          if (attachment && typeof attachment === 'object' && attachment.minioKey) {
+            const viewUrl = await this.attachments.minio.presignedGetObject(attachment.minioKey, 24 * 60 * 60)
+            return {
+              ...attachment,
+              viewUrl,
+              downloadUrl: viewUrl // Same URL can be used for download
+            }
+          }
+          // If it's just an ObjectId (not populated), return as-is
+          return attachment
+        })
+      )
+      post.attachmentIds = attachmentsWithUrls
+      post.attachments = attachmentsWithUrls // Add as 'attachments' for frontend compatibility
+    } catch (error) {
+      console.error('[PostsService] Error generating presigned URLs:', error)
+      // Don't fail the request, just return without URLs
+    }
+
+    return post
+  }
+
   async create(data: Partial<Post>) {
     if (!data.title || typeof data.title !== 'string') throw new BadRequestException('title required')
     if (!data.subredditId) throw new BadRequestException('subredditId required')
@@ -130,9 +165,17 @@ export class PostsService {
       .findById(id)
       .populate({ path: 'subredditId', select: 'name displayName icon' })
       .populate({ path: 'authorId', select: 'username displayName avatar karma' })
+      .populate({
+        path: 'attachmentIds',
+        select: 'minioKey originalFilename mimeType type sizeBytes width height contentHash'
+      })
       .exec()
     if (!doc) throw new NotFoundException('Post not found')
-    const result = this.convertBigIntToString(doc)
+    let result = this.convertBigIntToString(doc)
+
+    // Add presigned URLs to attachments
+    result = await this.addPresignedUrlsToAttachments(result)
+
     // Add populated fields as expected by frontend
     if (result.subredditId) result.subreddit = result.subredditId
     if (result.authorId) result.author = result.authorId
@@ -206,6 +249,10 @@ export class PostsService {
       .skip(Number(skip))
       .populate({ path: 'subredditId', select: 'name displayName icon' })
       .populate({ path: 'authorId', select: 'username displayName avatar karma' })
+      .populate({
+        path: 'attachmentIds',
+        select: 'minioKey originalFilename mimeType type sizeBytes width height contentHash'
+      })
       .lean()
       .exec()
 
@@ -259,12 +306,23 @@ export class PostsService {
 
     activePosts = activePosts.slice(0, Number(limit)) // Apply original limit after filtering
 
-    return activePosts.map((d: any) => ({
-      ...d,
-      subreddit: d.subredditId || undefined,
-      author: d.authorId || undefined,
-      statusFlags: d.statusFlags !== undefined && d.statusFlags !== null ? String(d.statusFlags) : d.statusFlags
-    }))
+    // Add presigned URLs to attachments for all posts
+    const postsWithUrls = await Promise.all(
+      activePosts.map(async (d: any) => {
+        const postWithUrls = await this.addPresignedUrlsToAttachments(d)
+        return {
+          ...postWithUrls,
+          subreddit: postWithUrls.subredditId || undefined,
+          author: postWithUrls.authorId || undefined,
+          statusFlags:
+            postWithUrls.statusFlags !== undefined && postWithUrls.statusFlags !== null
+              ? String(postWithUrls.statusFlags)
+              : postWithUrls.statusFlags
+        }
+      })
+    )
+
+    return postsWithUrls
   }
 
   async updateByAuthor(id: string, authorId: string, update: Partial<Post>) {

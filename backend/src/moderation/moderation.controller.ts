@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Req } from '@nestjs/common'
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, Req, HttpException } from '@nestjs/common'
 import { getServerPublicKeyBase64, serverKeyId } from 'src/common/server-sign.util'
 import { ApiTags } from '@nestjs/swagger'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
@@ -101,6 +101,11 @@ export class ModerationController {
   @UseGuards(JwtAuthGuard)
   @Get('subreddits/:subredditId/reports/count')
   async getReportsCount(@Param('subredditId') subredditId: string) {
+    // Validate ObjectId format
+    if (!Types.ObjectId.isValid(subredditId)) {
+      throw new HttpException('Invalid subreddit ID format', 400)
+    }
+
     const pending = await this.reportModel.countDocuments({
       subredditId: new Types.ObjectId(subredditId),
       status: 'pending'

@@ -7,6 +7,7 @@ import { Role } from './schemas/role.schema'
 import { UserRole } from './schemas/user-role.schema'
 import { SubredditsService } from 'src/subreddits/subreddits.service'
 import { SubredditPermissionsCacheService } from 'src/subreddits/subreddit-permissions-cache.service'
+import { User } from 'src/users/schemas/user.schema'
 
 @ApiTags('roles')
 @Controller('roles')
@@ -14,6 +15,7 @@ export class RolesController {
   constructor(
     @InjectModel(Role.name) private roleModel: Model<Role>,
     @InjectModel(UserRole.name) private userRoleModel: Model<UserRole>,
+    @InjectModel(User.name) private userModel: Model<User>,
     private subredditsService: SubredditsService,
     private permissionsCache: SubredditPermissionsCacheService
   ) {}
@@ -21,11 +23,84 @@ export class RolesController {
   // Get all roles for a subreddit
   @Get('subreddit/:subredditName')
   @UseGuards(JwtAuthGuard)
-  async getRolesForSubreddit(@Param('subredditName') subredditName: string) {
+  async getRolesForSubreddit(@Param('subredditName') subredditName: string): Promise<any[]> {
     const subreddit = await this.subredditsService.findOne(subredditName)
     if (!subreddit) return []
 
-    return this.roleModel.find({ subredditId: subreddit._id }).exec()
+    // Get all roles including system roles
+    const roles = await this.roleModel.find({ subredditId: subreddit._id }).exec()
+
+    // Add owner as a special role if not already present
+    const hasOwnerRole = roles.some(r => r.name === 'Owner')
+    if (!hasOwnerRole && subreddit.createdBy) {
+      // Create a virtual owner role for display
+      roles.unshift({
+        _id: 'owner',
+        name: 'Owner',
+        subredditId: subreddit._id,
+        permissions: '268435455', // All permissions as string (0xFFFFFFFF = 268435455)
+        isSystemRole: true,
+        createdAt: subreddit.createdAt,
+        updatedAt: subreddit.updatedAt
+      } as any)
+    }
+
+    // Convert BigInt permissions to strings for JSON serialization
+    return roles.map(role => {
+      const roleObj = role.toObject ? role.toObject() : role
+      return {
+        ...roleObj,
+        permissions:
+          typeof roleObj.permissions === 'bigint' ? roleObj.permissions.toString() : String(roleObj.permissions)
+      }
+    })
+  }
+
+  // Get moderators for a subreddit (users with roles)
+  @Get('subreddit/:subredditName/moderators')
+  @UseGuards(JwtAuthGuard)
+  async getModeratorsForSubreddit(@Param('subredditName') subredditName: string) {
+    const subreddit = await this.subredditsService.findOne(subredditName)
+    if (!subreddit) return []
+
+    // Get all user-role assignments for this subreddit
+    const userRoles = await this.userRoleModel
+      .find({ subredditId: subreddit._id })
+      .populate('userId', 'username publicKey')
+      .populate('roleId')
+      .exec()
+
+    // Add the owner
+    const owner = await this.userModel.findById(subreddit.createdBy).select('username').exec()
+    const moderators: any[] = []
+
+    if (owner) {
+      moderators.push({
+        user: {
+          _id: owner._id,
+          username: owner.username
+        },
+        role: {
+          _id: 'owner',
+          name: 'Owner',
+          isSystemRole: true
+        },
+        createdAt: subreddit.createdAt
+      })
+    }
+
+    // Add other moderators
+    for (const ur of userRoles) {
+      if (ur.userId && ur.roleId) {
+        moderators.push({
+          user: ur.userId,
+          role: ur.roleId,
+          createdAt: ur.createdAt
+        })
+      }
+    }
+
+    return moderators
   }
 
   // Create a new role
@@ -46,7 +121,12 @@ export class RolesController {
       isSystemRole: false
     })
 
-    return role
+    // Convert BigInt to string for JSON serialization
+    const roleObj = role.toObject()
+    return {
+      ...roleObj,
+      permissions: typeof roleObj.permissions === 'bigint' ? roleObj.permissions.toString() : roleObj.permissions
+    }
   }
 
   // Update role permissions
@@ -60,6 +140,15 @@ export class RolesController {
     // Invalidate cache for all users in this subreddit since permissions changed
     if (role && role.subredditId) {
       await this.permissionsCache.invalidateSubreddit(String(role.subredditId))
+    }
+
+    // Convert BigInt to string for JSON serialization
+    if (role) {
+      const roleObj = role.toObject()
+      return {
+        ...roleObj,
+        permissions: typeof roleObj.permissions === 'bigint' ? roleObj.permissions.toString() : roleObj.permissions
+      }
     }
 
     return role

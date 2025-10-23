@@ -14,6 +14,7 @@ import { NotificationsModule } from './notifications/notifications.module'
 import { MessagesModule } from './messages/messages.module'
 import { AwardsModule } from './awards/awards.module'
 import { VotesModule } from './votes/votes.module'
+import { RolesModule } from './roles/roles.module'
 
 @Module({
   imports: [
@@ -28,7 +29,8 @@ import { VotesModule } from './votes/votes.module'
     VotesModule,
     NotificationsModule,
     AwardsModule,
-    MessagesModule
+    MessagesModule,
+    RolesModule
   ],
   controllers: [AppController],
   providers: [AppService]
