@@ -1,7 +1,6 @@
-import { CanActivate, ExecutionContext, Injectable, ForbiddenException, Inject } from '@nestjs/common'
+import { CanActivate, ExecutionContext, Injectable, ForbiddenException } from '@nestjs/common'
 import { Request } from 'express'
 import { SubredditMembersService } from '../subreddit-members.service'
-import { SubredditsService } from '../subreddits.service'
 
 /**
  * Guard that allows action if the user is:
@@ -10,10 +9,7 @@ import { SubredditsService } from '../subreddits.service'
  */
 @Injectable()
 export class SubredditRbacGuard implements CanActivate {
-  constructor(
-    private readonly membersService: SubredditMembersService,
-    private readonly subredditsService: SubredditsService
-  ) {}
+  constructor(private readonly membersService: SubredditMembersService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req: Request & { user?: any } = context.switchToHttp().getRequest()
@@ -27,15 +23,14 @@ export class SubredditRbacGuard implements CanActivate {
     if (isGlobalAdmin || isGlobalMod) return true
 
     // otherwise check subreddit moderator role
-    // subreddit id may be in params: :subredditId or :id (for subreddit update)
+    // subreddit id may be in params: :subredditId or :id, or in request body for post/comment moderation
     const params = req.params as any
-    const subredditId = params.subredditId || params.id
+    const body = (req as any).body || {}
+    const subredditId = params.subredditId || body.subredditId || params.id
     if (!subredditId) throw new ForbiddenException('Missing subreddit id')
 
-    // find the member record for this user (direct lookup)
-    const member = await this.membersService.findBySubredditAndUser(subredditId, String(user.id)) // TODO: use redis later
-    const isModerator = !!member && (BigInt(member.statusFlags || 0) & (BigInt(1) << BigInt(3))) !== BigInt(0)
-    if (isModerator) return true
+    const summary = await this.membersService.getPermissionSummary(subredditId, String(user.id))
+    if (summary?.isModerator || summary?.permissions.includes('community.update')) return true
 
     throw new ForbiddenException('Requires moderator or admin')
   }

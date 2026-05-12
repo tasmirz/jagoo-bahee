@@ -14,6 +14,7 @@ import { AttachmentsModule } from 'src/attachments/attachments.module'
 import { SubredditSchedulerService } from './subreddit-scheduler.service'
 import { AuthModule } from 'src/auth/auth.module'
 import { RedisModule } from 'src/redis/redis.module'
+import { SubredditPermissionsCacheService } from './subreddit-permissions-cache.service'
 
 @Module({
   imports: [
@@ -30,7 +31,7 @@ import { RedisModule } from 'src/redis/redis.module'
     RedisModule
   ],
   controllers: [SubredditsController, SubredditMembersController],
-  providers: [SubredditsService, SubredditMembersService, SubredditRbacGuard, SubredditSchedulerService],
-  exports: [SubredditsService, SubredditMembersService, SubredditRbacGuard, SubredditSchedulerService]
+  providers: [SubredditsService, SubredditMembersService, SubredditRbacGuard, SubredditSchedulerService, SubredditPermissionsCacheService],
+  exports: [SubredditsService, SubredditMembersService, SubredditRbacGuard, SubredditSchedulerService, SubredditPermissionsCacheService]
 })
 export class SubredditsModule {}

@@ -12,6 +12,9 @@ export class CreateMessageDto {
   @IsString()
   content: string
 
+  @IsString()
+  contentHash: string
+
   @IsArray()
   @IsMongoId({ each: true })
   @IsOptional()

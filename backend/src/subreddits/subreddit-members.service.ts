@@ -4,8 +4,23 @@ import { Model, Types } from 'mongoose'
 import { SubredditMember } from './schemas/subreddit-member.schema'
 import { ModLogService } from 'src/moderation/mod-log.service'
 import { RedisService } from 'src/redis/redis.service'
+import { COMMUNITY_ROLE_BITS, permissionNames, permissionsForRoleMask } from './community-permissions'
 
 type MemberType = 'member' | 'muted' | 'banned' | 'moderator' | 'contributor'
+
+export interface SubredditPermissionSummary {
+  subredditId: string
+  userId: string
+  statusFlags: string
+  roleFlags: string
+  permissionMask: string
+  isMember: boolean
+  isMuted: boolean
+  isBanned: boolean
+  isModerator: boolean
+  isContributor: boolean
+  permissions: string[]
+}
 
 const MEMBER_TYPE_FLAGS: Record<MemberType, bigint> = {
   member: BigInt(1),
@@ -26,7 +41,9 @@ export class SubredditMembersService {
   async addMember(data: Partial<SubredditMember>): Promise<SubredditMember> {
     try {
       const created = new this.model(data)
-      return await created.save()
+      const saved = await created.save()
+      await this.invalidatePermissionCache(String(saved.subredditId), String(saved.userId))
+      return saved
     } catch (err) {
       throw new HttpException(err.message || 'Could not add member', HttpStatus.BAD_REQUEST)
     }
@@ -41,6 +58,8 @@ export class SubredditMembersService {
     options: { q?: string; type?: string; limit?: number; skip?: number } = {}
   ): Promise<any[]> {
     const { q, type, limit = 50, skip = 0 } = options
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100)
+    const safeSkip = Math.min(Math.max(Number(skip) || 0, 0), 10000)
     if (!Types.ObjectId.isValid(subredditId)) return []
 
     const pipeline: any[] = [
@@ -103,8 +122,8 @@ export class SubredditMembersService {
 
     // sort, paginate
     pipeline.push({ $sort: { createdAt: -1 } })
-    pipeline.push({ $skip: skip })
-    pipeline.push({ $limit: limit })
+    pipeline.push({ $skip: safeSkip })
+    pipeline.push({ $limit: safeLimit })
 
     const results = await this.model.aggregate(pipeline).exec()
     return results
@@ -117,7 +136,9 @@ export class SubredditMembersService {
 
   async remove(id: string): Promise<boolean> {
     if (!Types.ObjectId.isValid(id)) return false
+    const existing = await this.model.findById(id).lean().exec()
     const res = await this.model.findByIdAndDelete(id).exec()
+    if (existing) await this.invalidatePermissionCache(String(existing.subredditId), String(existing.userId))
     return !!res
   }
 
@@ -129,6 +150,7 @@ export class SubredditMembersService {
   ): Promise<SubredditMember | null> {
     if (!Types.ObjectId.isValid(id)) return null
     const updated = await this.model.findByIdAndUpdate(id, { statusFlags }, { new: true }).exec()
+    if (updated) await this.invalidatePermissionCache(String(updated.subredditId), String(updated.userId))
     try {
       if (updated) {
         await this.modLogService.createLog({
@@ -166,6 +188,7 @@ export class SubredditMembersService {
     const newFlags = flags | (BigInt(1) << BigInt(2))
     update.statusFlags = newFlags
     const updated = await this.model.findByIdAndUpdate(id, update, { new: true }).exec()
+    if (updated) await this.invalidatePermissionCache(String(updated.subredditId), String(updated.userId))
     try {
       if (updated) {
         await this.modLogService.createLog({
@@ -188,21 +211,80 @@ export class SubredditMembersService {
   async findBySubredditAndUser(subredditId: string, userId: string): Promise<SubredditMember | null> {
     if (!Types.ObjectId.isValid(subredditId) || !Types.ObjectId.isValid(userId)) return null
 
-    const cacheKey = `member:${subredditId}:${userId}`
-    try {
-      const cached = await this.redis.getClient().get(cacheKey)
-      if (cached) return JSON.parse(cached)
-    } catch (e) {}
+    const cacheKey = this.memberCacheKey(subredditId, userId)
+    const cached = await this.redis.getJson<SubredditMember>(cacheKey)
+    if (cached) return cached as any
 
     const member = await this.model
       .findOne({ subredditId: new Types.ObjectId(subredditId), userId: new Types.ObjectId(userId) })
+      .lean()
       .exec()
 
     if (member) {
-      try {
-        await this.redis.getClient().set(cacheKey, JSON.stringify(member), 'EX', 300)
-      } catch (e) {}
+      await this.redis.setJson(cacheKey, member, Number(process.env.PERMISSION_CACHE_TTL_SECONDS || 300))
     }
-    return member
+    return member as any
+  }
+
+  async getPermissionSummary(subredditId: string, userId: string): Promise<SubredditPermissionSummary | null> {
+    if (!Types.ObjectId.isValid(subredditId) || !Types.ObjectId.isValid(userId)) return null
+    const cacheKey = this.permissionCacheKey(subredditId, userId)
+    return this.redis.rememberJson(cacheKey, Number(process.env.PERMISSION_CACHE_TTL_SECONDS || 300), async () => {
+      const member = await this.model
+        .findOne({ subredditId: new Types.ObjectId(subredditId), userId: new Types.ObjectId(userId) })
+        .lean()
+        .exec()
+      if (!member) return null
+      return this.buildPermissionSummary(
+        subredditId,
+        userId,
+        BigInt((member as any).statusFlags || 0),
+        BigInt((member as any).roleFlags || this.defaultRoleFlags(BigInt((member as any).statusFlags || 0))),
+        BigInt((member as any).permissionOverrides || 0)
+      )
+    })
+  }
+
+  async invalidatePermissionCache(subredditId: string, userId: string): Promise<void> {
+    await this.redis.delKeys(this.memberCacheKey(subredditId, userId), this.permissionCacheKey(subredditId, userId))
+  }
+
+  private buildPermissionSummary(subredditId: string, userId: string, flags: bigint, roleFlags = this.defaultRoleFlags(flags), permissionOverrides = BigInt(0)): SubredditPermissionSummary {
+    const isMember = (flags & MEMBER_TYPE_FLAGS.member) !== BigInt(0)
+    const isMuted = (flags & MEMBER_TYPE_FLAGS.muted) !== BigInt(0)
+    const isBanned = (flags & MEMBER_TYPE_FLAGS.banned) !== BigInt(0)
+    const isModerator = (flags & MEMBER_TYPE_FLAGS.moderator) !== BigInt(0)
+    const isContributor = (flags & MEMBER_TYPE_FLAGS.contributor) !== BigInt(0)
+    const permissionMask = permissionsForRoleMask(roleFlags) | permissionOverrides
+
+    return {
+      subredditId,
+      userId,
+      statusFlags: flags.toString(),
+      roleFlags: roleFlags.toString(),
+      permissionMask: permissionMask.toString(),
+      isMember,
+      isMuted,
+      isBanned,
+      isModerator,
+      isContributor,
+      permissions: permissionNames(permissionMask)
+    }
+  }
+
+  private defaultRoleFlags(statusFlags: bigint) {
+    let roleFlags = BigInt(0)
+    if ((statusFlags & MEMBER_TYPE_FLAGS.member) !== BigInt(0)) roleFlags |= COMMUNITY_ROLE_BITS.member
+    if ((statusFlags & MEMBER_TYPE_FLAGS.contributor) !== BigInt(0)) roleFlags |= COMMUNITY_ROLE_BITS.contributor
+    if ((statusFlags & MEMBER_TYPE_FLAGS.moderator) !== BigInt(0)) roleFlags |= COMMUNITY_ROLE_BITS.moderator
+    return roleFlags
+  }
+
+  private memberCacheKey(subredditId: string, userId: string) {
+    return `jb:member:${subredditId}:${userId}`
+  }
+
+  private permissionCacheKey(subredditId: string, userId: string) {
+    return `jb:permissions:${subredditId}:${userId}`
   }
 }

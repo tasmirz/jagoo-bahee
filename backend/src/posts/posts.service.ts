@@ -6,11 +6,11 @@ import { ModLogService } from 'src/moderation/mod-log.service'
 import { AttachmentsService } from 'src/attachments/attachments.service'
 import { SubredditsService } from 'src/subreddits/subreddits.service'
 import { verifySignature, getAuthPublicKeyById } from 'src/common/signature.util'
-import { createHmac } from 'crypto'
-import { jwtConfig } from 'src/config/jwt.config'
+import { createHash } from 'crypto'
 import { signServerMessage, serverKeyId } from 'src/common/server-sign.util'
 import { AuthService } from '../auth/auth.service'
 import { ServerAcknowledgementsService } from 'src/moderation/server-acknowledgements.service'
+import { RedisService } from 'src/redis/redis.service'
 
 const POST_FLAGS = {
   ACTIVE: 1 << 0,
@@ -33,8 +33,23 @@ export class PostsService {
     private readonly attachments: AttachmentsService,
     private readonly subreddits: SubredditsService,
     private readonly authService: AuthService,
-    private readonly acks: ServerAcknowledgementsService
+    private readonly acks: ServerAcknowledgementsService,
+    private readonly redis: RedisService
   ) {}
+
+  private readonly cacheTtlSeconds = Number(process.env.CACHE_TTL_SECONDS || 60)
+
+  private async invalidatePostCache(post?: any) {
+    await this.redis.delPattern('jb:posts:list:*')
+    if (post?._id) {
+      await this.redis.delKeys(`jb:posts:one:${String(post._id)}`)
+      await this.redis.delPattern(`jb:comments:post:${String(post._id)}:*`)
+    }
+    if (post?.subredditId) {
+      const subredditId = typeof post.subredditId === 'object' && post.subredditId._id ? post.subredditId._id : post.subredditId
+      await this.redis.delPattern(`jb:posts:list:*${String(subredditId)}*`)
+    }
+  }
 
   private toId(id: string | Types.ObjectId) {
     return typeof id === 'string' ? new Types.ObjectId(id) : id
@@ -47,6 +62,65 @@ export class PostsService {
       obj.statusFlags = String(obj.statusFlags)
     }
     return obj
+  }
+
+  private assertContentHash(canonical: string, provided?: string) {
+    const digest = createHash('sha256').update(canonical).digest()
+    const hex = digest.toString('hex')
+    const base64 = digest.toString('base64')
+    if (!provided || (provided !== hex && provided !== base64)) {
+      throw new BadRequestException('contentHash does not match canonical payload')
+    }
+  }
+
+  private assertPostSubreddit(doc: Post, subredditId: string) {
+    if (String((doc as any).subredditId) !== String(subredditId)) {
+      throw new ForbiddenException('Post does not belong to the supplied subreddit')
+    }
+  }
+
+  private buildCreateCanonical(data: Partial<Post>) {
+    return JSON.stringify({
+      title: data.title,
+      content: data.content || '',
+      type: data.type,
+      subredditId: String(data.subredditId),
+      authorId: String(data.authorId),
+      url: (data as any).url || '',
+      attachmentIds: Array.isArray((data as any).attachmentIds) ? (data as any).attachmentIds.map(String) : [],
+      poll: (data as any).poll || null
+    })
+  }
+
+  private buildLegacyCreateCanonical(data: Partial<Post>) {
+    return JSON.stringify({
+      title: data.title,
+      content: data.content || '',
+      type: data.type,
+      subredditId: String(data.subredditId),
+      authorId: String(data.authorId)
+    })
+  }
+
+  private async attachAuthorPublicKeys<T extends any>(docs: T[]): Promise<T[]> {
+    const ids = Array.from(
+      new Set(
+        docs
+          .map((doc: any) => (typeof doc.authorId === 'object' && doc.authorId?._id ? String(doc.authorId._id) : String(doc.authorId || '')))
+          .filter(Boolean)
+      )
+    )
+    if (ids.length === 0) return docs
+    const auths = await (this as any).model.db
+      .collection('auths')
+      .find({ _id: { $in: ids.map((id) => new Types.ObjectId(id)) } })
+      .project({ publicKey: 1 })
+      .toArray()
+    const keyById = new Map(auths.map((auth: any) => [String(auth._id), Buffer.from(auth.publicKey?.buffer || auth.publicKey).toString('base64')]))
+    return docs.map((doc: any) => {
+      const authorId = typeof doc.authorId === 'object' && doc.authorId?._id ? String(doc.authorId._id) : String(doc.authorId || '')
+      return { ...doc, authorPublicKey: keyById.get(authorId) }
+    })
   }
 
   async create(data: Partial<Post>) {
@@ -84,17 +158,16 @@ export class PostsService {
     }
 
     // Verify user signature: canonical JSON ordering
-    const payloadObj = {
-      title: data.title,
-      content: data.content || '',
-      type: data.type,
-      subredditId: String(data.subredditId),
-      authorId: String(data.authorId)
+    const canonical = this.buildCreateCanonical(data)
+    const legacyCanonical = this.buildLegacyCreateCanonical(data)
+    try {
+      this.assertContentHash(canonical, String(data.contentHash))
+    } catch (error) {
+      this.assertContentHash(legacyCanonical, String(data.contentHash))
     }
-    const canonical = JSON.stringify(payloadObj)
     const pub = await getAuthPublicKeyById((this as any).model.db, String(data.authorId))
     if (!pub) throw new BadRequestException('author public key not found')
-    const ok = verifySignature(pub, canonical, String(data.userSignature))
+    const ok = verifySignature(pub, canonical, String(data.userSignature)) || verifySignature(pub, legacyCanonical, String(data.userSignature))
     if (!ok) throw new BadRequestException('user signature verification failed')
 
     // Create the post
@@ -124,13 +197,26 @@ export class PostsService {
       // ignore
     }
 
-    return this.convertBigIntToString(doc)
+    const result = this.convertBigIntToString(doc)
+    await this.invalidatePostCache(result)
+    return result
   }
 
   async findById(id: string) {
-    const doc = await this.model.findById(id).populate('authorId', 'username').populate({ path: 'subredditId', select: 'name' })
+    const key = `jb:posts:one:${id}`
+    const doc = await this.redis.rememberJson<any>(key, this.cacheTtlSeconds, async () => {
+      const found = await this.model
+        .findById(id)
+        .populate('authorId', 'username')
+        .populate({ path: 'subredditId', select: 'name' })
+        .lean()
+        .exec()
+      if (!found) return null
+      const [withKey] = await this.attachAuthorPublicKeys([this.convertBigIntToString(found)])
+      return withKey
+    })
     if (!doc) throw new NotFoundException('Post not found')
-    return this.convertBigIntToString(doc)
+    return doc
   }
 
   async updateByAuthor(id: string, authorId: string, update: Partial<Post>) {
@@ -139,7 +225,9 @@ export class PostsService {
     if (String(docRaw.authorId) !== String(authorId)) throw new ForbiddenException('Not the author')
     Object.assign(docRaw, update, { editedAt: new Date() })
     await docRaw.save()
-    return this.convertBigIntToString(docRaw)
+    const result = this.convertBigIntToString(docRaw)
+    await this.invalidatePostCache(result)
+    return result
   }
 
   async removeByAuthor(id: string, authorId: string, deletionSignature?: string) {
@@ -173,14 +261,41 @@ export class PostsService {
         createdAt: new Date()
       })
     } catch (e) {}
-    return this.convertBigIntToString(docRaw)
+    const result = this.convertBigIntToString(docRaw)
+    await this.invalidatePostCache(result)
+    return result
   }
 
   /** Return stored verification info for a post (contentHash, userSignature, server acknowledgements) */
   async getVerification(id: string) {
     const doc = await this.findById(id)
     const acks = await this.acks.findByContent('post', doc._id)
-    return { contentHash: doc.contentHash, userSignature: doc.userSignature, serverAcknowledgements: acks }
+    return {
+      proofVersion: 1,
+      subjectType: 'post',
+      subjectId: String(doc._id),
+      contentHash: doc.contentHash,
+      userSignature: doc.userSignature,
+      serverAcknowledgements: acks
+    }
+  }
+
+  async verifyProof(proof: any) {
+    if (!proof || proof.subjectType !== 'post' || !proof.contentHash || !proof.userSignature) {
+      return { ok: false, reason: 'Invalid proof envelope' }
+    }
+    const doc = await this.model.findOne({ contentHash: String(proof.contentHash) }).lean().exec()
+    if (!doc) return { ok: false, reason: 'No local post found for contentHash', contentHash: proof.contentHash }
+    const acks = await this.acks.findByContent('post', (doc as any)._id)
+    const matchingAck = acks.find((ack: any) => ack.userSignature === proof.userSignature && ack.contentHash === proof.contentHash)
+    return {
+      ok: !!matchingAck,
+      reason: matchingAck ? 'Proof matches a local post acknowledgement' : 'Post exists, but acknowledgement/signature did not match',
+      subjectType: 'post',
+      subjectId: String((doc as any)._id),
+      contentHash: proof.contentHash,
+      localAcknowledgements: acks.length
+    }
   }
 
   /** Return audit trail (versions + acknowledgements) */
@@ -193,8 +308,7 @@ export class PostsService {
   }
 
   /** List posts with optional filter/pagination. Populates subreddit name for convenience. */
-  async findAll(filter: any = {}, limit = 50, skip = 0) {
-    console.log('findAll filter before resolution:', filter)
+  async findAll(filter: any = {}, limit = 50, skip = 0, sort: 'hot' | 'new' | 'top' | 'controversial' = 'hot') {
     const finalFilter = { ...filter }
     if (
       finalFilter.subredditId &&
@@ -206,29 +320,57 @@ export class PostsService {
         finalFilter.subredditId = sr._id
       }
     }
-    console.log('findAll filter after resolution:', finalFilter)
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100)
+    const safeSkip = Math.max(Number(skip) || 0, 0)
+    const sortSpec =
+      sort === 'new'
+        ? { createdAt: -1 }
+        : sort === 'top'
+          ? { score: -1, createdAt: -1 }
+          : sort === 'controversial'
+            ? { upvoteCount: -1, downvoteCount: -1, commentCount: -1, createdAt: -1 }
+            : { score: -1, commentCount: -1, createdAt: -1 }
+    const key = `jb:posts:list:${this.redis.stableStringify(finalFilter)}:${safeLimit}:${safeSkip}:${sort}`
+    return this.redis.rememberJson(key, this.cacheTtlSeconds, async () => {
+      const docs = await this.model
+        .find(finalFilter)
+        .sort(sortSpec as any)
+        .limit(safeLimit)
+        .skip(safeSkip)
+        .populate({ path: 'subredditId', select: 'name' })
+        .lean()
+        .exec()
 
-    const docs = await this.model
-      .find(finalFilter)
-      .sort({ createdAt: -1 })
-      .limit(Number(limit))
-      .skip(Number(skip))
-      .populate({ path: 'subredditId', select: 'name' })
-      .lean()
-      .exec()
-
-    console.log('findAll results:', docs)
-
-    // attach convenient subredditName and subreddit object to match frontend expectations
-    return docs.map((d: any) => {
-      const subreddit = d.subredditId || null
-      const result = { ...d, subredditName: subreddit ? subreddit.name : undefined, subreddit }
-      // Convert BigInt to string
-      if (result.statusFlags !== undefined && result.statusFlags !== null) {
-        result.statusFlags = String(result.statusFlags)
-      }
-      return result
+      // attach convenient subredditName and subreddit object to match frontend expectations
+      const mapped = docs.map((d: any) => {
+        const subreddit = d.subredditId || null
+        const result = { ...d, subredditName: subreddit ? subreddit.name : undefined, subreddit }
+        if (result.statusFlags !== undefined && result.statusFlags !== null) {
+          result.statusFlags = String(result.statusFlags)
+        }
+        return result
+      })
+      return this.attachAuthorPublicKeys(mapped)
     })
+  }
+
+  async suggest(q = '', limit = 8) {
+    const safeLimit = Math.min(Math.max(Number(limit) || 8, 1), 12)
+    const term = q.trim()
+    const filter = term
+      ? { $or: [{ title: { $regex: term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } }, { content: { $regex: term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } }] }
+      : {}
+    const key = `jb:posts:suggest:${term.toLowerCase()}:${safeLimit}`
+    return this.redis.rememberJson(key, this.cacheTtlSeconds, async () =>
+      this.model
+        .find(filter)
+        .sort({ score: -1, createdAt: -1 })
+        .limit(safeLimit)
+        .select('title score commentCount subredditId createdAt')
+        .populate({ path: 'subredditId', select: 'name' })
+        .lean()
+        .exec() as any
+    )
   }
 
   async vote(id: string, delta: -1 | 0 | 1) {
@@ -243,7 +385,9 @@ export class PostsService {
     // delta 0 could be implemented as pulling previous vote - omitted here
     const doc = await this.model.findByIdAndUpdate(id, { $inc: inc }, { new: true })
     if (!doc) throw new NotFoundException('Post not found')
-    return this.convertBigIntToString(doc)
+    const result = this.convertBigIntToString(doc)
+    await this.invalidatePostCache(result)
+    return result
   }
 
   /** Apply vote change from prevValue to newValue (each in -1|0|1) */
@@ -268,7 +412,9 @@ export class PostsService {
 
     const doc = await this.model.findByIdAndUpdate(id, { $inc: inc }, { new: true })
     if (!doc) throw new NotFoundException('Post not found')
-    return this.convertBigIntToString(doc)
+    const result = this.convertBigIntToString(doc)
+    await this.invalidatePostCache(result)
+    return result
   }
 
   async incCommentCount(id: string, delta = 1) {
@@ -278,13 +424,16 @@ export class PostsService {
       { new: true }
     )
     if (!doc) throw new NotFoundException('Post not found')
-    return this.convertBigIntToString(doc)
+    const result = this.convertBigIntToString(doc)
+    await this.invalidatePostCache(result)
+    return result
   }
 
   // Moderation actions
   async modApprove(postId: string, subredditId: string, moderatorId: string) {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
+    this.assertPostSubreddit(docRaw, subredditId)
     docRaw.statusFlags =
       BigInt(Number(docRaw.statusFlags) | POST_FLAGS.APPROVED) & ~BigInt(POST_FLAGS.FLAGGED | POST_FLAGS.REMOVED)
     await docRaw.save()
@@ -295,7 +444,9 @@ export class PostsService {
       targetType: 'post',
       targetId: postId
     })
-    return this.convertBigIntToString(docRaw)
+    const result = this.convertBigIntToString(docRaw)
+    await this.invalidatePostCache(result)
+    return result
   }
 
   async modRemove(
@@ -307,6 +458,7 @@ export class PostsService {
   ) {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
+    this.assertPostSubreddit(docRaw, subredditId)
     // require moderator signature to be provided
     const maybeSig = moderatorSignature
     if (!maybeSig) throw new BadRequestException('Missing moderator signature')
@@ -328,21 +480,27 @@ export class PostsService {
       reason,
       moderatorSignature: maybeSig
     } as any)
-    return this.convertBigIntToString(docRaw)
+    const result = this.convertBigIntToString(docRaw)
+    await this.invalidatePostCache(result)
+    return result
   }
 
   async modLock(postId: string, subredditId: string, moderatorId: string) {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
+    this.assertPostSubreddit(docRaw, subredditId)
     docRaw.statusFlags = BigInt(Number(docRaw.statusFlags) | POST_FLAGS.LOCKED)
     await docRaw.save()
     await this.modLog.createLog({ subredditId, moderatorId, action: 'post.lock', targetType: 'post', targetId: postId })
-    return this.convertBigIntToString(docRaw)
+    const result = this.convertBigIntToString(docRaw)
+    await this.invalidatePostCache(result)
+    return result
   }
 
   async modUnlock(postId: string, subredditId: string, moderatorId: string) {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
+    this.assertPostSubreddit(docRaw, subredditId)
     docRaw.statusFlags = BigInt(Number(docRaw.statusFlags) & ~POST_FLAGS.LOCKED)
     await docRaw.save()
     await this.modLog.createLog({
@@ -352,21 +510,27 @@ export class PostsService {
       targetType: 'post',
       targetId: postId
     })
-    return this.convertBigIntToString(docRaw)
+    const result = this.convertBigIntToString(docRaw)
+    await this.invalidatePostCache(result)
+    return result
   }
 
   async modPin(postId: string, subredditId: string, moderatorId: string) {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
+    this.assertPostSubreddit(docRaw, subredditId)
     docRaw.statusFlags = BigInt(Number(docRaw.statusFlags) | POST_FLAGS.PINNED)
     await docRaw.save()
     await this.modLog.createLog({ subredditId, moderatorId, action: 'post.pin', targetType: 'post', targetId: postId })
-    return this.convertBigIntToString(docRaw)
+    const result = this.convertBigIntToString(docRaw)
+    await this.invalidatePostCache(result)
+    return result
   }
 
   async modUnpin(postId: string, subredditId: string, moderatorId: string) {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
+    this.assertPostSubreddit(docRaw, subredditId)
     docRaw.statusFlags = BigInt(Number(docRaw.statusFlags) & ~POST_FLAGS.PINNED)
     await docRaw.save()
     await this.modLog.createLog({
@@ -376,21 +540,27 @@ export class PostsService {
       targetType: 'post',
       targetId: postId
     })
-    return this.convertBigIntToString(docRaw)
+    const result = this.convertBigIntToString(docRaw)
+    await this.invalidatePostCache(result)
+    return result
   }
 
   async modFlag(postId: string, subredditId: string, moderatorId: string) {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
+    this.assertPostSubreddit(docRaw, subredditId)
     docRaw.statusFlags = BigInt(Number(docRaw.statusFlags) | POST_FLAGS.FLAGGED)
     await docRaw.save()
     await this.modLog.createLog({ subredditId, moderatorId, action: 'post.flag', targetType: 'post', targetId: postId })
-    return this.convertBigIntToString(docRaw)
+    const result = this.convertBigIntToString(docRaw)
+    await this.invalidatePostCache(result)
+    return result
   }
 
   async modUnflag(postId: string, subredditId: string, moderatorId: string) {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
+    this.assertPostSubreddit(docRaw, subredditId)
     docRaw.statusFlags = BigInt(Number(docRaw.statusFlags) & ~POST_FLAGS.FLAGGED)
     await docRaw.save()
     await this.modLog.createLog({
@@ -400,6 +570,8 @@ export class PostsService {
       targetType: 'post',
       targetId: postId
     })
-    return this.convertBigIntToString(docRaw)
+    const result = this.convertBigIntToString(docRaw)
+    await this.invalidatePostCache(result)
+    return result
   }
 }

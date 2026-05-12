@@ -25,15 +25,8 @@ export function verifySignature(
     sig = new Uint8Array(signature as Buffer)
   }
   const hash = createHash('sha256').update(payload).digest()
-  console.log('Verifying signature. Payload:', payload)
-  console.log('Public key (hex):', Buffer.from(pub).toString('hex'))
-  console.log('Public key length:', pub.length)
-  console.log('Signature (base64):', Buffer.from(sig).toString('base64'))
-  console.log('Signature length:', sig.length)
   try {
-    console.log('Attempting signature verification with tinysecp.verify(hash, publicKey, signature)')
     const result = tinysecp.verify(hash, pub, sig)
-    console.log('Signature verification result:', result)
     return result
   } catch (e) {
     console.error('Error during signature verification:', e)
@@ -43,28 +36,16 @@ export function verifySignature(
 
 export async function getAuthPublicKeyById(db: any, authId: string): Promise<Buffer | null> {
   try {
-    console.log('getAuthPublicKeyById called with authId:', authId)
     const authObjId = new Types.ObjectId(authId)
-    console.log('Converted to ObjectId:', authObjId)
-    
     const authRec = await db.collection('auths').findOne({ _id: authObjId })
-    console.log('Auth record found:', !!authRec)
-    
     if (!authRec) {
       console.error('No auth record found for ID:', authId)
       return null
     }
-    
     if (!authRec.publicKey) {
       console.error('Auth record exists but has no publicKey:', authRec)
       return null
     }
-    
-    console.log('Found auth public key for', authId)
-    console.log('publicKey type:', typeof authRec.publicKey)
-    console.log('publicKey is Buffer:', Buffer.isBuffer(authRec.publicKey))
-    console.log('publicKey value:', authRec.publicKey)
-    
     // MongoDB stores Buffer as Binary type, need to extract the buffer
     let pubKeyBuffer: Buffer
     if (Buffer.isBuffer(authRec.publicKey)) {
@@ -79,10 +60,6 @@ export async function getAuthPublicKeyById(db: any, authId: string): Promise<Buf
       console.error('Unable to convert publicKey to Buffer:', authRec.publicKey)
       return null
     }
-    
-    console.log('Public key (hex):', pubKeyBuffer.toString('hex'))
-    console.log('Public key length:', pubKeyBuffer.length)
-    
     if (pubKeyBuffer.length === 0) {
       console.error('Public key buffer is empty!')
       return null

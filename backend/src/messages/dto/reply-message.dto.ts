@@ -12,5 +12,8 @@ export class ReplyMessageDto {
   content: string
 
   @IsString()
+  contentHash: string
+
+  @IsString()
   senderSignature: string
 }

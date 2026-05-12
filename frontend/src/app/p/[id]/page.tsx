@@ -7,6 +7,7 @@ import backend from '@/lib/backend';
 import { Post, Comment, User, Subreddit } from '@/lib/types';
 import { getAuthIdFromToken, getPrivateKey, signHash, toB64 } from '@/lib/auth';
 import { sha256 } from '@/lib/crypto';
+import { Download } from 'lucide-react';
 
 export default function SinglePostPage() {
   const params = useParams();
@@ -17,6 +18,7 @@ export default function SinglePostPage() {
   const [commentError, setCommentError] = useState<string | null>(null);
   const [submittingComment, setSubmittingComment] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [proofStatus, setProofStatus] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -47,6 +49,26 @@ export default function SinglePostPage() {
 
   const author = post.authorId as User;
   const sub = post.subredditId as Subreddit;
+
+  async function downloadProof() {
+    if (!post) return;
+    setProofStatus(null);
+    try {
+      const res = await backend.backendFetch(`/posts/${post._id}/verify`);
+      if (!res.ok) throw new Error('Unable to load proof');
+      const proof = await res.json();
+      const blob = new Blob([JSON.stringify(proof, null, 2)], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `jagoo-proof-post-${post._id}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setProofStatus('Proof downloaded.');
+    } catch (error) {
+      setProofStatus(error instanceof Error ? error.message : 'Unable to download proof');
+    }
+  }
 
   async function submitComment(e: React.FormEvent) {
     e.preventDefault();
@@ -141,7 +163,16 @@ export default function SinglePostPage() {
         <div className="mt-4 flex items-center gap-4 text-xs font-bold text-[var(--text-secondary)]">
           <span>{post.score} points</span>
           <span>{post.commentCount} comments</span>
+          <button
+            type="button"
+            onClick={downloadProof}
+            className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-3 py-1 hover:bg-[var(--muted)]"
+          >
+            <Download size={14} />
+            Download proof
+          </button>
         </div>
+        {proofStatus && <div className="mt-2 text-xs text-[var(--text-secondary)]">{proofStatus}</div>}
       </div>
 
       {/* Comments */}

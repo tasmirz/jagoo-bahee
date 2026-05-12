@@ -9,6 +9,7 @@ import { AttachmentsModule } from 'src/attachments/attachments.module'
 import { SubredditsModule } from 'src/subreddits/subreddits.module'
 import { AuthModule } from 'src/auth/auth.module'
 import { CommentsModule } from 'src/comments/comments.module'
+import { RedisModule } from 'src/redis/redis.module'
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: Post.name, schema: PostSchema }]),
@@ -17,6 +18,7 @@ import { CommentsModule } from 'src/comments/comments.module'
     AttachmentsModule,
     SubredditsModule,
     AuthModule,
+    RedisModule,
     forwardRef(() => CommentsModule)
   ],
   controllers: [PostsController],

@@ -9,6 +9,13 @@ install:
 services-up:
     docker compose up -d mongo redis
 
+# Seed local development data: users, communities, posts, comments, votes, awards, messages
+seed: services-up
+    cd backend && pnpm seed
+
+# Reset only the seeded fixture documents by re-running the idempotent seeder
+seed-refresh: seed
+
 # Stop database services
 services-down:
     docker compose down

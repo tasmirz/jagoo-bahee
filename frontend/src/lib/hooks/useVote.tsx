@@ -102,12 +102,20 @@ export default function useVote(
         value: newValue
       };
 
-      const res = await backend.backendJson('POST', '/votes', payload);
+      const res = await backend.backendFetch('/votes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
       
       if (!res.ok) {
         // Revert optimistic update on failure
+        const errorText = await res.text();
+        console.error('Vote failed:', res.status, errorText);
         setState(previousState);
-        throw new Error('Vote failed');
+        throw new Error(`Vote failed: ${res.status}`);
       }
 
       const result = await res.json();

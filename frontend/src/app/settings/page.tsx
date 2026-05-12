@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import backend from '@/lib/backend';
 import { getToken, getPublicKey } from '@/lib/auth';
+import { applyTheme, themes } from '@/components/theme-toggle';
+import { Palette, Server } from 'lucide-react';
 
 export default function UserSettingsPage() {
   const router = useRouter();
@@ -15,6 +17,8 @@ export default function UserSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [theme, setTheme] = useState('system');
+  const [homeserver, setHomeserver] = useState('http://localhost:6000');
 
   useEffect(() => {
     async function load() {
@@ -31,6 +35,9 @@ export default function UserSettingsPage() {
           setBio(data.bio || '');
           setAvatarUrl(data.avatarUrl || '');
         }
+        const storedTheme = window.localStorage.getItem('jb-theme') || 'system';
+        setTheme(storedTheme);
+        setHomeserver(window.localStorage.getItem('jb-homeserver') || 'http://localhost:6000');
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : 'Failed to load');
       } finally {
@@ -67,6 +74,13 @@ export default function UserSettingsPage() {
 
   const pubKey = getPublicKey();
 
+  function saveLocalPreference(nextTheme = theme, nextHomeserver = homeserver) {
+    window.localStorage.setItem('jb-theme', nextTheme);
+    window.localStorage.setItem('jb-homeserver', nextHomeserver.trim().replace(/\/$/, ''));
+    applyTheme(nextTheme);
+    setSuccess('Preferences saved.');
+  }
+
   return (
     <div className="max-w-2xl mx-auto p-4 py-8">
       <h1 className="text-2xl font-bold mb-6">User Settings</h1>
@@ -79,6 +93,37 @@ export default function UserSettingsPage() {
 
       {error && <div className="bg-red-500/10 text-red-500 p-3 rounded-lg mb-4 border border-red-500/20 text-sm">{error}</div>}
       {success && <div className="bg-green-500/10 text-green-500 p-3 rounded-lg mb-4 border border-green-500/20 text-sm">{success}</div>}
+
+      <div className="mb-6 grid gap-4 rounded-lg border border-[var(--border)] bg-[var(--card)] p-4">
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <Palette size={18} />
+          Interface
+        </h2>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="grid gap-1 text-sm">
+            Theme
+            <select
+              value={theme}
+              onChange={(event) => {
+                setTheme(event.target.value);
+                saveLocalPreference(event.target.value, homeserver);
+              }}
+              className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2"
+            >
+              {themes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-1 text-sm">
+            <span className="flex items-center gap-2"><Server size={16} /> Homeserver</span>
+            <input
+              value={homeserver}
+              onChange={(event) => setHomeserver(event.target.value)}
+              onBlur={() => saveLocalPreference(theme, homeserver)}
+              className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2"
+            />
+          </label>
+        </div>
+      </div>
 
       <form onSubmit={handleSave} className="space-y-6">
         <div>

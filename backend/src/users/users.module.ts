@@ -11,6 +11,7 @@ import { SavedContent, SavedContentSchema } from './schemas/saved-content.schema
 import { UserBlock, UserBlockSchema } from './schemas/user-block.schema'
 import { FeedPreferences, FeedPreferencesSchema } from './schemas/feed-preferences.schema'
 import { jwtConfig } from 'src/config/jwt.config'
+import { RedisModule } from 'src/redis/redis.module'
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { jwtConfig } from 'src/config/jwt.config'
       { name: FeedPreferences.name, schema: FeedPreferencesSchema }
     ]),
     SharedModule,
+    RedisModule,
     forwardRef(() => AuthModule)
   ],
   controllers: [UsersController],

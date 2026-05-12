@@ -43,7 +43,7 @@ export class AwardsController {
   @Post()
   @UseGuards(JwtAuthGuard)
   async give(@Req() req: any, @Body() dto: CreateAwardDto) {
-    return this.awardsService.giveAward(req.user.userId, dto)
+    return this.awardsService.giveAward(req.user.id, dto)
   }
 
   @Get('target/:type/:id')

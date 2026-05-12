@@ -12,26 +12,26 @@ export class MessagesController {
 
   @Post()
   async send(@Req() req: any, @Body() dto: CreateMessageDto) {
-    return this.messagesService.send(req.user.userId, dto)
+    return this.messagesService.send(req.user.id, dto)
   }
 
   @Post('reply')
   async reply(@Req() req: any, @Body() dto: ReplyMessageDto) {
-    return this.messagesService.reply(req.user.userId, dto)
+    return this.messagesService.reply(req.user.id, dto)
   }
 
   @Get()
   async list(@Req() req: any, @Query() query: QueryMessagesDto) {
-    return this.messagesService.list(req.user.userId, query)
+    return this.messagesService.list(req.user.id, query)
   }
 
   @Patch('read')
   async markRead(@Req() req: any, @Body('ids') ids: string[] | 'all') {
-    return this.messagesService.markRead(req.user.userId, ids)
+    return this.messagesService.markRead(req.user.id, ids)
   }
 
   @Delete(':id')
   async remove(@Req() req: any, @Param('id') id: string) {
-    return this.messagesService.delete(req.user.userId, id)
+    return this.messagesService.delete(req.user.id, id)
   }
 }

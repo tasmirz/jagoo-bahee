@@ -6,6 +6,7 @@ import { UserFollow } from './schemas/user-follow.schema'
 import { SavedContent } from './schemas/saved-content.schema'
 import { UserBlock } from './schemas/user-block.schema'
 import { FeedPreferences } from './schemas/feed-preferences.schema'
+import { RedisService } from 'src/redis/redis.service'
 
 @Injectable()
 export class UsersService {
@@ -14,26 +15,44 @@ export class UsersService {
     @InjectModel(UserFollow.name) private userFollowModel: Model<UserFollow>,
     @InjectModel(SavedContent.name) private savedContentModel: Model<SavedContent>,
     @InjectModel(UserBlock.name) private userBlockModel: Model<UserBlock>,
-    @InjectModel(FeedPreferences.name) private feedPreferencesModel: Model<FeedPreferences>
+    @InjectModel(FeedPreferences.name) private feedPreferencesModel: Model<FeedPreferences>,
+    private readonly redis: RedisService
   ) {}
 
+  private readonly cacheTtlSeconds = Number(process.env.CACHE_TTL_SECONDS || 60)
+
+  private async invalidateUserCache(user?: any) {
+    if (!user) return
+    if (user._id) {
+      await this.redis.delKeys(`jb:users:id:${String(user._id)}`, `jb:users:auth:${String(user._id)}`)
+    }
+    if (user.username) await this.redis.delKeys(`jb:users:username:${String(user.username).toLowerCase()}`)
+  }
+
   async findById(id: string | Types.ObjectId): Promise<User | null> {
-    return this.userModel.findById(id).exec()
+    return this.redis.rememberJson(`jb:users:id:${String(id)}`, this.cacheTtlSeconds, () =>
+      this.userModel.findById(id).lean().exec() as any
+    )
   }
 
   async findByUsername(username: string): Promise<User | null> {
-    return this.userModel.findOne({ username }).exec()
+    return this.redis.rememberJson(`jb:users:username:${username.toLowerCase()}`, this.cacheTtlSeconds, () =>
+      this.userModel.findOne({ username }).lean().exec() as any
+    )
   }
 
   // With the new schema the User document _id will be the same as the Auth document _id.
   // findByAuthId is equivalent to findById on this model.
   async findByAuthId(authId: string | Types.ObjectId): Promise<User | null> {
-    return this.userModel.findById(authId).exec()
+    return this.redis.rememberJson(`jb:users:auth:${String(authId)}`, this.cacheTtlSeconds, () =>
+      this.userModel.findById(authId).lean().exec() as any
+    )
   }
 
   async createForAuth(authId: Types.ObjectId, username: string): Promise<User> {
     // create user with explicit _id equal to authId
     const created = await this.userModel.create({ _id: authId, username } as any)
+    await this.invalidateUserCache(created)
     return created
   }
 
@@ -60,8 +79,8 @@ export class UsersService {
       const candidate = `${base}${suffix}`.slice(0, 50)
       try {
         // create with _id equal to authId
-        console.log(`Attempting to create user for authId ${authId} with username candidate: ${candidate}`)
         const created = await this.userModel.create({ _id: authId, username: candidate } as any)
+        await this.invalidateUserCache(created)
         return created
       } catch (err: any) {
         // Duplicate key error code from MongoDB is 11000
@@ -103,6 +122,7 @@ export class UsersService {
   async updateProfile(id: string | Types.ObjectId, patch: Partial<User>): Promise<User> {
     const user = await this.userModel.findByIdAndUpdate(id, patch, { new: true }).exec()
     if (!user) throw new NotFoundException('User not found')
+    await this.invalidateUserCache(user)
     return user
   }
 

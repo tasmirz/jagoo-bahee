@@ -32,19 +32,25 @@ export class PostsController {
   @UseGuards(JwtAuthGuard)
   @HttpPost()
   create(@Req() req: any, @Body() body: CreatePostDto) {
-    if (String(body.authorId) !== String(req.user.id)) {
+    if (body.authorId && String(body.authorId) !== String(req.user.id)) {
       throw new ForbiddenException('Cannot impersonate another user');
     }
-    return this.posts.create(body as any)
+    return this.posts.create({ ...(body as any), authorId: String(req.user.id) })
   }
 
-  @Get(':id')
-  getOne(@Param('id') id: string) {
-    return this.posts.findById(id)
+  @Get('suggest')
+  suggest(@Query('q') q = '', @Query('limit') limit = '8') {
+    return this.posts.suggest(q, Number(limit))
   }
 
   @Get()
-  listAll(@Query('limit') limit = '50', @Query('skip') skip = '0', @Query('subreddit') subreddit?: string, @Query('authorId') authorId?: string) {
+  listAll(
+    @Query('limit') limit = '50',
+    @Query('skip') skip = '0',
+    @Query('subreddit') subreddit?: string,
+    @Query('authorId') authorId?: string,
+    @Query('sort') sort: 'hot' | 'new' | 'top' | 'controversial' = 'hot'
+  ) {
     const filter: any = {}
     if (subreddit) {
       filter.subredditId = subreddit
@@ -52,7 +58,12 @@ export class PostsController {
     if (authorId) {
       filter.authorId = authorId
     }
-    return this.posts.findAll(filter, Number(limit), Number(skip))
+    return this.posts.findAll(filter, Number(limit), Number(skip), sort)
+  }
+
+  @Get(':id')
+  getOne(@Param('id') id: string) {
+    return this.posts.findById(id)
   }
 
   @UseGuards(JwtAuthGuard)
@@ -72,7 +83,7 @@ export class PostsController {
     @Body('authorId') authorId: string,
     @Body('deletionSignature') deletionSignature?: string
   ) {
-    if (String(authorId) !== String(req.user.id)) {
+    if (authorId && String(authorId) !== String(req.user.id)) {
       throw new ForbiddenException('Cannot impersonate another user');
     }
     return this.posts.removeByAuthor(id, String(req.user.id), deletionSignature)
@@ -87,17 +98,17 @@ export class PostsController {
   // Moderation routes - require subreddit mod/admin
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/approve')
-  modApprove(@Param('id') id: string, @Body() body: PostModBaseDto) {
-    return this.posts.modApprove(id, String(body.subredditId), String(body.moderatorId))
+  modApprove(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto) {
+    return this.posts.modApprove(id, String(body.subredditId), String(req.user.id))
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/remove')
-  modRemove(@Param('id') id: string, @Body() body: PostModRemoveDto & { moderatorSignature?: string }) {
+  modRemove(@Req() req: any, @Param('id') id: string, @Body() body: PostModRemoveDto & { moderatorSignature?: string }) {
     return this.posts.modRemove(
       id,
       String(body.subredditId),
-      String(body.moderatorId),
+      String(req.user.id),
       body.reason,
       body.moderatorSignature
     )
@@ -108,6 +119,11 @@ export class PostsController {
     return this.posts.getVerification(id)
   }
 
+  @HttpPost('proofs/verify')
+  verifyProof(@Body() body: any) {
+    return this.posts.verifyProof(body?.proof || body)
+  }
+
   @Get(':id/audit-trail')
   getAudit(@Param('id') id: string) {
     return this.posts.getAuditTrail(id)
@@ -115,38 +131,38 @@ export class PostsController {
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/lock')
-  modLock(@Param('id') id: string, @Body() body: PostModBaseDto) {
-    return this.posts.modLock(id, String(body.subredditId), String(body.moderatorId))
+  modLock(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto) {
+    return this.posts.modLock(id, String(body.subredditId), String(req.user.id))
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/unlock')
-  modUnlock(@Param('id') id: string, @Body() body: PostModBaseDto) {
-    return this.posts.modUnlock(id, String(body.subredditId), String(body.moderatorId))
+  modUnlock(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto) {
+    return this.posts.modUnlock(id, String(body.subredditId), String(req.user.id))
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/pin')
-  modPin(@Param('id') id: string, @Body() body: PostModBaseDto) {
-    return this.posts.modPin(id, String(body.subredditId), String(body.moderatorId))
+  modPin(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto) {
+    return this.posts.modPin(id, String(body.subredditId), String(req.user.id))
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/unpin')
-  modUnpin(@Param('id') id: string, @Body() body: PostModBaseDto) {
-    return this.posts.modUnpin(id, String(body.subredditId), String(body.moderatorId))
+  modUnpin(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto) {
+    return this.posts.modUnpin(id, String(body.subredditId), String(req.user.id))
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/flag')
-  modFlag(@Param('id') id: string, @Body() body: PostModBaseDto) {
-    return this.posts.modFlag(id, String(body.subredditId), String(body.moderatorId))
+  modFlag(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto) {
+    return this.posts.modFlag(id, String(body.subredditId), String(req.user.id))
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/unflag')
-  modUnflag(@Param('id') id: string, @Body() body: PostModBaseDto) {
-    return this.posts.modUnflag(id, String(body.subredditId), String(body.moderatorId))
+  modUnflag(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto) {
+    return this.posts.modUnflag(id, String(body.subredditId), String(req.user.id))
   }
 
   @Get(':id/comments')

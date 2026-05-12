@@ -1,0 +1,65 @@
+{
+  "name": "Jagoo Bahee",
+  "short_name": "Jagoo Bahee",
+  "description": "A decentralized Reddit-like platform with cryptographic verification",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ff4500",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/jagoo-bahee.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/jagoo-bahee.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["social", "news"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Home Feed",
+      "short_name": "Feed",
+      "description": "View your home feed",
+      "url": "/",
+      "icons": [{ "src": "/jagoo-bahee.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Create Post",
+      "short_name": "Post",
+      "description": "Create a new post",
+      "url": "/posts/create",
+      "icons": [{ "src": "/jagoo-bahee.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Messages",
+      "short_name": "Messages",
+      "description": "View your messages",
+      "url": "/messages",
+      "icons": [{ "src": "/jagoo-bahee.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Notifications",
+      "short_name": "Notifications",
+      "description": "View notifications",
+      "url": "/notifications",
+      "icons": [{ "src": "/jagoo-bahee.png", "sizes": "192x192" }]
+    }
+  ],
+  "share_target": {
+    "action": "/posts/create",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
+}

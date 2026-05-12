@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import Image from "next/image";
 import "./globals.css";
-import { AuthProvider } from "@/components/providers/auth-provider";
-import Navbar from "@/components/navbar";
+import { AuthProvider as LegacyAuthProvider } from "@/components/providers/auth-provider";
+import { AuthProvider } from "@/lib/context/AuthContext";
+import { UserProvider } from "@/lib/context/UserContext";
+import { ToastProvider } from "@/lib/context/ToastContext";
+import Navbar from "@/components/Navbar";
 
 export const metadata: Metadata = {
   title: "Jagoo Bahee",
   description: "A decentralized-identity Reddit clone",
+  manifest: "/manifest.json",
 };
 
 export default function RootLayout({
@@ -18,10 +20,16 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <AuthProvider>
-          <Navbar />
-          <main>{children}</main>
-        </AuthProvider>
+        <LegacyAuthProvider>
+          <AuthProvider>
+            <UserProvider>
+              <ToastProvider>
+                <Navbar />
+                <main>{children}</main>
+              </ToastProvider>
+            </UserProvider>
+          </AuthProvider>
+        </LegacyAuthProvider>
       </body>
     </html>
   );

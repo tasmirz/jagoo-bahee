@@ -1,0 +1,52 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    expose:
+      - "6000"
+    environment:
+      NODE_ENV: production
+      PORT: "6000"
+      MONGODB_URI: mongodb://mongo:27017/jagoo-bahee
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_PUBLIC_URL: http://localhost:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-uploads}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      SERVER_PRIVATE_KEY_HEX: ${SERVER_PRIVATE_KEY_HEX:?SERVER_PRIVATE_KEY_HEX is required}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:6001}
+      PUBLIC_SERVER_URL: ${PUBLIC_SERVER_URL:-http://localhost:8080}
+    depends_on:
+      - mongo
+      - redis
+      - minio
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:6000/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
+
+  backend-lb:
+    image: haproxy:2.9-alpine
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./ops/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "6001:6001"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    depends_on:
+      - backend-lb
+    restart: unless-stopped

@@ -15,10 +15,10 @@ export class CommentsController {
   @UseGuards(JwtAuthGuard)
   @HttpPost()
   create(@Req() req: any, @Body() body: CreateCommentDto) {
-    if (String(body.authorId) !== String(req.user.id)) {
+    if (body.authorId && String(body.authorId) !== String(req.user.id)) {
       throw new ForbiddenException('Cannot impersonate another user');
     }
-    return this.comments.create(body as any)
+    return this.comments.create({ ...(body as any), authorId: String(req.user.id) })
   }
 
   @Get(':id')
@@ -38,7 +38,7 @@ export class CommentsController {
   @UseGuards(JwtAuthGuard)
   @Delete(':id')
   remove(@Req() req: any, @Param('id') id: string, @Body('authorId') authorId: string) {
-    if (String(authorId) !== String(req.user.id)) {
+    if (authorId && String(authorId) !== String(req.user.id)) {
       throw new ForbiddenException('Cannot impersonate another user');
     }
     return this.comments.removeByAuthor(id, String(req.user.id))
@@ -53,37 +53,37 @@ export class CommentsController {
   // Moderation routes
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/approve')
-  modApprove(@Param('id') id: string, @Body() body: CommentModBaseDto) {
-    return this.comments.modApprove(id, String(body.subredditId), String(body.moderatorId))
+  modApprove(@Req() req: any, @Param('id') id: string, @Body() body: CommentModBaseDto) {
+    return this.comments.modApprove(id, String(body.subredditId), String(req.user.id))
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/remove')
-  modRemove(@Param('id') id: string, @Body() body: CommentModRemoveDto) {
-    return this.comments.modRemove(id, String(body.subredditId), String(body.moderatorId), body.reason)
+  modRemove(@Req() req: any, @Param('id') id: string, @Body() body: CommentModRemoveDto) {
+    return this.comments.modRemove(id, String(body.subredditId), String(req.user.id), body.reason)
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/collapse')
-  modCollapse(@Param('id') id: string, @Body() body: CommentModBaseDto) {
-    return this.comments.modCollapse(id, String(body.subredditId), String(body.moderatorId))
+  modCollapse(@Req() req: any, @Param('id') id: string, @Body() body: CommentModBaseDto) {
+    return this.comments.modCollapse(id, String(body.subredditId), String(req.user.id))
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/uncollapse')
-  modUncollapse(@Param('id') id: string, @Body() body: CommentModBaseDto) {
-    return this.comments.modUncollapse(id, String(body.subredditId), String(body.moderatorId))
+  modUncollapse(@Req() req: any, @Param('id') id: string, @Body() body: CommentModBaseDto) {
+    return this.comments.modUncollapse(id, String(body.subredditId), String(req.user.id))
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/flag')
-  modFlag(@Param('id') id: string, @Body() body: CommentModBaseDto) {
-    return this.comments.modFlag(id, String(body.subredditId), String(body.moderatorId))
+  modFlag(@Req() req: any, @Param('id') id: string, @Body() body: CommentModBaseDto) {
+    return this.comments.modFlag(id, String(body.subredditId), String(req.user.id))
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/unflag')
-  modUnflag(@Param('id') id: string, @Body() body: CommentModBaseDto) {
-    return this.comments.modUnflag(id, String(body.subredditId), String(body.moderatorId))
+  modUnflag(@Req() req: any, @Param('id') id: string, @Body() body: CommentModBaseDto) {
+    return this.comments.modUnflag(id, String(body.subredditId), String(req.user.id))
   }
 }

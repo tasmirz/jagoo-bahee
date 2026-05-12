@@ -1,7 +1,6 @@
 "use client";
 
 import React from 'react';
-import { getToken } from './auth';
 
 interface WebSocketMessage {
   type: 'post' | 'comment' | 'vote' | 'notification' | 'user_online' | 'user_offline';
@@ -31,95 +30,20 @@ class WebSocketManager {
   private subscriptions = new Set<string>();
 
   constructor() {
-    if (typeof window !== 'undefined') {
-      this.connect();
-    }
+    // No-op until a backend websocket gateway exists.
   }
 
   private getWebSocketUrl(): string {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
     const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/^https?:\/\//, '') || 'localhost:3000';
-    return `${protocol}//${apiUrl}/ws`;
+    return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${apiUrl}/ws`;
   }
 
   connect(): void {
-    if (this.isConnecting || (this.ws && this.ws.readyState === WebSocket.OPEN)) {
-      return;
-    }
-
-    this.isConnecting = true;
-    const token = getToken();
-    
-    if (!token) {
-      this.isConnecting = false;
-      return;
-    }
-
-    try {
-      const wsUrl = `${this.getWebSocketUrl()}?token=${encodeURIComponent(token)}`;
-      this.ws = new WebSocket(wsUrl);
-
-      this.ws.onopen = () => {
-        console.log('WebSocket connected');
-        this.isConnecting = false;
-        this.reconnectAttempts = 0;
-        this.callbacks.onConnect?.();
-        
-        // Re-subscribe to all channels
-        this.subscriptions.forEach(channel => {
-          this.subscribe(channel);
-        });
-      };
-
-      this.ws.onmessage = (event) => {
-        try {
-          const message: WebSocketMessage = JSON.parse(event.data);
-          this.handleMessage(message);
-        } catch (error) {
-          console.error('Failed to parse WebSocket message:', error);
-        }
-      };
-
-      this.ws.onclose = (event) => {
-        console.log('WebSocket disconnected:', event.code, event.reason);
-        this.isConnecting = false;
-        this.callbacks.onDisconnect?.();
-        
-        if (!event.wasClean && this.reconnectAttempts < this.maxReconnectAttempts) {
-          this.scheduleReconnect();
-        }
-      };
-
-      this.ws.onerror = (error) => {
-        // Only log if it's not a connection refused error (common in development)
-        if (this.reconnectAttempts === 0) {
-          console.warn('WebSocket connection failed, will retry...');
-        }
-        this.isConnecting = false;
-        this.callbacks.onError?.(error);
-      };
-
-    } catch (error) {
-      console.error('Failed to create WebSocket connection:', error);
-      this.isConnecting = false;
-    }
+    return;
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log('Max reconnection attempts reached');
-      return;
-    }
-
-    this.reconnectAttempts++;
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-    
-    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
-    
-    setTimeout(() => {
-      this.connect();
-    }, delay);
+    return;
   }
 
   private handleMessage(message: WebSocketMessage): void {
@@ -143,49 +67,20 @@ class WebSocketManager {
         this.callbacks.onUserOffline?.(message.data);
         break;
       default:
-        console.log('Unknown message type:', message.type);
+        return;
     }
   }
 
   subscribe(channel: string): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      this.subscriptions.add(channel);
-      return;
-    }
-
-    this.ws.send(JSON.stringify({
-      type: 'subscribe',
-      channel
-    }));
-    
     this.subscriptions.add(channel);
   }
 
   unsubscribe(channel: string): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      this.subscriptions.delete(channel);
-      return;
-    }
-
-    this.ws.send(JSON.stringify({
-      type: 'unsubscribe',
-      channel
-    }));
-    
     this.subscriptions.delete(channel);
   }
 
   sendMessage(type: string, data: any): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket not connected, cannot send message');
-      return;
-    }
-
-    this.ws.send(JSON.stringify({
-      type,
-      data,
-      timestamp: Date.now()
-    }));
+    return;
   }
 
   setCallbacks(callbacks: WebSocketCallbacks): void {
@@ -193,10 +88,6 @@ class WebSocketManager {
   }
 
   disconnect(): void {
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
     this.subscriptions.clear();
     this.reconnectAttempts = 0;
   }

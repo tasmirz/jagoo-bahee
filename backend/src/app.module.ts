@@ -16,12 +16,41 @@ import { NotificationsModule } from './notifications/notifications.module'
 import { MessagesModule } from './messages/messages.module'
 import { AwardsModule } from './awards/awards.module'
 import { VotesModule } from './votes/votes.module'
+import { RedisModule } from './redis/redis.module'
+import { RedisThrottlerStorage } from './redis/redis-throttler.storage'
+import { AdminModule } from './admin/admin.module'
+import { RolesModule } from './roles/roles.module'
 
 @Module({
   imports: [
     MongooseModule.forRoot(config.mongo.uri),
     ScheduleModule.forRoot(),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    ThrottlerModule.forRootAsync({
+      imports: [RedisModule],
+      inject: [RedisThrottlerStorage],
+      useFactory: (storage: RedisThrottlerStorage) => ({
+        storage,
+        setHeaders: true,
+        throttlers: [
+          {
+            name: 'default',
+            ttl: Number(process.env.RATE_LIMIT_TTL_MS || 60000),
+            limit: Number(process.env.RATE_LIMIT_LIMIT || 100),
+            blockDuration: Number(process.env.RATE_LIMIT_BLOCK_MS || 60000),
+            getTracker: (req) => {
+              const forwardedFor = String(req.headers?.['x-forwarded-for'] || '').split(',')[0].trim()
+              const ip = forwardedFor || req.ip || req.socket?.remoteAddress || 'unknown'
+              const userAgent = String(req.headers?.['user-agent'] || 'unknown').slice(0, 120)
+              return `${ip}:${userAgent}`
+            },
+            generateKey: (context, tracker, throttlerName) => {
+              const request = context.switchToHttp().getRequest()
+              return `${throttlerName}:${request.method}:${request.route?.path || request.url}:${tracker}`
+            }
+          }
+        ]
+      })
+    }),
     AuthModule,
     UsersModule,
     AttachmentsModule,
@@ -31,11 +60,18 @@ import { VotesModule } from './votes/votes.module'
     VotesModule,
     NotificationsModule,
     AwardsModule,
-    MessagesModule
+    MessagesModule,
+    RedisModule,
+    AdminModule,
+    RolesModule
   ],
   controllers: [AppController],
   providers: [
     AppService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard
+    }
   ]
 })
 export class AppModule {}

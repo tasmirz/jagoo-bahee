@@ -7,6 +7,9 @@ let priv: Buffer
 if (privHex && /^([0-9a-fA-F]{64})$/.test(privHex)) {
   priv = Buffer.from(privHex, 'hex')
 } else {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('SERVER_PRIVATE_KEY_HEX must be a 64-character hex secp256k1 private key in production')
+  }
   // generate ephemeral key
   priv = randomBytes(32)
 }

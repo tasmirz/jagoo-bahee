@@ -13,11 +13,6 @@ export class UsersController {
     private readonly authService: AuthService
   ) {}
 
-  @Get(':id')
-  async getUser(@Param('id') id: string) {
-    return this.usersService.findById(id)
-  }
-
   @Get('by-public-key/:publicKey')
   async getByPublicKey(@Param('publicKey') publicKey: string) {
     const buf = Buffer.from(publicKey, 'base64url')
@@ -40,7 +35,6 @@ export class UsersController {
   async mySubreddits(@Req() req: any) {
     // Return the list of subreddits the current authenticated user is a member of
     const authId = req.user?.id
-    console.log(`Fetching subreddits for authId ${authId}`)
     if (!authId) return []
     // find the User document for this auth; if missing, create one so membership records can be resolved
     let me = await this.usersService.findByAuthId(authId)
@@ -52,7 +46,6 @@ export class UsersController {
       }
     }
     if (!me || !(me as any)._id) return []
-    console.log(`Fetching subreddits for user ${me._id}`)
     try {
       // Use a direct collection aggregation to avoid changing module DI.
       const { Types } = await import('mongoose')
@@ -176,5 +169,10 @@ export class UsersController {
     const me = await this.usersService.findByAuthId(authId)
     if (!me) return null
     return this.usersService.upsertFeedPreferences(me._id as Types.ObjectId, body)
+  }
+
+  @Get(':id')
+  async getUser(@Param('id') id: string) {
+    return this.usersService.findById(id)
   }
 }

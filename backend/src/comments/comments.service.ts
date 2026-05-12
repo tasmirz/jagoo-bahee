@@ -20,6 +20,7 @@ import { signServerMessage, serverKeyId } from 'src/common/server-sign.util'
 import { RedisService } from 'src/redis/redis.service'
 import { ServerAcknowledgementsService } from 'src/moderation/server-acknowledgements.service'
 import { UsersService } from 'src/users/users.service'
+import { createHash } from 'crypto'
 
 const COMMENT_FLAGS = {
   ACTIVE: 1 << 0,
@@ -43,6 +44,20 @@ export class CommentsService {
     private readonly usersService: UsersService
   ) {}
 
+  private readonly cacheTtlSeconds = Number(process.env.CACHE_TTL_SECONDS || 60)
+
+  private async invalidateCommentCache(comment?: any) {
+    if (comment?._id) await this.redis.delKeys(`jb:comments:one:${String(comment._id)}`)
+    if (comment?.postId) await this.redis.delPattern(`jb:comments:post:${String(comment.postId)}:*`)
+    if (comment?.parentId) await this.redis.delKeys(`jb:comments:one:${String(comment.parentId)}`)
+  }
+
+  private async findDocById(id: string) {
+    const doc = await this.model.findById(id)
+    if (!doc) throw new NotFoundException('Comment not found')
+    return doc
+  }
+
   private toId(id: string | Types.ObjectId) {
     return typeof id === 'string' ? new Types.ObjectId(id) : id
   }
@@ -50,6 +65,21 @@ export class CommentsService {
   private buildPath(postId: string, parent?: Comment | null) {
     if (!parent) return `${postId}`
     return `${postId}/${parent._id}`
+  }
+
+  private assertContentHash(canonical: string, provided?: string) {
+    const digest = createHash('sha256').update(canonical).digest()
+    const hex = digest.toString('hex')
+    const base64 = digest.toString('base64')
+    if (!provided || (provided !== hex && provided !== base64)) {
+      throw new BadRequestException('contentHash does not match canonical payload')
+    }
+  }
+
+  private assertCommentSubreddit(doc: Comment, subredditId: string) {
+    if (String((doc as any).subredditId) !== String(subredditId)) {
+      throw new ForbiddenException('Comment does not belong to the supplied subreddit')
+    }
   }
 
   async create(data: Partial<Comment>) {
@@ -90,11 +120,7 @@ export class CommentsService {
       authorId: data.authorId
     }
     const canonical = JSON.stringify(payloadObj)
-    console.log('Verifying comment signature', {
-      authorId: String(data.authorId),
-      canonical,
-      providedSignaturePreview: String(data.userSignature || '').slice(0, 40)
-    })
+    this.assertContentHash(canonical, String(data.contentHash))
     const pub = await getAuthPublicKeyById((this as any).model.db, String(data.authorId))
     if (!pub) throw new BadRequestException('author public key not found')
     let ok = verifySignature(pub, canonical, String(data.userSignature))
@@ -112,22 +138,10 @@ export class CommentsService {
       } catch (e) {}
     }
     if (!ok) {
-      try {
-        console.warn('Signature verification failed for comment creation', {
-          authorId: String(data.authorId),
-          canonical,
-          providedSignaturePreview: String(data.userSignature || '').slice(0, 40),
-          pubHex: pub.toString('hex')
-        })
-      } catch (e) {}
       if (process.env.NODE_ENV !== 'production') {
         throw new BadRequestException({
           message: 'user signature verification failed',
-          debug: {
-            canonical,
-            providedSignaturePreview: String(data.userSignature || '').slice(0, 80),
-            pubHex: pub.toString('hex')
-          }
+          debug: { canonical }
         })
       }
       throw new BadRequestException('user signature verification failed')
@@ -203,43 +217,52 @@ export class CommentsService {
       }
     } catch (e) {}
 
+    await this.invalidateCommentCache(created)
     return created
   }
 
   async findById(id: string) {
-    const doc = await this.model.findById(id)
+    const doc = await this.redis.rememberJson<any>(`jb:comments:one:${id}`, this.cacheTtlSeconds, () =>
+      this.model.findById(id).lean().exec() as any
+    )
     if (!doc) throw new NotFoundException('Comment not found')
     return doc
   }
 
   async findByPost(postId: string, limit = 100, skip = 0) {
-    const docs = await this.model
-      .find({ postId: new Types.ObjectId(postId) })
-      .sort({ createdAt: 1 })
-      .limit(Number(limit))
-      .skip(Number(skip))
-      .populate('authorId', 'username')
-      .lean()
-      .exec()
-    return docs
+    const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 200)
+    const safeSkip = Math.max(Number(skip) || 0, 0)
+    const key = `jb:comments:post:${postId}:${safeLimit}:${safeSkip}`
+    return this.redis.rememberJson(key, this.cacheTtlSeconds, () =>
+      this.model
+        .find({ postId: new Types.ObjectId(postId) })
+        .sort({ createdAt: 1 })
+        .limit(safeLimit)
+        .skip(safeSkip)
+        .populate('authorId', 'username')
+        .lean()
+        .exec()
+    )
   }
 
   async updateByAuthor(id: string, authorId: string, update: Partial<Comment>) {
-    const doc = await this.findById(id)
+    const doc = await this.findDocById(id)
     if (String(doc.authorId) !== String(authorId)) throw new ForbiddenException('Not the author')
     Object.assign(doc, update, {
       editedAt: new Date(),
       statusFlags: BigInt(Number(doc.statusFlags) | COMMENT_FLAGS.EDITED)
     })
     await doc.save()
+    await this.invalidateCommentCache(doc)
     return doc
   }
 
   async removeByAuthor(id: string, authorId: string) {
-    const doc = await this.findById(id)
+    const doc = await this.findDocById(id)
     if (String(doc.authorId) !== String(authorId)) throw new ForbiddenException('Not the author')
     doc.statusFlags = BigInt(Number(doc.statusFlags) & ~COMMENT_FLAGS.ACTIVE) | BigInt(COMMENT_FLAGS.REMOVED)
     await doc.save()
+    await this.invalidateCommentCache(doc)
     return doc
   }
 
@@ -254,6 +277,7 @@ export class CommentsService {
     }
     const doc = await this.model.findByIdAndUpdate(id, { $inc: inc }, { new: true })
     if (!doc) throw new NotFoundException('Comment not found')
+    await this.invalidateCommentCache(doc)
     return doc
   }
 
@@ -275,12 +299,14 @@ export class CommentsService {
     }
     const doc = await this.model.findByIdAndUpdate(id, { $inc: inc }, { new: true })
     if (!doc) throw new NotFoundException('Comment not found')
+    await this.invalidateCommentCache(doc)
     return doc
   }
 
   // Moderation actions
   async modApprove(commentId: string, subredditId: string, moderatorId: string) {
-    const doc = await this.findById(commentId)
+    const doc = await this.findDocById(commentId)
+    this.assertCommentSubreddit(doc, subredditId)
     doc.statusFlags =
       BigInt(Number(doc.statusFlags) | COMMENT_FLAGS.APPROVED) & ~BigInt(COMMENT_FLAGS.FLAGGED | COMMENT_FLAGS.REMOVED)
     await doc.save()
@@ -291,11 +317,13 @@ export class CommentsService {
       targetType: 'comment',
       targetId: commentId
     })
+    await this.invalidateCommentCache(doc)
     return doc
   }
 
   async modRemove(commentId: string, subredditId: string, moderatorId: string, reason?: string) {
-    const doc = await this.findById(commentId)
+    const doc = await this.findDocById(commentId)
+    this.assertCommentSubreddit(doc, subredditId)
     doc.statusFlags = BigInt(Number(doc.statusFlags) | COMMENT_FLAGS.REMOVED) & ~BigInt(COMMENT_FLAGS.APPROVED)
     doc.removalReason = reason
     doc.removedBy = this.toId(moderatorId)
@@ -308,11 +336,13 @@ export class CommentsService {
       targetId: commentId,
       reason
     })
+    await this.invalidateCommentCache(doc)
     return doc
   }
 
   async modCollapse(commentId: string, subredditId: string, moderatorId: string) {
-    const doc = await this.findById(commentId)
+    const doc = await this.findDocById(commentId)
+    this.assertCommentSubreddit(doc, subredditId)
     doc.statusFlags = BigInt(Number(doc.statusFlags) | COMMENT_FLAGS.COLLAPSED)
     await doc.save()
     await this.modLog.createLog({
@@ -322,11 +352,13 @@ export class CommentsService {
       targetType: 'comment',
       targetId: commentId
     })
+    await this.invalidateCommentCache(doc)
     return doc
   }
 
   async modUncollapse(commentId: string, subredditId: string, moderatorId: string) {
-    const doc = await this.findById(commentId)
+    const doc = await this.findDocById(commentId)
+    this.assertCommentSubreddit(doc, subredditId)
     doc.statusFlags = BigInt(Number(doc.statusFlags) & ~COMMENT_FLAGS.COLLAPSED)
     await doc.save()
     await this.modLog.createLog({
@@ -336,11 +368,13 @@ export class CommentsService {
       targetType: 'comment',
       targetId: commentId
     })
+    await this.invalidateCommentCache(doc)
     return doc
   }
 
   async modFlag(commentId: string, subredditId: string, moderatorId: string) {
-    const doc = await this.findById(commentId)
+    const doc = await this.findDocById(commentId)
+    this.assertCommentSubreddit(doc, subredditId)
     doc.statusFlags = BigInt(Number(doc.statusFlags) | COMMENT_FLAGS.FLAGGED)
     await doc.save()
     await this.modLog.createLog({
@@ -350,11 +384,13 @@ export class CommentsService {
       targetType: 'comment',
       targetId: commentId
     })
+    await this.invalidateCommentCache(doc)
     return doc
   }
 
   async modUnflag(commentId: string, subredditId: string, moderatorId: string) {
-    const doc = await this.findById(commentId)
+    const doc = await this.findDocById(commentId)
+    this.assertCommentSubreddit(doc, subredditId)
     doc.statusFlags = BigInt(Number(doc.statusFlags) & ~COMMENT_FLAGS.FLAGGED)
     await doc.save()
     await this.modLog.createLog({
@@ -364,6 +400,7 @@ export class CommentsService {
       targetType: 'comment',
       targetId: commentId
     })
+    await this.invalidateCommentCache(doc)
     return doc
   }
 }

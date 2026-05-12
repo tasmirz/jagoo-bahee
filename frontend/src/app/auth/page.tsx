@@ -14,6 +14,7 @@ import {
 import { authenticate, getChallenge } from "@/lib/api";
 import * as bip39 from 'bip39';
 import Image from 'next/image';
+import { Server } from "lucide-react";
 
 export default function AuthPage() {
   const [challenge, setChallenge] = useState<string>("");
@@ -27,6 +28,7 @@ export default function AuthPage() {
   const [isNewUser, setIsNewUser] = useState(true);
   const [autoSigning, setAutoSigning] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const [homeserver, setHomeserver] = useState("http://localhost:6000");
   const mcaptchaUrl = process.env.NEXT_PUBLIC_MCAPTCHA_URL?.replace(/\/$/, "") || "http://localhost:7000";
   const mcaptchaSiteKey = process.env.NEXT_PUBLIC_MCAPTCHA_SITEKEY || "";
 
@@ -37,6 +39,9 @@ export default function AuthPage() {
       window.location.href = "/";
       return;
     }
+    const storedHomeserver = window.localStorage.getItem("jb-homeserver") || homeserver;
+    setHomeserver(storedHomeserver);
+    window.localStorage.setItem("jb-homeserver", storedHomeserver);
     (async () => {
       try {
         setChallenge(await getChallenge());
@@ -45,6 +50,19 @@ export default function AuthPage() {
       }
     })();
   }, []);
+
+  async function refreshChallengeForHomeserver(nextHomeserver: string) {
+    const normalized = nextHomeserver.trim().replace(/\/$/, "");
+    setHomeserver(normalized);
+    window.localStorage.setItem("jb-homeserver", normalized);
+    setMessage("Loading challenge from selected homeserver...");
+    try {
+      setChallenge(await getChallenge());
+      setMessage("Homeserver selected.");
+    } catch (err: unknown) {
+      setMessage(`Selected homeserver is unreachable: ${(err as Error).message}`);
+    }
+  }
 
   useEffect(() => {
     if (!mcaptchaSiteKey) return;
@@ -174,7 +192,6 @@ export default function AuthPage() {
       saveToken(jwt);
       try {
         localStorage.setItem("auth:publicKey", toB64(publicKey));
-        localStorage.setItem("auth:privateKey", toB64(privateKey));
       } catch (e) {
         // ignore storage errors
       }
@@ -250,6 +267,32 @@ export default function AuthPage() {
             </div>
 
             <div className="space-y-4">
+              <div>
+                <label className="mb-2 flex items-center gap-2 text-sm font-medium text-[var(--foreground)]">
+                  <Server size={16} />
+                  Homeserver
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    className="min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                    value={homeserver}
+                    onChange={(event) => setHomeserver(event.target.value)}
+                    placeholder="https://your-instance.example"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => refreshChallengeForHomeserver(homeserver)}
+                    className="rounded-md border border-[var(--border)] px-3 py-2 text-sm font-semibold hover:bg-[var(--muted)]"
+                  >
+                    Use
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">
+                  Your identity signs into the server you choose here.
+                </p>
+              </div>
+
               {mcaptchaSiteKey && (
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-[var(--foreground)]">

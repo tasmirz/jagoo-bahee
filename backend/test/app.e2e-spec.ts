@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, Logger } from '@nestjs/common';
-import request from 'supertest';
+import * as request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 
@@ -30,6 +30,12 @@ describe('AppController (e2e)', () => {
     return request(app.getHttpServer() as any)
       .get('/')
       .expect(200)
-      .expect('Hello World!');
+      .expect('Jagoo Bahee API');
+  });
+
+  it('/attachments (GET) rejects anonymous callers', () => {
+    return request(app.getHttpServer() as any)
+      .get('/attachments')
+      .expect(401);
   });
 });

@@ -14,6 +14,18 @@
   --warning: #ffd635;
 }
 
+[data-theme="light"],
+[data-theme="default-light"] {
+  --background: #ffffff;
+  --foreground: #1a1a1b;
+  --primary: #ff4500;
+  --secondary: #0079d3;
+  --muted: #f6f7f8;
+  --border: #edeff1;
+  --card: #ffffff;
+  --text-secondary: #6b7280;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #030303;
@@ -25,6 +37,85 @@
     --card: #1a1a1b;
     --text-secondary: #818384;
   }
+}
+
+[data-theme="dark"],
+[data-theme="default-dark"] {
+  --background: #030303;
+  --foreground: #d7dadc;
+  --primary: #ff4500;
+  --secondary: #d7dadc;
+  --muted: #1a1a1b;
+  --border: #343536;
+  --card: #1a1a1b;
+  --text-secondary: #818384;
+}
+
+[data-theme="forest-dark"] {
+  --background: #07110d;
+  --foreground: #e6f4ed;
+  --primary: #2fbf71;
+  --secondary: #b8e986;
+  --muted: #102019;
+  --border: #244236;
+  --card: #0d1914;
+  --text-secondary: #94a89d;
+}
+
+[data-theme="forest-light"] {
+  --background: #f4fbf7;
+  --foreground: #102018;
+  --primary: #168a4d;
+  --secondary: #356b42;
+  --muted: #e6f3eb;
+  --border: #bad7c7;
+  --card: #ffffff;
+  --text-secondary: #557063;
+}
+
+[data-theme="ocean-light"] {
+  --background: #f6fbff;
+  --foreground: #10202e;
+  --primary: #0b73d9;
+  --secondary: #0f9f9a;
+  --muted: #e8f2fb;
+  --border: #bdd6eb;
+  --card: #ffffff;
+  --text-secondary: #536b80;
+}
+
+[data-theme="ocean-dark"] {
+  --background: #061018;
+  --foreground: #e7f4ff;
+  --primary: #37a5ff;
+  --secondary: #44d5ca;
+  --muted: #0e2130;
+  --border: #26465c;
+  --card: #0a1824;
+  --text-secondary: #91a8ba;
+}
+
+[data-theme="contrast-dark"],
+[data-theme="contrast"] {
+  --background: #000000;
+  --foreground: #ffffff;
+  --primary: #ffcc00;
+  --secondary: #66ccff;
+  --muted: #141414;
+  --border: #4d4d4d;
+  --card: #0a0a0a;
+  --text-secondary: #c7c7c7;
+}
+
+[data-theme="contrast-light"] {
+  --background: #ffffff;
+  --foreground: #000000;
+  --primary: #003cff;
+  --secondary: #b00020;
+  --muted: #f0f0f0;
+  --border: #111111;
+  --card: #ffffff;
+  --text-secondary: #333333;
 }
 
 body {

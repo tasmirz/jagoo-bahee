@@ -2,10 +2,16 @@ import backendConfig from "@/config/backend.config";
 import { getToken } from "@/lib/auth";
 
 export const getBackendOrigin = () => {
-  if (backendConfig.url) return backendConfig.url;
+  if (typeof window !== "undefined") {
+    const selected = window.localStorage.getItem("jb-homeserver");
+    if (selected) return normalizeLoopback(selected);
+  }
+  if (backendConfig.url) return normalizeLoopback(backendConfig.url);
   // Backend runs on port 6000, frontend on 6001
   return `http://localhost:6000`;
 };
+
+export const normalizeLoopback = (url: string) => url.replace("://localhost", "://127.0.0.1");
 
 export async function backendFetch(path: string, opts: RequestInit = {}) {
   const origin = getBackendOrigin();
@@ -18,19 +24,19 @@ export async function backendFetch(path: string, opts: RequestInit = {}) {
   if (token && !headers.has("Authorization"))
     headers.set("Authorization", `Bearer ${token}`);
 
+  if (typeof window !== "undefined" && !path.startsWith("http")) {
+    const proxyUrl = `/backend-proxy${path.startsWith("/") ? path : "/" + path}`;
+    headers.set("x-jb-homeserver", getBackendOrigin());
+    return fetch(proxyUrl, { ...opts, headers });
+  }
+
   try {
-    const res = await fetch(url, { ...opts, headers });
-    return res;
-  } catch (e) {
-    // fallback: try a relative request in case dev server is proxying the backend
-    try {
-      const relUrl = path.startsWith("/") ? path : "/" + path;
-      const res2 = await fetch(relUrl, { ...opts, headers });
-      return res2;
-    } catch (e2) {
-      // rethrow original error for upstream handling
-      throw e;
-    }
+    return await fetch(url, { ...opts, headers });
+  } catch (error) {
+    if (typeof window === "undefined" || path.startsWith("http")) throw error;
+    const proxyUrl = `/backend-proxy${path.startsWith("/") ? path : "/" + path}`;
+    headers.set("x-jb-homeserver", getBackendOrigin());
+    return fetch(proxyUrl, { ...opts, headers });
   }
 }
 

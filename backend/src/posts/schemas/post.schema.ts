@@ -12,7 +12,7 @@ export class Post extends Document {
   @Prop({ type: String, required: true, maxlength: 300 })
   title: string
 
-  @Prop({ type: String, required: true, enum: ['text', 'link', 'image', 'video', 'crosspost'] })
+  @Prop({ type: String, required: true, enum: ['text', 'link', 'image', 'video', 'poll', 'crosspost'] })
   type: string
 
   @Prop({ type: String })
@@ -23,6 +23,14 @@ export class Post extends Document {
 
   @Prop({ type: [Types.ObjectId], ref: 'Attachment', default: [] })
   attachmentIds: Types.ObjectId[]
+
+  @Prop({ type: Object })
+  poll?: {
+    question: string
+    options: string[]
+    multiple?: boolean
+    closesAt?: Date
+  }
 
   @Prop({ type: Types.ObjectId, ref: 'Post' })
   crosspostId?: Types.ObjectId

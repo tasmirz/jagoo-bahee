@@ -9,6 +9,7 @@ import { ModLogService } from 'src/moderation/mod-log.service'
 import { verifySignature, getAuthPublicKeyById } from 'src/common/signature.util'
 import { UsersService } from 'src/users/users.service'
 import { AuthService } from 'src/auth/auth.service'
+import { RedisService } from 'src/redis/redis.service'
 
 @Injectable()
 export class SubredditsService {
@@ -19,8 +20,22 @@ export class SubredditsService {
     private readonly notificationsService: NotificationsService,
     private readonly modLog: ModLogService,
     private readonly usersService: UsersService,
-    private readonly authService: AuthService
+    private readonly authService: AuthService,
+    private readonly redis: RedisService
   ) {}
+
+  private readonly cacheTtlSeconds = Number(process.env.CACHE_TTL_SECONDS || 60)
+
+  private async invalidateSubredditCache(subreddit?: any) {
+    await this.redis.delPattern('jb:subreddits:list:*')
+    if (subreddit?._id) await this.redis.delKeys(`jb:subreddits:one:${String(subreddit._id)}`)
+    if (subreddit?.name) await this.redis.delKeys(`jb:subreddits:one:${String(subreddit.name).toLowerCase()}`)
+  }
+
+  private async invalidatePermissionCache(subredditId: string, userId: string) {
+    await this.redis.delKeys(`jb:member:${subredditId}:${userId}`, `jb:permissions:${subredditId}:${userId}`)
+  }
+
   public async nameAvailability(name: string) {
     return await this.model.findOne({ name: this.escapeRegExp(name.toLowerCase().trim()) }).exec()
   }
@@ -49,18 +64,31 @@ export class SubredditsService {
     }
     if (!user) return false
 
-    const member = await this.memberModel
-      .findOne({
-        userId: new Types.ObjectId(String((user as any)._id)),
-        subredditId: new Types.ObjectId(String(subredditId))
-      })
-      .exec()
-    if (!member) return false
-    
-    // Check if user has moderator bit (8) in statusFlags
-    const MODERATOR_BIT = BigInt(8);
-    const flags = BigInt(member.statusFlags || 0);
-    return (flags & MODERATOR_BIT) === MODERATOR_BIT;
+    const userId = String((user as any)._id)
+    const key = `jb:permissions:${String(subredditId)}:${userId}`
+    const summary = await this.redis.rememberJson<any>(key, Number(process.env.PERMISSION_CACHE_TTL_SECONDS || 300), async () => {
+      const member = await this.memberModel
+        .findOne({
+          userId: new Types.ObjectId(userId),
+          subredditId: new Types.ObjectId(String(subredditId))
+        })
+        .lean()
+        .exec()
+      if (!member) return null
+      const flags = BigInt((member as any).statusFlags || 0)
+      const isModerator = (flags & BigInt(8)) === BigInt(8)
+      return {
+        subredditId: String(subredditId),
+        userId,
+        statusFlags: flags.toString(),
+        isModerator,
+        permissions: isModerator
+          ? ['community.update', 'member.ban', 'member.unban', 'member.kick', 'member.role.update', 'post.moderate', 'comment.moderate', 'modlog.read', 'report.review']
+          : []
+      }
+    })
+    if (!summary) return false
+    return summary.isModerator || summary.permissions?.includes(permission)
   }
 
   // Kick user: remove membership but allow rejoin
@@ -109,9 +137,15 @@ export class SubredditsService {
     // remove membership (keep record) — we'll unset isMember bit and keep doc
     if (targetMember) {
       const prevFlags = BigInt(targetMember.statusFlags)
-      targetMember.statusFlags = prevFlags & ~BigInt(1)
+      const memberBit = BigInt(1)
+      const wasMember = (prevFlags & memberBit) !== BigInt(0)
+      targetMember.statusFlags = prevFlags & ~memberBit
       await targetMember.save()
-      await this.model.findByIdAndUpdate(subreddit._id, { $inc: { memberCount: -1 } }).exec()
+      await this.invalidatePermissionCache(String(subreddit._id), String((targetUser as any)._id))
+      if (wasMember) {
+        await this.model.findByIdAndUpdate(subreddit._id, { $inc: { memberCount: -1 } }).exec()
+        await this.invalidateSubredditCache(subreddit)
+      }
 
       // create mod log
       const log = await this.modLog.createLog({
@@ -216,14 +250,17 @@ export class SubredditsService {
     }
 
     // set banned bit and unset member bit
-    member.statusFlags = (BigInt(member.statusFlags) | BigInt(4)) & ~BigInt(1)
+    const memberBit = BigInt(1)
+    member.statusFlags = (BigInt(member.statusFlags) | BigInt(4)) & ~memberBit
     member.bannedUntil = bannedUntil as any
     member.banReason = reason
     await member.save()
+    await this.invalidatePermissionCache(String(subreddit._id), String((targetUser as any)._id))
 
     // decrement memberCount if previously member
     if ((prevFlags & BigInt(1)) !== BigInt(0)) {
       await this.model.findByIdAndUpdate(subreddit._id, { $inc: { memberCount: -1 } }).exec()
+      await this.invalidateSubredditCache(subreddit)
     }
 
     // optional content deletion — best effort
@@ -239,7 +276,7 @@ export class SubredditsService {
           },
           {
             $set: {
-              statusFlags: 1,
+              statusFlags: BigInt(64),
               removalReason: 'User banned - content removed',
               removedBy: new Types.ObjectId(String(moderatorAuth.id))
             }
@@ -252,7 +289,7 @@ export class SubredditsService {
           },
           {
             $set: {
-              statusFlags: 1,
+              statusFlags: BigInt(4),
               removalReason: 'User banned - content removed',
               removedBy: new Types.ObjectId(String(moderatorAuth.id))
             }
@@ -400,8 +437,15 @@ export class SubredditsService {
       .exec()
     const isMemberBit = BigInt(1)
     if (existing) {
-      existing.statusFlags = BigInt(existing.statusFlags) | isMemberBit
+      const prevFlags = BigInt(existing.statusFlags || 0)
+      const wasMember = (prevFlags & isMemberBit) !== BigInt(0)
+      existing.statusFlags = prevFlags | isMemberBit
       await existing.save()
+      await this.invalidatePermissionCache(String(subreddit._id), profileId)
+      if (!wasMember) {
+        await this.model.findByIdAndUpdate(subreddit._id, { $inc: { memberCount: 1 } }).exec()
+        await this.invalidateSubredditCache(subreddit)
+      }
     } else {
       const member = new this.memberModel({
         subredditId: subreddit._id,
@@ -409,10 +453,10 @@ export class SubredditsService {
         statusFlags: isMemberBit
       })
       await member.save()
+      await this.invalidatePermissionCache(String(subreddit._id), profileId)
+      await this.model.findByIdAndUpdate(subreddit._id, { $inc: { memberCount: 1 } }).exec()
+      await this.invalidateSubredditCache(subreddit)
     }
-
-    // increment memberCount
-    await this.model.findByIdAndUpdate(subreddit._id, { $inc: { memberCount: 1 } }).exec()
 
     // notify subreddit mods (best-effort)
     try {
@@ -452,11 +496,19 @@ export class SubredditsService {
     }
     if (!profileId) profileId = String(user.id)
 
-    const res = await this.memberModel
-      .findOneAndDelete({ subredditId: subreddit._id, userId: new Types.ObjectId(profileId) })
+    const existing = await this.memberModel
+      .findOne({ subredditId: subreddit._id, userId: new Types.ObjectId(profileId) })
       .exec()
-    if (res) {
-      await this.model.findByIdAndUpdate(subreddit._id, { $inc: { memberCount: -1 } }).exec()
+    if (existing) {
+      const prevFlags = BigInt(existing.statusFlags || 0)
+      const memberBit = BigInt(1)
+      if ((prevFlags & memberBit) !== BigInt(0)) {
+        existing.statusFlags = prevFlags & ~memberBit
+        await existing.save()
+        await this.invalidatePermissionCache(String(subreddit._id), profileId)
+        await this.model.findByIdAndUpdate(subreddit._id, { $inc: { memberCount: -1 } }).exec()
+        await this.invalidateSubredditCache(subreddit)
+      }
     }
     return { success: true }
   }
@@ -518,6 +570,7 @@ export class SubredditsService {
         statusFlags
       })
       await member.save()
+      await this.invalidatePermissionCache(String(createdSub._id), String(userId))
 
       // link attachments to subreddit (non-transactional — already validated)
       try {
@@ -537,6 +590,7 @@ export class SubredditsService {
         // non-fatal: log or ignore — attachments linking can be retried by maintenance
       }
 
+      await this.invalidateSubredditCache(createdSub)
       return createdSub
     } catch (err) {
       // try cleanup if subreddit was partially created
@@ -551,27 +605,57 @@ export class SubredditsService {
     }
   }
 
-  async findAll(filter: any = {}, limit = 50, skip = 0): Promise<Subreddit[]> {
-    return this.model
-      .find(filter)
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .skip(skip)
-      .populate('createdBy', 'username')
-      .exec()
+  async findAll(filter: any = {}, limit = 50, skip = 0, sort: 'popular' | 'newest' | 'alphabetical' = 'newest'): Promise<Subreddit[]> {
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100)
+    const safeSkip = Math.max(Number(skip) || 0, 0)
+    const sortSpec =
+      sort === 'popular' ? { memberCount: -1, createdAt: -1 } : sort === 'alphabetical' ? { name: 1 } : { createdAt: -1 }
+    const key = `jb:subreddits:list:${this.redis.stableStringify(filter)}:${safeLimit}:${safeSkip}:${sort}`
+    return this.redis.rememberJson(key, this.cacheTtlSeconds, () =>
+      this.model
+        .find(filter)
+        .sort(sortSpec as any)
+        .limit(safeLimit)
+        .skip(safeSkip)
+        .populate('createdBy', 'username')
+        .lean()
+        .exec() as any
+    )
+  }
+
+  async suggest(q = '', limit = 8) {
+    const safeLimit = Math.min(Math.max(Number(limit) || 8, 1), 12)
+    const term = q.trim()
+    const filter = term
+      ? { $or: [{ name: { $regex: this.escapeRegExp(term), $options: 'i' } }, { displayName: { $regex: this.escapeRegExp(term), $options: 'i' } }] }
+      : {}
+    const key = `jb:subreddits:suggest:${term.toLowerCase()}:${safeLimit}`
+    return this.redis.rememberJson(key, this.cacheTtlSeconds, () =>
+      this.model
+        .find(filter)
+        .sort({ memberCount: -1, createdAt: -1 })
+        .limit(safeLimit)
+        .select('name displayName description memberCount')
+        .lean()
+        .exec() as any
+    )
   }
 
   async findOne(idOrName: string): Promise<Subreddit | null> {
-    if (Types.ObjectId.isValid(idOrName)) {
-      return this.model.findById(idOrName).exec()
-    }
-    // allow lookup by name
-    return this.model.findOne({ name: idOrName.toLowerCase() }).exec()
+    const normalized = Types.ObjectId.isValid(idOrName) ? idOrName : idOrName.toLowerCase()
+    return this.redis.rememberJson(`jb:subreddits:one:${normalized}`, this.cacheTtlSeconds, () => {
+      if (Types.ObjectId.isValid(idOrName)) {
+        return this.model.findById(idOrName).lean().exec() as any
+      }
+      return this.model.findOne({ name: idOrName.toLowerCase() }).lean().exec() as any
+    })
   }
 
   async update(id: string, update: Partial<Subreddit>): Promise<Subreddit | null> {
     if (!Types.ObjectId.isValid(id)) return null
-    return this.model.findByIdAndUpdate(id, update, { new: true }).exec()
+    const doc = await this.model.findByIdAndUpdate(id, update, { new: true }).exec()
+    await this.invalidateSubredditCache(doc)
+    return doc
   }
 
   // list moderators for a subreddit
@@ -599,7 +683,7 @@ export class SubredditsService {
     const subreddit = await this.findOne(idOrName)
     if (!subreddit) throw new HttpException('Subreddit not found', HttpStatus.NOT_FOUND)
     // delegate to modLog service
-    return this.modLog.listForSubreddit(String(subreddit._id), Number(limit), Number(skip))
+    return this.modLog.listForSubreddit(String(subreddit._id), limit, skip)
   }
 
   // list currently banned members with user info
@@ -652,9 +736,11 @@ export class SubredditsService {
       })
       await member.save()
       await this.model.findByIdAndUpdate(subreddit._id, { $inc: { memberCount: 1 } }).exec()
+      await this.invalidateSubredditCache(subreddit)
     } else {
-      member.statusFlags = BigInt(member.statusFlags) | modBit | (BigInt(member.statusFlags) | memberBit)
+      member.statusFlags = BigInt(member.statusFlags) | modBit | memberBit
       await member.save()
+      await this.invalidatePermissionCache(String(subreddit._id), String((user as any)._id))
     }
 
     const log = await this.modLog.createLog({
@@ -703,6 +789,8 @@ export class SubredditsService {
 
     member.statusFlags = prevFlags & ~modBit
     await member.save()
+    await this.invalidatePermissionCache(String(subreddit._id), String(userId))
+    await this.invalidateSubredditCache(subreddit)
 
     const log = await this.modLog.createLog({
       subredditId: subreddit._id,
@@ -728,7 +816,9 @@ export class SubredditsService {
 
   async remove(id: string): Promise<boolean> {
     if (!Types.ObjectId.isValid(id)) return false
+    const existing = await this.model.findById(id).lean().exec()
     const res = await this.model.findByIdAndDelete(id).exec()
+    await this.invalidateSubredditCache(existing)
     return !!res
   }
 }

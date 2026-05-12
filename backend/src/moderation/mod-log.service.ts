@@ -34,6 +34,8 @@ export class ModLogService {
 
   async listForSubreddit(subredditId: string | Types.ObjectId, limit = 50, skip = 0) {
     const q: any = { subredditId: new Types.ObjectId(String(subredditId)) }
-    return this.model.find(q).sort({ createdAt: -1 }).limit(Number(limit)).skip(Number(skip)).lean().exec()
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100)
+    const safeSkip = Math.min(Math.max(Number(skip) || 0, 0), 10000)
+    return this.model.find(q).sort({ createdAt: -1 }).limit(safeLimit).skip(safeSkip).lean().exec()
   }
 }

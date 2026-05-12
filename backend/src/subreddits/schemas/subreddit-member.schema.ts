@@ -20,6 +20,12 @@ export class SubredditMember extends Document {
   @Prop({ type: BigInt, default: BigInt(1) })
   statusFlags: bigint
 
+  @Prop({ type: BigInt, default: BigInt(1) })
+  roleFlags: bigint
+
+  @Prop({ type: BigInt, default: BigInt(0) })
+  permissionOverrides: bigint
+
   @Prop({ type: Date })
   mutedUntil?: Date
 

@@ -16,22 +16,21 @@ export class NotificationsController {
 
   @Get()
   async list(@Req() req: any, @Query() query: QueryNotificationsDto) {
-    const userId = query.userId ?? req.user.userId
-    return this.notificationsService.list(userId, query)
+    return this.notificationsService.list(req.user.id, query)
   }
 
   @Patch('read')
   async markRead(@Req() req: any, @Body('ids') ids: string[] | 'all') {
-    return this.notificationsService.markRead(req.user.userId, ids)
+    return this.notificationsService.markRead(req.user.id, ids)
   }
 
   @Patch('unread')
   async markUnread(@Req() req: any, @Body('ids') ids: string[]) {
-    return this.notificationsService.markUnread(req.user.userId, ids)
+    return this.notificationsService.markUnread(req.user.id, ids)
   }
 
   @Delete(':id')
   async remove(@Req() req: any, @Param('id') id: string) {
-    return this.notificationsService.remove(req.user.userId, id)
+    return this.notificationsService.remove(req.user.id, id)
   }
 }

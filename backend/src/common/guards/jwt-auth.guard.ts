@@ -9,10 +9,13 @@ export class JwtAuthGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
     const req = context.switchToHttp().getRequest()
     const auth = req.headers?.authorization as string | undefined
-    if (!auth) throw new UnauthorizedException('Missing Authorization header')
-    const parts = auth.split(' ')
-    if (parts.length !== 2 || parts[0] !== 'Bearer') throw new UnauthorizedException('Invalid Authorization format')
-    const token = parts[1]
+    let token: string | undefined
+    if (auth) {
+      const parts = auth.split(' ')
+      if (parts.length === 2 && parts[0] === 'Bearer') token = parts[1]
+    }
+    if (!token) token = readCookie(req, 'jid')
+    if (!token) throw new UnauthorizedException('Missing authentication token')
     try {
       const payload = this.jwtService.verify(token)
       req.user = payload
@@ -21,4 +24,12 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Invalid or expired token')
     }
   }
+}
+
+function readCookie(req: any, name: string) {
+  const header = String(req.headers?.cookie || '')
+  const cookies = header.split(';').map((item) => item.trim())
+  const prefix = `${name}=`
+  const found = cookies.find((item) => item.startsWith(prefix))
+  return found ? decodeURIComponent(found.slice(prefix.length)) : undefined
 }

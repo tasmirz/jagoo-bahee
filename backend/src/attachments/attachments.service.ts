@@ -13,6 +13,7 @@ export class AttachmentsService {
 
   async create(data: Partial<Attachment>): Promise<Attachment> {
     try {
+      if (!data.ownerId) throw new HttpException('ownerId required', HttpStatus.BAD_REQUEST)
       const created = new this.model(data)
       return await created.save()
     } catch (err) {
@@ -21,7 +22,9 @@ export class AttachmentsService {
   }
 
   async findAll(filter: any = {}, limit = 50, skip = 0): Promise<Attachment[]> {
-    return this.model.find(filter).sort({ createdAt: -1 }).limit(limit).skip(skip).exec()
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100)
+    const safeSkip = Math.min(Math.max(Number(skip) || 0, 0), 10000)
+    return this.model.find(filter).sort({ createdAt: -1 }).limit(safeLimit).skip(safeSkip).exec()
   }
 
   async findOne(id: string): Promise<Attachment | null> {
@@ -31,7 +34,25 @@ export class AttachmentsService {
 
   async update(id: string, update: Partial<Attachment>): Promise<Attachment | null> {
     if (!Types.ObjectId.isValid(id)) return null
-    return this.model.findByIdAndUpdate(id, update, { new: true }).exec()
+    const doc = await this.model.findById(id).exec()
+    if (!doc) return null
+
+    const allowed: Partial<Attachment> = {}
+    if (!doc.confirmed) {
+      for (const key of ['type', 'originalFilename', 'mimeType', 'sizeBytes', 'signature', 'contentHash', 'isPublic', 'isNSFW'] as const) {
+        if (update[key] !== undefined) {
+          ;(allowed as any)[key] = update[key]
+        }
+      }
+    } else {
+      for (const key of ['isPublic', 'isNSFW', 'attachedToType', 'attachedToId'] as const) {
+        if (update[key] !== undefined) {
+          ;(allowed as any)[key] = update[key]
+        }
+      }
+    }
+
+    return this.model.findByIdAndUpdate(id, allowed, { new: true }).exec()
   }
 
   async remove(id: string): Promise<boolean> {
@@ -73,6 +94,11 @@ export class AttachmentsService {
     } = payload
 
     if (!ownerId) throw new HttpException('ownerId required', HttpStatus.BAD_REQUEST)
+    const maxUploadBytes = Number(process.env.MAX_UPLOAD_BYTES || 25 * 1024 * 1024)
+    const declaredSize = Number(sizeBytes || 0)
+    if (!declaredSize || declaredSize < 1 || declaredSize > maxUploadBytes) {
+      throw new HttpException(`File size must be between 1 and ${maxUploadBytes} bytes`, HttpStatus.BAD_REQUEST)
+    }
 
     // create a safe minio key: ownerId/timestamp-rand-original
     const safeName = originalFilename ? originalFilename.replace(/[^a-zA-Z0-9._-]/g, '-') : 'file'
@@ -114,6 +140,10 @@ export class AttachmentsService {
       const head = await this.minio.headObject(key)
       const size = (head as any).ContentLength ?? null
       const contentType = (head as any).ContentType ?? opts.contentType
+      const maxUploadBytes = Number(process.env.MAX_UPLOAD_BYTES || 25 * 1024 * 1024)
+      if (Number(size || 0) < 1 || Number(size || 0) > maxUploadBytes) {
+        throw new HttpException(`File size must be between 1 and ${maxUploadBytes} bytes`, HttpStatus.BAD_REQUEST)
+      }
 
       // find DB record by minioKey
       const doc = await this.model.findOne({ minioKey: key }).exec()
@@ -140,6 +170,7 @@ export class AttachmentsService {
       if (size) doc.sizeBytes = size
       return await doc.save()
     } catch (err) {
+      if (err instanceof HttpException) throw err
       throw new HttpException('Object not found in storage', HttpStatus.BAD_REQUEST)
     }
   }
@@ -167,11 +198,23 @@ export class AttachmentsService {
     // owner
     if (String(doc.ownerId) === String(user.id)) return doc
     // check abac flags: moderator or admin
-    const abac = BigInt(user.abac ?? 0)
+    if (this.isAdminOrModerator(user)) return doc
+    throw new HttpException('Forbidden', HttpStatus.FORBIDDEN)
+  }
+
+  async assertRecordOwnerOrAdminOrModerator(id: string, user: any) {
+    const doc = await this.findOne(id)
+    if (!doc) throw new HttpException('Not found', HttpStatus.NOT_FOUND)
+    if (String(doc.ownerId) === String(user.id)) return doc
+    if (this.isAdminOrModerator(user)) return doc
+    throw new HttpException('Forbidden', HttpStatus.FORBIDDEN)
+  }
+
+  isAdminOrModerator(user: any) {
+    const abac = BigInt(user?.abac ?? 0)
     const isMod = (abac & BigInt(1 << 4)) !== BigInt(0)
     const isAdmin = (abac & BigInt(1 << 5)) !== BigInt(0)
-    if (isMod || isAdmin) return doc
-    throw new HttpException('Forbidden', HttpStatus.FORBIDDEN)
+    return isMod || isAdmin
   }
 
   // cleanup helpers

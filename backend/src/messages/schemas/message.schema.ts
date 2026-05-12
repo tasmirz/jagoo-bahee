@@ -15,6 +15,9 @@ export class Message extends Document {
   @Prop({ type: String, required: true })
   content: string // Markdown
 
+  @Prop({ type: String, required: true })
+  contentHash: string
+
   @Prop({ type: [Types.ObjectId], ref: 'Attachment', default: [] })
   attachmentIds: Types.ObjectId[]
 

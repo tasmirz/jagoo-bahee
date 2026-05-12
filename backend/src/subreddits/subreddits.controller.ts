@@ -11,6 +11,7 @@ import {
   HttpStatus,
   UseGuards,
   Req,
+  ForbiddenException,
   ConflictException
 } from '@nestjs/common'
 import { SubredditsService } from './subreddits.service'
@@ -47,12 +48,31 @@ export class SubredditsController {
   }
 
   @Get()
-  async list(@Query('q') q?: string, @Query('limit') limit = '50', @Query('skip') skip = '0') {
+  async list(
+    @Query('q') q?: string,
+    @Query('limit') limit = '50',
+    @Query('skip') skip = '0',
+    @Query('sort') sort: 'popular' | 'newest' | 'alphabetical' = 'popular'
+  ) {
     let filter: any = {}
     if (q) {
       filter = { $or: [{ displayName: { $regex: q, $options: 'i' } }, { name: { $regex: q, $options: 'i' } }] }
     }
-    return this.service.findAll(filter, Number(limit), Number(skip))
+    return this.service.findAll(filter, Number(limit), Number(skip), sort)
+  }
+
+  @Get('suggest')
+  async suggest(@Query('q') q = '', @Query('limit') limit = '8') {
+    return this.service.suggest(q, Number(limit))
+  }
+
+  @Get('check-name/:name')
+  async getByName(@Param('name') name: string) {
+    const res = await this.service.nameAvailability(name)
+    if (res != null) {
+      throw new ConflictException('Subreddit name is already taken')
+    }
+    return { available: true }
   }
 
   @Get(':id')
@@ -61,6 +81,7 @@ export class SubredditsController {
   }
 
   @Put(':id')
+  @UseGuards(JwtAuthGuard)
   @UseGuards(SubredditRbacGuard)
   async update(@Param('id') id: string, @Body() body: any) {
     return this.service.update(id, body)
@@ -154,18 +175,19 @@ export class SubredditsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async remove(@Param('id') id: string) {
-    await this.service.remove(id)
-  }
-  @Get('check-name/:name')
-  async getByName(@Param('name') name: string) {
-    const res = await this.service.nameAvailability(name)
-    console.log(res)
-    if (res != null) {
-      // throw  409 Conflict
-      throw new ConflictException('Subreddit name is already taken')
-    } else {
-      return { available: true }
+  @UseGuards(JwtAuthGuard)
+  async remove(@Param('id') id: string, @Req() req: any) {
+    const subreddit = await this.service.findOne(id)
+    if (!subreddit) return
+
+    const abac = BigInt(req.user?.abac ?? 0)
+    const isAdmin = (abac & (BigInt(1) << BigInt(5))) !== BigInt(0)
+    const isOwner = String(subreddit.createdBy) === String(req.user?.id)
+
+    if (!isAdmin && !isOwner) {
+      throw new ForbiddenException('Only the owner or a global admin can delete a community')
     }
+
+    await this.service.remove(id)
   }
 }
