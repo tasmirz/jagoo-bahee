@@ -177,5 +177,5 @@ Expected:
 
 - Federation module does not exist yet.
 - Shared canonical JSON implementation does not exist yet.
-- Redis-backed throttler storage is not implemented yet.
+- Public federation inbox/outbox replay storage is not implemented yet.
 - Third-party receipt upload service does not exist yet.

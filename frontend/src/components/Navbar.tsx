@@ -7,6 +7,7 @@ import Image from 'next/image';
 import { useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { getAllAcknowledgements, refreshDB } from '@/lib/indexeddb';
+import ThemeToggle from './theme-toggle';
 
 export default function Navbar() {
   const { isAuthenticated, logout } = useAuth();
@@ -89,6 +90,7 @@ export default function Navbar() {
 
           {/* Desktop Actions */}
           <div className="ml-auto hidden shrink-0 items-center gap-2 md:flex">
+            <ThemeToggle />
             {isAuthenticated ? (
               <>
                 <Link
@@ -203,6 +205,9 @@ export default function Navbar() {
 
             {isAuthenticated ? (
               <div className="space-y-1">
+                <div className="flex px-4 py-2">
+                  <ThemeToggle />
+                </div>
                 <Link
                   href="/subreddits"
                   className="block px-4 py-3 text-sm hover:bg-[var(--muted)] rounded-lg"

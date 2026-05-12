@@ -222,6 +222,8 @@ curl http://localhost:8080/health/ready
 - [x] Unit: Redis throttler storage increments and blocks across shared storage.
 - [x] Unit: production startup validation rejects missing production secrets.
 - [x] Unit: community permission cache/summary behavior is covered.
+- [x] Unit: server proof hash signing rejects tampered proof subjects.
+- [x] Unit: subreddit member status bit positions remain stable across merges.
 - [ ] E2E: anonymous attachment CRUD is forbidden.
 - [ ] E2E: old JWT after ABAC revoke cannot perform admin actions once token revocation exists.
 - [ ] E2E: post/comment edit requires fresh signature.
@@ -237,5 +239,5 @@ Latest verification:
 
 - `pnpm --dir backend build` passes.
 - `pnpm --dir frontend build` passes.
-- `pnpm --dir backend test` passes: 9 suites, 21 tests.
+- `pnpm --dir backend test` passes: 11 suites, 23 tests.
 - `pnpm --dir backend test:e2e` passes: 2 suites, 4 tests.

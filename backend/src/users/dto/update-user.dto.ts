@@ -8,9 +8,22 @@ export class UpdateUserDto {
 
   @IsOptional()
   @IsString()
+  displayName?: string
+
+  @IsOptional()
+  @IsString()
+  avatar?: string
+
+  @IsOptional()
+  @IsString()
   avatarUrl?: string
 
   @IsOptional()
   @IsString()
+  banner?: string
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 500)
   bio?: string
 }

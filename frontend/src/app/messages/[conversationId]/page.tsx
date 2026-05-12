@@ -12,7 +12,7 @@ export default function ConversationPage() {
   const { isAuthenticated } = useAuth();
   const router = useRouter();
   const params = useParams();
-  const userId = params?.userId as string;
+  const userId = params?.conversationId as string;
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');

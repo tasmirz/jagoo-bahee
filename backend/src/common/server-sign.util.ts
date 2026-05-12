@@ -38,3 +38,51 @@ export function verifyServerSignature(payload: string, signatureB64: string) {
     return false
   }
 }
+
+/**
+ * Create a verifiable proof hash that users can store as evidence of post creation.
+ * This combines userId + postId + server public key into a hash that can be verified later.
+ *
+ * Format: SHA256(userId|postId|serverPublicKey)
+ *
+ * This allows users to prove:
+ * 1. They had a post with this ID
+ * 2. The server acknowledged it (via signature verification)
+ * 3. They can query the server for post status even if deleted
+ */
+export function createProofHash(userId: string, postId: string): string {
+  const payload = `${userId}|${postId}|${serverKeyId}`
+  const hash = createHash('sha256').update(payload).digest()
+  return hash.toString('hex')
+}
+
+/**
+ * Verify a proof hash matches the expected format
+ */
+export function verifyProofHash(userId: string, postId: string, proofHash: string): boolean {
+  const expectedHash = createProofHash(userId, postId)
+  return expectedHash === proofHash
+}
+
+/**
+ * Sign a proof hash to create a verifiable token users can store
+ * Returns: base64 signature of the proof hash
+ */
+export function signProofHash(proofHash: string): string {
+  const hash = Buffer.from(proofHash, 'hex')
+  const sig = tinysecp.sign(hash, priv)
+  return Buffer.from(sig).toString('base64')
+}
+
+/**
+ * Verify a signed proof hash
+ */
+export function verifySignedProof(proofHash: string, signatureB64: string): boolean {
+  try {
+    const sig = Buffer.from(signatureB64, 'base64')
+    const hash = Buffer.from(proofHash, 'hex')
+    return tinysecp.verify(hash, pub as Uint8Array, sig)
+  } catch (e) {
+    return false
+  }
+}

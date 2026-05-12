@@ -9,7 +9,16 @@ export class User extends Document {
   username: string
 
   @Prop({ type: String, default: '' })
+  displayName: string
+
+  @Prop({ type: Types.ObjectId, ref: 'Attachment' })
+  avatarId?: Types.ObjectId
+
+  @Prop({ type: String, default: '' })
   avatarUrl: string
+
+  @Prop({ type: Types.ObjectId, ref: 'Attachment' })
+  bannerId?: Types.ObjectId
 
   @Prop({ type: String, default: '' })
   bio: string
@@ -19,6 +28,11 @@ export class User extends Document {
 
   @Prop({ type: Number, default: 0 })
   commentKarma: number
+
+  // Computed karma getter
+  get karma(): number {
+    return (this.postKarma || 0) + (this.commentKarma || 0)
+  }
 
   @Prop({ type: Date })
   bannedUntil?: Date
@@ -34,5 +48,14 @@ export class User extends Document {
 }
 
 export const UserSchema = SchemaFactory.createForClass(User)
+
+// Add virtual for karma
+UserSchema.virtual('karma').get(function (this: User) {
+  return (this.postKarma || 0) + (this.commentKarma || 0)
+})
+
+// Ensure virtuals are included in JSON
+UserSchema.set('toJSON', { virtuals: true })
+UserSchema.set('toObject', { virtuals: true })
 
 export default UserSchema

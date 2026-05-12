@@ -1,6 +1,18 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose'
 import { Document, Types } from 'mongoose'
 
+/**
+ * Member status flags (bitmap).
+ * These bits are persisted across federated instances, so do not renumber them.
+ */
+export enum MemberStatus {
+  MEMBER = 1 << 0,
+  MUTED = 1 << 1,
+  BANNED = 1 << 2,
+  MODERATOR = 1 << 3,
+  CONTRIBUTOR = 1 << 4
+}
+
 @Schema({ timestamps: { createdAt: true, updatedAt: false } })
 export class SubredditMember extends Document {
   @Prop({ type: Types.ObjectId, ref: 'Subreddit', required: true })

@@ -34,7 +34,14 @@ export class VotesService {
     await this.checkRateLimit(userId)
 
     try {
-      const existing = await this.voteModel.findOne({ userId, targetId, targetType })
+      const userObjId = new Types.ObjectId(userId)
+      const targetObjId = new Types.ObjectId(targetId)
+
+      const existing = await this.voteModel.findOne({
+        userId: userObjId,
+        targetId: targetObjId,
+        targetType
+      })
 
       // Prevent banned users from voting: find subreddit of target (if post/comment)
       let subredditId: string | null = null
@@ -72,10 +79,9 @@ export class VotesService {
       }
 
       if (!existing) {
-        // create new
         await this.voteModel.create({
-          userId: new Types.ObjectId(userId),
-          targetId: new Types.ObjectId(targetId),
+          userId: userObjId,
+          targetId: targetObjId,
           targetType,
           value
         })
@@ -120,5 +126,21 @@ export class VotesService {
     } catch (e) {
       throw e
     }
+  }
+
+  async getUserVote(userId: string, targetId: string, targetType: 'post' | 'comment') {
+    const vote = await this.voteModel
+      .findOne({
+        userId: new Types.ObjectId(userId),
+        targetId: new Types.ObjectId(targetId),
+        targetType
+      })
+      .lean()
+
+    if (!vote) {
+      return { vote: 0 }
+    }
+
+    return { vote: vote.value }
   }
 }

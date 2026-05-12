@@ -1,6 +1,7 @@
 # Jagoo Bahee Red-Team Attack Surface Report
 
 Audit date: 2026-05-12
+Merge re-audit: 2026-05-13
 
 Scope: local codebase review of the NestJS backend, Next.js frontend, Docker compose, cryptographic flows, moderation flows, file uploads, messaging, planned federation, and scaling posture. This is a defensive report for the project owner.
 
@@ -16,6 +17,43 @@ Highest-risk classes:
 - High: file upload flows allow storage exhaustion and metadata spoofing.
 - High: federation, when added, will be vulnerable to replay, SSRF, spam relay, and signature downgrade unless constrained from the start.
 - High: horizontal scaling without stable keys and shared rate-limit state invalidates audit receipts and weakens DoS controls.
+
+## 2026-05-13 Dev-Into-Main Merge Findings
+
+`MERGE-001` Member status bit downgrade
+
+- Surface: subreddit membership, voting ban checks, moderator checks, permission cache.
+- Finding: dev branch code shifted `BANNED` to bit `1`, conflicting with main's persisted federated contract where `MEMBER=1`, `MUTED=2`, `BANNED=4`, `MODERATOR=8`, and `CONTRIBUTOR=16`.
+- Impact: banned users could be treated as normal members, normal members could be treated as banned by some paths, and moderation authority could diverge across instances.
+- Remediation applied: restored stable bit positions, restored vote ban checks to bit `4`, and added a regression test for the persisted bit contract.
+
+`MERGE-002` Insecure object-storage CORS default
+
+- Surface: MinIO/S3 bucket CORS provisioning.
+- Finding: dev branch bucket bootstrap used wildcard origins, wildcard headers, and allowed `DELETE`.
+- Impact: browser upload URLs would be easier to abuse from arbitrary origins and future misrouted delete flows would have broader browser reach.
+- Remediation applied: CORS origins now default to `FRONTEND_ORIGIN`/`MINIO_CORS_ALLOWED_ORIGINS`, allowed methods exclude `DELETE`, and allowed headers are constrained to upload-required headers.
+
+`MERGE-003` Debug logging leaked identifiers
+
+- Surface: vote service.
+- Finding: dev branch logged voter id, target id, target type, and existing vote state.
+- Impact: logs could correlate pseudonymous users and activity.
+- Remediation applied: removed merge-introduced vote debug logging.
+
+`MERGE-004` Route collision hid visitable pages
+
+- Surface: Next.js app routes.
+- Finding: dev branch added `/messages/[userId]` and `/u/[user]` while main already had `/messages/[conversationId]` and `/u/[publicKey]`.
+- Impact: production build failed and user/profile/message pages were not reliably visitable.
+- Remediation applied: removed duplicate dynamic routes, fixed the conversation route param, and kept profile aliases routing to `/users/:username`.
+
+`MERGE-005` Dev theme needed isolation
+
+- Surface: frontend theme variables and global UI.
+- Finding: dev's green color scheme conflicted with main's default theme.
+- Impact: merge could silently replace the main visual contract.
+- Remediation applied: stored the dev palette as `fluent-light` and `fluent-dark`; settings can choose the full theme, while the nav only toggles light/dark for the selected family.
 
 ## Attack Inventory
 

@@ -10,6 +10,8 @@ import { UserFollow, UserFollowSchema } from './schemas/user-follow.schema'
 import { SavedContent, SavedContentSchema } from './schemas/saved-content.schema'
 import { UserBlock, UserBlockSchema } from './schemas/user-block.schema'
 import { FeedPreferences, FeedPreferencesSchema } from './schemas/feed-preferences.schema'
+import { Post, PostSchema } from 'src/posts/schemas/post.schema'
+import { Comment, CommentSchema } from 'src/comments/schemas/comment.schema'
 import { jwtConfig } from 'src/config/jwt.config'
 import { RedisModule } from 'src/redis/redis.module'
 
@@ -20,7 +22,9 @@ import { RedisModule } from 'src/redis/redis.module'
       { name: UserFollow.name, schema: UserFollowSchema },
       { name: SavedContent.name, schema: SavedContentSchema },
       { name: UserBlock.name, schema: UserBlockSchema },
-      { name: FeedPreferences.name, schema: FeedPreferencesSchema }
+      { name: FeedPreferences.name, schema: FeedPreferencesSchema },
+      { name: Post.name, schema: PostSchema },
+      { name: Comment.name, schema: CommentSchema }
     ]),
     SharedModule,
     RedisModule,

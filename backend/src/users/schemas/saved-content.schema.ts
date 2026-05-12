@@ -6,10 +6,14 @@ export class SavedContent extends Document {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   userId: Types.ObjectId
 
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({
+    type: Types.ObjectId,
+    required: true,
+    refPath: 'targetType'
+  })
   targetId: Types.ObjectId
 
-  @Prop({ type: String, required: true, enum: ['post', 'comment'] })
+  @Prop({ type: String, required: true, enum: ['Post', 'Comment'] })
   targetType: string
 
   @Prop({ type: String })
