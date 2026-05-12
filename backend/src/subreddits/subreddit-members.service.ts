@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose'
 import { Model, Types } from 'mongoose'
 import { SubredditMember } from './schemas/subreddit-member.schema'
 import { ModLogService } from 'src/moderation/mod-log.service'
+import { RedisService } from 'src/redis/redis.service'
 
 type MemberType = 'member' | 'muted' | 'banned' | 'moderator' | 'contributor'
 
@@ -18,7 +19,8 @@ const MEMBER_TYPE_FLAGS: Record<MemberType, bigint> = {
 export class SubredditMembersService {
   constructor(
     @InjectModel(SubredditMember.name) private readonly model: Model<SubredditMember>,
-    private readonly modLogService: ModLogService
+    private readonly modLogService: ModLogService,
+    private readonly redis: RedisService
   ) {}
 
   async addMember(data: Partial<SubredditMember>): Promise<SubredditMember> {
@@ -185,8 +187,22 @@ export class SubredditMembersService {
 
   async findBySubredditAndUser(subredditId: string, userId: string): Promise<SubredditMember | null> {
     if (!Types.ObjectId.isValid(subredditId) || !Types.ObjectId.isValid(userId)) return null
-    return this.model
+
+    const cacheKey = `member:${subredditId}:${userId}`
+    try {
+      const cached = await this.redis.getClient().get(cacheKey)
+      if (cached) return JSON.parse(cached)
+    } catch (e) {}
+
+    const member = await this.model
       .findOne({ subredditId: new Types.ObjectId(subredditId), userId: new Types.ObjectId(userId) })
       .exec()
+
+    if (member) {
+      try {
+        await this.redis.getClient().set(cacheKey, JSON.stringify(member), 'EX', 300)
+      } catch (e) {}
+    }
+    return member
   }
 }

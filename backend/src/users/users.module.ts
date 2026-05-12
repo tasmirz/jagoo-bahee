@@ -1,9 +1,10 @@
-import { Module } from '@nestjs/common'
+import { Module, forwardRef } from '@nestjs/common'
 import { MongooseModule } from '@nestjs/mongoose'
 import { SharedModule } from 'src/common/shared.module'
 import { UsersService } from './users.service'
 import { UsersController } from './users.controller'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
+import { AuthModule } from 'src/auth/auth.module'
 import { User, UserSchema } from './schemas/user.schema'
 import { UserFollow, UserFollowSchema } from './schemas/user-follow.schema'
 import { SavedContent, SavedContentSchema } from './schemas/saved-content.schema'
@@ -20,7 +21,8 @@ import { jwtConfig } from 'src/config/jwt.config'
       { name: UserBlock.name, schema: UserBlockSchema },
       { name: FeedPreferences.name, schema: FeedPreferencesSchema }
     ]),
-    SharedModule
+    SharedModule,
+    forwardRef(() => AuthModule)
   ],
   controllers: [UsersController],
   providers: [UsersService],

@@ -4,6 +4,7 @@ import { ModLog, ModLogSchema } from './schemas/mod-log.schema'
 import { ServerAcknowledgement, ServerAcknowledgementSchema } from './schemas/server-acknowledgement.schema'
 import { Report, ReportSchema } from './schemas/report.schema'
 import { ModLogService } from './mod-log.service'
+import { ServerAcknowledgementsService } from './server-acknowledgements.service'
 import { ModerationController } from './moderation.controller'
 
 @Module({
@@ -14,8 +15,8 @@ import { ModerationController } from './moderation.controller'
       { name: Report.name, schema: ReportSchema }
     ])
   ],
-  providers: [ModLogService],
+  providers: [ModLogService, ServerAcknowledgementsService],
   controllers: [ModerationController],
-  exports: [ModLogService]
+  exports: [ModLogService, ServerAcknowledgementsService]
 })
 export class ModerationModule {}

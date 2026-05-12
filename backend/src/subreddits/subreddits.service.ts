@@ -3,25 +3,23 @@ import { InjectModel } from '@nestjs/mongoose'
 import { Model, Types } from 'mongoose'
 import { Subreddit } from './schemas/subreddit.schema'
 import { SubredditMember } from './schemas/subreddit-member.schema'
-import { Role } from 'src/roles/schemas/role.schema'
-import { UserRole } from 'src/roles/schemas/user-role.schema'
 import { AttachmentsService } from 'src/attachments/attachments.service'
 import { NotificationsService } from 'src/notifications/notifications.service'
 import { ModLogService } from 'src/moderation/mod-log.service'
 import { verifySignature, getAuthPublicKeyById } from 'src/common/signature.util'
 import { UsersService } from 'src/users/users.service'
+import { AuthService } from 'src/auth/auth.service'
 
 @Injectable()
 export class SubredditsService {
   constructor(
     @InjectModel(Subreddit.name) private readonly model: Model<Subreddit>,
     @InjectModel(SubredditMember.name) private readonly memberModel: Model<SubredditMember>,
-    @InjectModel(Role.name) private readonly roleModel: Model<Role>,
-    @InjectModel(UserRole.name) private readonly userRoleModel: Model<UserRole>,
     private readonly attachmentsService: AttachmentsService,
     private readonly notificationsService: NotificationsService,
     private readonly modLog: ModLogService,
-    private readonly usersService: UsersService
+    private readonly usersService: UsersService,
+    private readonly authService: AuthService
   ) {}
   public async nameAvailability(name: string) {
     return await this.model.findOne({ name: this.escapeRegExp(name.toLowerCase().trim()) }).exec()
@@ -30,12 +28,11 @@ export class SubredditsService {
   private async hasPermission(actorAuthId: string, subredditId: any, permission: string): Promise<boolean> {
     if (!actorAuthId) return false
     // global admin check via auth.abac
-    // Here we need to fetch the auth document to inspect abac — but the auth id is the JWT id (auth doc id)
     try {
-      const authDoc = await (this as any).model.db.collection('auths').findOne({ _id: new Types.ObjectId(actorAuthId) })
+      const authDoc = await this.authService.findById(actorAuthId)
       if (authDoc && authDoc.abac) {
-        const abac = BigInt(authDoc.abac || 0)
-        const isAdmin = (abac & BigInt(1 << 5)) !== BigInt(0)
+        const abac = BigInt(authDoc.abac || BigInt(0))
+        const isAdmin = (abac & (BigInt(1) << BigInt(5))) !== BigInt(0)
         if (isAdmin) return true
       }
     } catch (e) {
@@ -52,16 +49,18 @@ export class SubredditsService {
     }
     if (!user) return false
 
-    const ur = await this.userRoleModel
+    const member = await this.memberModel
       .findOne({
         userId: new Types.ObjectId(String((user as any)._id)),
         subredditId: new Types.ObjectId(String(subredditId))
       })
       .exec()
-    if (!ur) return false
-    const role = await this.roleModel.findById(ur.roleId).exec()
-    if (!role) return false
-    return (role.permissions || []).includes(permission)
+    if (!member) return false
+    
+    // Check if user has moderator bit (8) in statusFlags
+    const MODERATOR_BIT = BigInt(8);
+    const flags = BigInt(member.statusFlags || 0);
+    return (flags & MODERATOR_BIT) === MODERATOR_BIT;
   }
 
   // Kick user: remove membership but allow rejoin
@@ -418,7 +417,7 @@ export class SubredditsService {
     // notify subreddit mods (best-effort)
     try {
       const mods = await this.memberModel
-        .find({ subredditId: subreddit._id, statusFlags: { $bitsAllSet: BigInt(8) } })
+        .find({ subredditId: subreddit._id, statusFlags: { $bitsAllSet: 8 } } as any)
         .lean()
       for (const m of mods) {
         try {
@@ -520,24 +519,6 @@ export class SubredditsService {
       })
       await member.save()
 
-      // create owner role
-      const role = new this.roleModel({
-        name: 'owner',
-        subredditId: createdSub._id,
-        permissions: ['manage_subreddit', 'ban_user', 'edit_rules', 'assign_roles'],
-        isSystemRole: false
-      })
-      const savedRole = await role.save()
-
-      // link user to role
-      const userRole = new this.userRoleModel({
-        userId: new Types.ObjectId(userId),
-        subredditId: createdSub._id,
-        roleId: savedRole._id,
-        assignedBy: new Types.ObjectId(userId)
-      })
-      await userRole.save()
-
       // link attachments to subreddit (non-transactional — already validated)
       try {
         if (iconAttachmentId) {
@@ -566,20 +547,18 @@ export class SubredditsService {
           // ignore
         }
       }
-      // try cleanup if subreddit was partially created outside transaction
-      if (createdSub && createdSub._id) {
-        try {
-          await this.model.findByIdAndDelete(createdSub._id).exec()
-        } catch (e) {
-          // ignore
-        }
-      }
       throw new HttpException(err.message || 'Could not create subreddit', err.status || HttpStatus.BAD_REQUEST)
     }
   }
 
   async findAll(filter: any = {}, limit = 50, skip = 0): Promise<Subreddit[]> {
-    return this.model.find(filter).sort({ createdAt: -1 }).limit(limit).skip(skip).exec()
+    return this.model
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(skip)
+      .populate('createdBy', 'username')
+      .exec()
   }
 
   async findOne(idOrName: string): Promise<Subreddit | null> {
@@ -628,7 +607,7 @@ export class SubredditsService {
     const subreddit = await this.findOne(idOrName)
     if (!subreddit) throw new HttpException('Subreddit not found', HttpStatus.NOT_FOUND)
     const banned = await this.memberModel
-      .find({ subredditId: subreddit._id, statusFlags: { $bitsAllSet: BigInt(4) } })
+      .find({ subredditId: subreddit._id, statusFlags: { $bitsAllSet: 4 } } as any)
       .lean()
     const out: any[] = []
     for (const m of banned) {

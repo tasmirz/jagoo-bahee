@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common'
+import { Module, forwardRef } from '@nestjs/common'
 import { AuthService } from './auth.service'
 import { AuthController } from './auth.controller'
 import { MongooseModule } from '@nestjs/mongoose'
@@ -7,6 +7,7 @@ import { UsersModule } from 'src/users/users.module'
 import { Auth, AuthSchema } from './schemas/auth.schema'
 import { jwtConfig } from 'src/config/jwt.config'
 import { User, UserSchema } from 'src/users/schemas/user.schema'
+import { RedisModule } from 'src/redis/redis.module'
 
 @Module({
   imports: [
@@ -15,7 +16,8 @@ import { User, UserSchema } from 'src/users/schemas/user.schema'
       { name: User.name, schema: UserSchema }
     ]),
     SharedModule,
-    UsersModule
+    forwardRef(() => UsersModule),
+    RedisModule
   ],
   controllers: [AuthController],
   providers: [AuthService],

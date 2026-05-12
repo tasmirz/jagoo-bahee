@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post as HttpPost, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post as HttpPost, UseGuards, Req, ForbiddenException } from '@nestjs/common'
 import { CommentsService } from './comments.service'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
 import { SubredditRbacGuard } from 'src/subreddits/guards/subreddit-rbac.guard'
@@ -14,7 +14,10 @@ export class CommentsController {
 
   @UseGuards(JwtAuthGuard)
   @HttpPost()
-  create(@Body() body: CreateCommentDto) {
+  create(@Req() req: any, @Body() body: CreateCommentDto) {
+    if (String(body.authorId) !== String(req.user.id)) {
+      throw new ForbiddenException('Cannot impersonate another user');
+    }
     return this.comments.create(body as any)
   }
 
@@ -25,14 +28,20 @@ export class CommentsController {
 
   @UseGuards(JwtAuthGuard)
   @Patch(':id')
-  update(@Param('id') id: string, @Body() body: UpdateCommentDto) {
-    return this.comments.updateByAuthor(id, String(body.authorId), body as any)
+  update(@Req() req: any, @Param('id') id: string, @Body() body: UpdateCommentDto) {
+    if (body.authorId && String(body.authorId) !== String(req.user.id)) {
+      throw new ForbiddenException('Cannot impersonate another user');
+    }
+    return this.comments.updateByAuthor(id, String(req.user.id), body as any)
   }
 
   @UseGuards(JwtAuthGuard)
   @Delete(':id')
-  remove(@Param('id') id: string, @Body('authorId') authorId: string) {
-    return this.comments.removeByAuthor(id, String(authorId))
+  remove(@Req() req: any, @Param('id') id: string, @Body('authorId') authorId: string) {
+    if (String(authorId) !== String(req.user.id)) {
+      throw new ForbiddenException('Cannot impersonate another user');
+    }
+    return this.comments.removeByAuthor(id, String(req.user.id))
   }
 
   @UseGuards(JwtAuthGuard)

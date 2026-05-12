@@ -101,12 +101,21 @@ export class SubredditsController {
   @Get(':id/is-moderator')
   @UseGuards(JwtAuthGuard)
   async isModerator(@Param('id') id: string, @Req() req: any) {
-    // return boolean if the current request user is a moderator of this subreddit
-    const user = req?.user
-    if (!user || !user.id) return { isModerator: false }
-    // delegate to service to check membership
-    const m = await (this.service as any).memberModel
-      .findOne({ subredditId: id, userId: new (require('mongoose').Types.ObjectId)(user.id) })
+    const authId = req?.user?.id
+    if (!authId) return { isModerator: false }
+
+    const usersService = (this.service as any).usersService
+    const memberModel = (this.service as any).memberModel
+    if (!usersService || !memberModel) return { isModerator: false }
+
+    let profile = await usersService.findByAuthId(authId).catch(() => null)
+    if (!profile?._id) {
+      profile = await usersService.ensureUserForAuth(authId).catch(() => null)
+    }
+    if (!profile?._id) return { isModerator: false }
+
+    const m = await memberModel
+      .findOne({ subredditId: id, userId: profile._id })
       .exec()
       .catch(() => null)
     const isMod = !!m && (BigInt(m.statusFlags) & BigInt(8)) !== BigInt(0)

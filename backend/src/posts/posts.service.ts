@@ -10,6 +10,7 @@ import { createHmac } from 'crypto'
 import { jwtConfig } from 'src/config/jwt.config'
 import { signServerMessage, serverKeyId } from 'src/common/server-sign.util'
 import { AuthService } from '../auth/auth.service'
+import { ServerAcknowledgementsService } from 'src/moderation/server-acknowledgements.service'
 
 const POST_FLAGS = {
   ACTIVE: 1 << 0,
@@ -31,7 +32,8 @@ export class PostsService {
     private readonly modLog: ModLogService,
     private readonly attachments: AttachmentsService,
     private readonly subreddits: SubredditsService,
-    private readonly authService: AuthService
+    private readonly authService: AuthService,
+    private readonly acks: ServerAcknowledgementsService
   ) {}
 
   private toId(id: string | Types.ObjectId) {
@@ -81,8 +83,19 @@ export class PostsService {
         throw new BadRequestException(`attachment ${aId} not owned by author`)
     }
 
-    // Verify user signature: canonical payload is title|content|url|attachmentIds(sorted)
-    const attachmentsSorted = (attachmentIds || []).slice().sort().join(',')
+    // Verify user signature: canonical JSON ordering
+    const payloadObj = {
+      title: data.title,
+      content: data.content || '',
+      type: data.type,
+      subredditId: String(data.subredditId),
+      authorId: String(data.authorId)
+    }
+    const canonical = JSON.stringify(payloadObj)
+    const pub = await getAuthPublicKeyById((this as any).model.db, String(data.authorId))
+    if (!pub) throw new BadRequestException('author public key not found')
+    const ok = verifySignature(pub, canonical, String(data.userSignature))
+    if (!ok) throw new BadRequestException('user signature verification failed')
 
     // Create the post
     const doc = await this.model.create({ ...data, statusFlags: BigInt(POST_FLAGS.ACTIVE) })
@@ -93,10 +106,9 @@ export class PostsService {
       const payload = `${String(docId)}|created|${doc.contentHash}`
       serverSig = signServerMessage(payload)
       try {
-        const coll = (this as any).model.db.collection('serveracknowledgements')
-        await coll.insertOne({
+        await this.acks.create({
           contentType: 'post',
-          contentId: doc._id,
+          contentId: doc._id as any,
           authorId: new Types.ObjectId(data.authorId),
           action: 'created',
           contentHash: doc.contentHash,
@@ -112,21 +124,11 @@ export class PostsService {
       // ignore
     }
 
-    return {
-      contentType: 'post',
-      contentId: doc._id,
-      authorId: new Types.ObjectId(data.authorId),
-      action: 'created',
-      contentHash: doc.contentHash,
-      userSignature: doc.userSignature,
-      serverSignature: serverSig,
-      metadata: { serverKeyId },
-      createdAt: new Date()
-    }
+    return this.convertBigIntToString(doc)
   }
 
   async findById(id: string) {
-    const doc = await this.model.findById(id)
+    const doc = await this.model.findById(id).populate('authorId', 'username').populate({ path: 'subredditId', select: 'name' })
     if (!doc) throw new NotFoundException('Post not found')
     return this.convertBigIntToString(doc)
   }
@@ -159,11 +161,10 @@ export class PostsService {
       const docId = (docRaw as any)._id
       const payload = `${String(docId)}|deleted|${docRaw.contentHash}`
       const serverSig = signServerMessage(payload)
-      const coll = (this as any).model.db.collection('serveracknowledgements')
-      await coll.insertOne({
+      await this.acks.create({
         contentType: 'post',
-        contentId: docId,
-        authorId: docRaw.authorId,
+        contentId: docId as any,
+        authorId: docRaw.authorId as any,
         action: 'deleted',
         contentHash: docRaw.contentHash,
         userSignature: '',
@@ -178,12 +179,7 @@ export class PostsService {
   /** Return stored verification info for a post (contentHash, userSignature, server acknowledgements) */
   async getVerification(id: string) {
     const doc = await this.findById(id)
-    const acks = await (this as any).model.db
-      .collection('serveracknowledgements')
-      .find({ contentType: 'post', contentId: doc._id })
-      .sort({ createdAt: -1 })
-      .limit(20)
-      .toArray()
+    const acks = await this.acks.findByContent('post', doc._id)
     return { contentHash: doc.contentHash, userSignature: doc.userSignature, serverAcknowledgements: acks }
   }
 
@@ -191,25 +187,29 @@ export class PostsService {
   async getAuditTrail(id: string) {
     const doc = await this.findById(id)
     // post versions (if versioning implemented) - fall back to server acknowledgements and mod logs
-    const acks = await (this as any).model.db
-      .collection('serveracknowledgements')
-      .find({ contentType: 'post', contentId: doc._id })
-      .sort({ createdAt: -1 })
-      .toArray()
-    const logs = await (this as any).model.db
-      .collection('modlogs')
-      .find({ targetType: 'post', targetId: id })
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .toArray()
+    const acks = await this.acks.findByContent('post', doc._id)
+    const logs = await this.modLog.listForSubreddit(String(doc.subredditId), 100)
     return { post: doc, serverAcknowledgements: acks, modLogs: logs }
   }
 
   /** List posts with optional filter/pagination. Populates subreddit name for convenience. */
   async findAll(filter: any = {}, limit = 50, skip = 0) {
-    console.log('findAll filter:', filter)
+    console.log('findAll filter before resolution:', filter)
+    const finalFilter = { ...filter }
+    if (
+      finalFilter.subredditId &&
+      typeof finalFilter.subredditId === 'string' &&
+      !Types.ObjectId.isValid(finalFilter.subredditId)
+    ) {
+      const sr = await this.subreddits.findOne(finalFilter.subredditId)
+      if (sr) {
+        finalFilter.subredditId = sr._id
+      }
+    }
+    console.log('findAll filter after resolution:', finalFilter)
+
     const docs = await this.model
-      .find(filter)
+      .find(finalFilter)
       .sort({ createdAt: -1 })
       .limit(Number(limit))
       .skip(Number(skip))

@@ -26,8 +26,8 @@ export class Auth extends Document {
    * Bits 16-31: Custom flags
    * Bits 32-63: Reserved
    */
-  @Prop({ type: Number, default: 0 })
-  abac: BigInt
+  @Prop({ type: BigInt, default: BigInt(0) })
+  abac: bigint
 
   @Prop({ type: Date, default: Date.now })
   createdAt: Date

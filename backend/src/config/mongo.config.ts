@@ -6,7 +6,7 @@ const defaultUri = (() => {
   const user = process.env.MONGO_INITDB_ROOT_USERNAME
   const pass = process.env.MONGO_INITDB_ROOT_PASSWORD
   const host = process.env.MONGODB_HOST ?? 'localhost'
-  const port = process.env.MONGODB_PORT ?? '27017'
+  const port = process.env.MONGODB_PORT ?? '27018'
   const db = process.env.MONGODB_DATABASE ?? 'jagoo-bahee'
 
   if (user && pass) {

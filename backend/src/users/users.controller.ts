@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards, NotFoundException } from '@nestjs/common'
 import { UsersService } from './users.service'
+import { AuthService } from 'src/auth/auth.service'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
 import { CreateUserDto } from './dto/create-user.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
@@ -7,11 +8,24 @@ import { Types } from 'mongoose'
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly authService: AuthService
+  ) {}
 
   @Get(':id')
   async getUser(@Param('id') id: string) {
     return this.usersService.findById(id)
+  }
+
+  @Get('by-public-key/:publicKey')
+  async getByPublicKey(@Param('publicKey') publicKey: string) {
+    const buf = Buffer.from(publicKey, 'base64url')
+    const auth = await this.authService.findByPublicKey(buf)
+    if (!auth) throw new NotFoundException('User not found')
+    const user = await this.usersService.findByAuthId(auth._id as any)
+    if (!user) throw new NotFoundException('User profile not found')
+    return user
   }
 
   @UseGuards(JwtAuthGuard)

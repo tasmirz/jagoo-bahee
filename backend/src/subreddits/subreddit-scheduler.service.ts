@@ -20,7 +20,7 @@ export class SubredditSchedulerService {
       const now = new Date()
       // find members with bannedUntil in the past and banned bit set
       const expired = await this.memberModel
-        .find({ bannedUntil: { $lte: now }, statusFlags: { $bitsAllSet: BigInt(4) } })
+        .find({ bannedUntil: { $lte: now }, statusFlags: { $bitsAllSet: 4 } } as any)
         .exec()
       for (const m of expired) {
         try {

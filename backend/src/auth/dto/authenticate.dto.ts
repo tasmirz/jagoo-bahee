@@ -1,7 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger'
 import { Transform } from 'class-transformer'
-import { IsBase64, IsJWT, IsNotEmpty } from 'class-validator'
-import { Auth } from '../schemas/auth.schema'
+import { IsJWT, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator'
 
 export class AuthenticationDto {
   //@IsBase64()
@@ -13,8 +11,16 @@ export class AuthenticationDto {
   @IsNotEmpty()
   challenge: string
 
+  @IsNumber()
+  @IsNotEmpty()
+  nonce: number
+
   //@IsBase64()
   @IsNotEmpty()
   @Transform(({ value }: { value: string }) => Buffer.from(value, 'base64'))
   signedData: Buffer
+
+  @IsOptional()
+  @IsString()
+  mcaptchaToken?: string
 }

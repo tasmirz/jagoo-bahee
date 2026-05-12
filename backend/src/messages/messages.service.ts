@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
-import { FilterQuery, Model, Types } from 'mongoose'
+import { Model, Types } from 'mongoose'
 import { Message } from './schemas/message.schema'
 import { CreateMessageDto } from './dto/create-message.dto'
 import { UpdateMessageDto } from './dto/update-message.dto'
@@ -45,7 +45,7 @@ export class MessagesService {
   }
 
   async list(userId: string, query: QueryMessagesDto) {
-    const filter: FilterQuery<Message> = {
+    const filter: any = {
       $or: [{ senderId: new Types.ObjectId(userId) }, { recipientId: new Types.ObjectId(userId) }],
     }
     if (typeof query.isRead === 'boolean') filter.isRead = query.isRead
@@ -68,7 +68,7 @@ export class MessagesService {
   }
 
   async markRead(userId: string, ids: string[] | 'all') {
-    const filter: FilterQuery<Message> = { recipientId: new Types.ObjectId(userId), isRead: false }
+    const filter: any = { recipientId: new Types.ObjectId(userId), isRead: false }
     if (Array.isArray(ids)) {
       filter._id = { $in: ids.map((id) => new Types.ObjectId(id)) }
     }

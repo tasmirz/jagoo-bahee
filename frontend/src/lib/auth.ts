@@ -60,7 +60,7 @@ export function deriveBip32Keypair(mnemonic: string, passphrase = ""): KeyPair {
 
 export async function signChallenge(
   privateKey: Uint8Array,
-  challenge: string
+  challenge: string,
 ): Promise<Uint8Array> {
   // hash using Web Crypto via crypto.subtle
   const enc = new TextEncoder().encode(challenge);
@@ -83,9 +83,7 @@ export function saveKeys(privateKey: Uint8Array, publicKey: Uint8Array) {
     try {
       sessionStorage.setItem(PRIV_KEY, toB64(privateKey));
     } catch (e) {}
-    try {
-      localStorage.setItem(PRIV_KEY, toB64(privateKey));
-    } catch (e) {}
+    // Do NOT store privateKey in localStorage natively without heavy encryption!
     try {
       localStorage.setItem(PUB_KEY, toB64(publicKey));
     } catch (e) {}
@@ -159,10 +157,28 @@ export function clearCredentials() {
 }
 
 // Verify a signature using public key and message hash
-export function verifySignature(publicKey: Uint8Array, messageHash: Uint8Array, signature: Uint8Array): boolean {
+export function verifySignature(
+  publicKey: Uint8Array,
+  messageHash: Uint8Array,
+  signature: Uint8Array,
+): boolean {
   try {
-    return tinySecp.verify(messageHash, signature, publicKey);
+    return tinySecp.verify(messageHash, publicKey, signature);
   } catch (e) {
     return false;
+  }
+}
+
+import { sha256 as jsSha256 } from 'js-sha256';
+
+export function solveChallenge(challenge: string, difficulty: number): number {
+  let nonce = 0;
+  const target = "0".repeat(difficulty);
+  while (true) {
+    const hash = jsSha256(challenge + nonce.toString());
+    if (hash.startsWith(target)) {
+      return nonce;
+    }
+    nonce++;
   }
 }

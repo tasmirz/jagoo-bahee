@@ -9,6 +9,7 @@ import { PostsModule } from 'src/posts/posts.module'
 import { AttachmentsModule } from 'src/attachments/attachments.module'
 import { NotificationsModule } from 'src/notifications/notifications.module'
 import { RedisModule } from 'src/redis/redis.module'
+import { UsersModule } from 'src/users/users.module'
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { RedisModule } from 'src/redis/redis.module'
     AttachmentsModule,
     NotificationsModule,
     RedisModule,
+    UsersModule,
     forwardRef(() => PostsModule)
   ],
   controllers: [CommentsController],

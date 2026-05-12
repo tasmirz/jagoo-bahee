@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
-import { FilterQuery, Model, Types } from 'mongoose'
+import { Model, Types } from 'mongoose'
 import { Notification } from './schemas/notification.schema'
 import { CreateNotificationDto } from './dto/create-notification.dto'
 import { UpdateNotificationDto } from './dto/update-notification.dto'
@@ -19,7 +19,7 @@ export class NotificationsService {
   }
 
   async list(userId: string, query: QueryNotificationsDto) {
-    const filter: FilterQuery<Notification> = { userId: new Types.ObjectId(userId) }
+    const filter: any = { userId: new Types.ObjectId(userId) }
     if (query.type) filter.type = query.type
     if (typeof query.isRead === 'boolean') filter.isRead = query.isRead
 
@@ -40,7 +40,7 @@ export class NotificationsService {
   }
 
   async markRead(userId: string, ids: string[] | 'all') {
-    const filter: FilterQuery<Notification> = { userId: new Types.ObjectId(userId), isRead: false }
+    const filter: any = { userId: new Types.ObjectId(userId), isRead: false }
     if (Array.isArray(ids)) {
       filter._id = { $in: ids.map((id) => new Types.ObjectId(id)) }
     }
@@ -49,7 +49,7 @@ export class NotificationsService {
   }
 
   async markUnread(userId: string, ids: string[]) {
-    const filter: FilterQuery<Notification> = {
+    const filter: any = {
       userId: new Types.ObjectId(userId),
       _id: { $in: ids.map((id) => new Types.ObjectId(id)) },
     }

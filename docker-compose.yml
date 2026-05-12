@@ -1,0 +1,32 @@
+services:
+  mongo:
+    image: mongo:6
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  mcaptcha:
+    image: mcaptcha/mcaptcha:latest
+    ports:
+      - "7000:7000"
+    environment:
+      MCAPTCHA_PORT: "7000"
+      MCAPTCHA_ALLOW_REGISTRATION: "true"
+      MCAPTCHA_DATABASE_URL: "sqlite://:memory:"
+    restart: unless-stopped
+    depends_on:
+      - redis
+
+volumes:
+  mongo_data:
+  redis_data:

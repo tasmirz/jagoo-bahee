@@ -21,6 +21,10 @@ export class UsersService {
     return this.userModel.findById(id).exec()
   }
 
+  async findByUsername(username: string): Promise<User | null> {
+    return this.userModel.findOne({ username }).exec()
+  }
+
   // With the new schema the User document _id will be the same as the Auth document _id.
   // findByAuthId is equivalent to findById on this model.
   async findByAuthId(authId: string | Types.ObjectId): Promise<User | null> {

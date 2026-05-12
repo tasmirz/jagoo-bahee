@@ -8,7 +8,9 @@ import {
   Post as HttpPost,
   UseGuards,
   Query,
-  NotFoundException
+  NotFoundException,
+  Req,
+  ForbiddenException
 } from '@nestjs/common'
 import { PostsService } from './posts.service'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
@@ -29,7 +31,10 @@ export class PostsController {
 
   @UseGuards(JwtAuthGuard)
   @HttpPost()
-  create(@Body() body: CreatePostDto) {
+  create(@Req() req: any, @Body() body: CreatePostDto) {
+    if (String(body.authorId) !== String(req.user.id)) {
+      throw new ForbiddenException('Cannot impersonate another user');
+    }
     return this.posts.create(body as any)
   }
 
@@ -39,29 +44,38 @@ export class PostsController {
   }
 
   @Get()
-  listAll(@Query('limit') limit = '50', @Query('skip') skip = '0', @Query('subreddit') subreddit?: string) {
+  listAll(@Query('limit') limit = '50', @Query('skip') skip = '0', @Query('subreddit') subreddit?: string, @Query('authorId') authorId?: string) {
     const filter: any = {}
     if (subreddit) {
-      // allow passing subreddit name or id
       filter.subredditId = subreddit
+    }
+    if (authorId) {
+      filter.authorId = authorId
     }
     return this.posts.findAll(filter, Number(limit), Number(skip))
   }
 
   @UseGuards(JwtAuthGuard)
   @Patch(':id')
-  update(@Param('id') id: string, @Body() body: UpdatePostDto) {
-    return this.posts.updateByAuthor(id, String(body.authorId), body as any)
+  update(@Req() req: any, @Param('id') id: string, @Body() body: UpdatePostDto) {
+    if (body.authorId && String(body.authorId) !== String(req.user.id)) {
+      throw new ForbiddenException('Cannot impersonate another user');
+    }
+    return this.posts.updateByAuthor(id, String(req.user.id), body as any)
   }
 
   @UseGuards(JwtAuthGuard)
   @Delete(':id')
   remove(
+    @Req() req: any,
     @Param('id') id: string,
     @Body('authorId') authorId: string,
     @Body('deletionSignature') deletionSignature?: string
   ) {
-    return this.posts.removeByAuthor(id, String(authorId), deletionSignature)
+    if (String(authorId) !== String(req.user.id)) {
+      throw new ForbiddenException('Cannot impersonate another user');
+    }
+    return this.posts.removeByAuthor(id, String(req.user.id), deletionSignature)
   }
 
   @UseGuards(JwtAuthGuard)

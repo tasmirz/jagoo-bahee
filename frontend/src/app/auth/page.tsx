@@ -4,12 +4,14 @@ import React, { useEffect, useState } from "react";
 import {
   deriveBip32Keypair,
   signChallenge,
+  solveChallenge,
   base64UrlDecode,
   toB64,
   saveKeys,
   saveToken,
   getToken,
 } from "../../lib/auth";
+import { authenticate, getChallenge } from "@/lib/api";
 import * as bip39 from 'bip39';
 import Image from 'next/image';
 
@@ -17,12 +19,16 @@ export default function AuthPage() {
   const [challenge, setChallenge] = useState<string>("");
   const [mnemonic, setMnemonic] = useState<string>("");
   const [passphrase, setPassphrase] = useState<string>("");
+  const [mcaptchaToken, setMcaptchaToken] = useState<string | null>(null);
+  const [mcaptchaError, setMcaptchaError] = useState<string | null>(null);
   const [mnemonicError, setMnemonicError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [isNewUser, setIsNewUser] = useState(true);
   const [autoSigning, setAutoSigning] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const mcaptchaUrl = process.env.NEXT_PUBLIC_MCAPTCHA_URL?.replace(/\/$/, "") || "http://localhost:7000";
+  const mcaptchaSiteKey = process.env.NEXT_PUBLIC_MCAPTCHA_SITEKEY || "";
 
   // Redirect to home if already authenticated
   useEffect(() => {
@@ -31,18 +37,36 @@ export default function AuthPage() {
       window.location.href = "/";
       return;
     }
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:3000";
     (async () => {
       try {
-        const res = await fetch(`${apiUrl}/auth/challenge`);
-        if (!res.ok) throw new Error(await res.text());
-        const jwt = await res.text();
-        setChallenge(jwt);
+        setChallenge(await getChallenge());
       } catch (err: unknown) {
         setMessage(`Failed to fetch challenge: ${(err as Error).message}`);
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!mcaptchaSiteKey) return;
+
+    const onMessage = (event: MessageEvent) => {
+      try {
+        const expectedOrigin = new URL(mcaptchaUrl).origin;
+        if (event.origin !== expectedOrigin) return;
+
+        const data = event.data as { token?: string } | null;
+        if (data && typeof data.token === "string" && data.token.length > 0) {
+          setMcaptchaToken(data.token);
+          setMcaptchaError(null);
+        }
+      } catch (e) {
+        // ignore malformed messages
+      }
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [mcaptchaSiteKey, mcaptchaUrl]);
 
   // validate mnemonic whenever it changes
   useEffect(() => {
@@ -107,6 +131,10 @@ export default function AuthPage() {
 
   async function signAndAuthenticate() {
     if (!mnemonic || !challenge) return;
+    if (mcaptchaSiteKey && !mcaptchaToken) {
+      setMcaptchaError("Please complete the mCaptcha challenge first.");
+      return;
+    }
     setAutoSigning(true);
     setMessage("Signing challenge...");
 
@@ -120,25 +148,28 @@ export default function AuthPage() {
       if (parts.length !== 3) throw new Error("Invalid JWT format");
       const payload = JSON.parse(base64UrlDecode(parts[1]));
       const challengeStr = payload.challenge;
+      const difficulty = payload.difficulty || 3;
+
+      // Solve Proof of Work
+      setMessage("Solving Proof of Work Challenge...");
+      // Wrap in small timeout to allow UI update
+      await new Promise((r) => setTimeout(r, 50));
+      const nonce = solveChallenge(challengeStr, difficulty);
 
       // Sign the challenge (uses Web Crypto inside helper)
       const signature = await signChallenge(privateKey, challengeStr);
       if (!signature) throw new Error("Failed to sign message");
 
-      // Send authentication request
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:3000";
-      const res = await fetch(`${apiUrl}/auth`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          challenge,
-          signedData: toB64(signature),
-          publicKey: toB64(publicKey),
-        }),
-      });
+      setMessage("Authenticating with Server...");
 
-      if (!res.ok) throw new Error(await res.text());
-      const jwt = await res.text();
+      // Send authentication request
+      const jwt = await authenticate(
+        challenge,
+        nonce,
+        toB64(signature),
+        toB64(publicKey),
+        mcaptchaToken || undefined,
+      );
       // Save token, publicKey, and privateKey to localStorage
       saveToken(jwt);
       try {
@@ -219,6 +250,27 @@ export default function AuthPage() {
             </div>
 
             <div className="space-y-4">
+              {mcaptchaSiteKey && (
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-[var(--foreground)]">
+                    mCaptcha verification
+                  </label>
+                  <div className="rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--background)]">
+                    <iframe
+                      title="mCaptcha verification"
+                      src={`${mcaptchaUrl}/widget/?sitekey=${encodeURIComponent(mcaptchaSiteKey)}`}
+                      className="w-full"
+                      style={{ minHeight: 100 }}
+                      sandbox="allow-same-origin allow-scripts allow-forms"
+                    />
+                  </div>
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    Solve the challenge in the embedded widget to continue.
+                  </p>
+                  {mcaptchaError && <p className="text-sm text-[var(--error)]">{mcaptchaError}</p>}
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm font-medium text-[var(--foreground)] mb-2">
                   Passphrase (optional)

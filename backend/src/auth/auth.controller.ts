@@ -1,11 +1,14 @@
-import { Body, Controller, Get, Post, Res } from '@nestjs/common'
-import type { Response } from 'express'
+import { Body, Controller, Get, Post, Res, Req, HttpException, HttpStatus } from '@nestjs/common'
+import { Throttle } from '@nestjs/throttler'
+import type { Response, Request } from 'express'
 import { AuthService } from './auth.service'
 import { AuthenticationDto } from './dto/authenticate.dto'
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService
+  ) {}
   @Post()
   async authenticate(@Body() auth: AuthenticationDto, @Res({ passthrough: true }) res: Response) {
     const token = await this.authService.authenticate(auth)
@@ -22,8 +25,9 @@ export class AuthController {
 
     return token
   }
-  @Get('challenge') // TODO: add PoW and rate limit
-  challenge(): string {
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Get('challenge')
+  async challenge(): Promise<string> {
     return this.authService.challenge()
   }
 }

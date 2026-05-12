@@ -18,6 +18,8 @@ import { NotificationsService } from 'src/notifications/notifications.service'
 import { verifySignature, getAuthPublicKeyById } from 'src/common/signature.util'
 import { signServerMessage, serverKeyId } from 'src/common/server-sign.util'
 import { RedisService } from 'src/redis/redis.service'
+import { ServerAcknowledgementsService } from 'src/moderation/server-acknowledgements.service'
+import { UsersService } from 'src/users/users.service'
 
 const COMMENT_FLAGS = {
   ACTIVE: 1 << 0,
@@ -36,7 +38,9 @@ export class CommentsService {
     private readonly attachments: AttachmentsService,
     @Inject(forwardRef(() => PostsService)) private readonly postsService: PostsService,
     private readonly notifications: NotificationsService,
-    private readonly redis: RedisService
+    private readonly redis: RedisService,
+    private readonly acks: ServerAcknowledgementsService,
+    private readonly usersService: UsersService
   ) {}
 
   private toId(id: string | Types.ObjectId) {
@@ -45,7 +49,7 @@ export class CommentsService {
 
   private buildPath(postId: string, parent?: Comment | null) {
     if (!parent) return `${postId}`
-    return `${postId}/${parent.id}`
+    return `${postId}/${parent._id}`
   }
 
   async create(data: Partial<Comment>) {
@@ -148,8 +152,7 @@ export class CommentsService {
     try {
       const payload = `${String((created as any)._id)}|created|${String(data.contentHash)}`
       const serverSig = signServerMessage(payload)
-      const coll = (this as any).model.db.collection('serveracknowledgements')
-      await coll.insertOne({
+      await this.acks.create({
         contentType: 'comment',
         contentId: (created as any)._id,
         authorId: new Types.ObjectId(data.authorId),
@@ -186,7 +189,7 @@ export class CommentsService {
       }
       for (const username of Array.from(mentions)) {
         try {
-          const user = await (this as any).model.db.collection('users').findOne({ username })
+          const user = await this.usersService.findByUsername(username)
           if (user)
             await this.notifications.create({
               userId: String(user._id),
@@ -215,6 +218,7 @@ export class CommentsService {
       .sort({ createdAt: 1 })
       .limit(Number(limit))
       .skip(Number(skip))
+      .populate('authorId', 'username')
       .lean()
       .exec()
     return docs

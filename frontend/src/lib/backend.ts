@@ -3,8 +3,8 @@ import { getToken } from "@/lib/auth";
 
 export const getBackendOrigin = () => {
   if (backendConfig.url) return backendConfig.url;
-  // Backend runs on port 3000, frontend on 3001
-  return `http://localhost:3000`;
+  // Backend runs on port 6000, frontend on 6001
+  return `http://localhost:6000`;
 };
 
 export async function backendFetch(path: string, opts: RequestInit = {}) {
@@ -37,8 +37,8 @@ export async function backendFetch(path: string, opts: RequestInit = {}) {
 export async function backendJson(
   method: string,
   path: string,
-  body?: any,
-  opts: RequestInit = {}
+  body?: Record<string, unknown>,
+  opts: RequestInit = {},
 ) {
   const headers = {
     "Content-Type": "application/json",
