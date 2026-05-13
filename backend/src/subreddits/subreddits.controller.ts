@@ -15,16 +15,22 @@ import {
   ConflictException
 } from '@nestjs/common'
 import { SubredditsService } from './subreddits.service'
+import { SubredditMembersService } from './subreddit-members.service'
 import { SubredditRbacGuard } from './guards/subreddit-rbac.guard'
 import { CreateSubredditDto } from './dto/create-subreddit.dto'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
+import { UsersService } from 'src/users/users.service'
 
 import { ApiTags } from '@nestjs/swagger'
 
 @ApiTags('subreddits')
 @Controller('subreddits')
 export class SubredditsController {
-  constructor(private readonly service: SubredditsService) {}
+  constructor(
+    private readonly service: SubredditsService,
+    private readonly membersService: SubredditMembersService,
+    private readonly usersService: UsersService
+  ) {}
 
   @Post()
   @UseGuards(JwtAuthGuard)
@@ -143,6 +149,18 @@ export class SubredditsController {
     return { isModerator: isMod }
   }
 
+  @Get(':id/permissions/me')
+  @UseGuards(JwtAuthGuard)
+  async myPermissions(@Param('id') id: string, @Req() req: any) {
+    const authId = req?.user?.id
+    if (!authId) return { subredditId: id, permissions: [], isMember: false, isModerator: false, isBanned: false }
+    let profile = await this.usersService.findByAuthId(authId).catch(() => null)
+    if (!profile?._id) profile = await this.usersService.ensureUserForAuth(authId).catch(() => null)
+    if (!profile?._id) return { subredditId: id, permissions: [], isMember: false, isModerator: false, isBanned: false }
+    const summary = await this.membersService.getPermissionSummary(id, String(profile._id))
+    return summary || { subredditId: id, userId: String(profile._id), permissions: [], isMember: false, isModerator: false, isBanned: false }
+  }
+
   @Get(':id/moderators')
   @UseGuards(JwtAuthGuard)
   async listModerators(@Param('id') id: string) {
@@ -164,13 +182,13 @@ export class SubredditsController {
   @Post(':id/moderators')
   @UseGuards(JwtAuthGuard)
   async addModerator(@Param('id') id: string, @Body() body: any, @Req() req: any) {
-    return this.service.addModerator(id, body.userId, req.user)
+    return this.service.addModerator(id, body.userId, req.user, body.moderatorSignature || body.signature)
   }
 
   @Delete(':id/moderators/:userId')
   @UseGuards(JwtAuthGuard)
-  async removeModerator(@Param('id') id: string, @Param('userId') userId: string, @Req() req: any) {
-    return this.service.removeModerator(id, userId, req.user)
+  async removeModerator(@Param('id') id: string, @Param('userId') userId: string, @Req() req: any, @Body() body: any) {
+    return this.service.removeModerator(id, userId, req.user, body?.moderatorSignature || body?.signature)
   }
 
   @Delete(':id')

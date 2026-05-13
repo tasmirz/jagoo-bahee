@@ -2,9 +2,10 @@ import { IsArray, IsMongoId, IsOptional, IsString, MaxLength, ArrayUnique } from
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 
 export class UpdatePostDto {
-  @ApiProperty({ example: '665b3f2a9c5a7d0012a1b235' })
+  @ApiPropertyOptional({ example: '665b3f2a9c5a7d0012a1b235', description: 'Legacy field ignored; backend derives author from JWT.' })
+  @IsOptional()
   @IsMongoId()
-  authorId: string
+  authorId?: string
 
   @ApiPropertyOptional({ example: 'Updated title' })
   @IsOptional()
@@ -33,4 +34,14 @@ export class UpdatePostDto {
   @IsOptional()
   @IsString()
   flair?: string
+
+  @ApiPropertyOptional({ example: 'base64-signature' })
+  @IsOptional()
+  @IsString()
+  userSignature?: string
+
+  @ApiPropertyOptional({ example: 'sha256-hex' })
+  @IsOptional()
+  @IsString()
+  contentHash?: string
 }

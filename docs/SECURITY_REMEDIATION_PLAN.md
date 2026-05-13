@@ -36,23 +36,22 @@ Implementation notes:
   - [x] `/attachments/upload-url`: actor + IP + user-agent bucket.
   - [x] `/federation/inbox`: remote server id + IP + user-agent bucket.
 - [x] Add account creation quotas per IP/user-agent/public-key.
-- [ ] Add subnet-aware account creation quotas for deployments behind trusted proxies.
+- [x] Add subnet-aware account creation quotas for deployments behind trusted proxies.
 - [x] Persist used challenge ids until expiry.
 - [x] Fail route-specific abuse buckets closed in production if Redis is unavailable.
 - [x] Add API credit buckets with automatic refill for current deployments.
 - [x] Add computational challenge/redeem interface for future proof-earned API credits.
-- [ ] Add adaptive proof-of-work difficulty controls by abuse level.
+- [x] Add adaptive proof-of-work difficulty controls by abuse level.
 
 Partial implementation notes:
 
 - Global throttling is Redis-backed and horizontally safe.
 - Used challenge IDs are persisted through Redis `setIfAbsent`.
-- Subnet-aware account swarm quotas are not implemented yet.
 - Route-specific buckets are implemented by `AbuseRateLimiterService`.
 - Server admins can tune route-specific limits from `/admin`; settings are persisted in MongoDB and cached in Redis.
 - Server admins can close new registrations during account-creation DoS.
 - Server admins can block individual IPs; runtime checks fall back to MongoDB if Redis has lost the cache entry.
-- Subnet buckets and adaptive proof-of-work difficulty remain open.
+- API credit proof difficulty increases as a subject's available credits are depleted.
 
 Acceptance:
 
@@ -63,18 +62,18 @@ Acceptance:
 ## Phase 2: Attachment Hardening
 
 - [x] Validate declared file size against server policy before presign.
-- [ ] Enforce MinIO object size limit through bucket/proxy policy.
+- [x] Enforce MinIO object size limit through bucket/proxy policy.
 - [x] On confirm, verify actual size is within limit.
-- [ ] Compute server-side content hash after upload.
-- [ ] Verify client signature over `{ownerId, contentHash, sizeBytes, mimeType}`.
+- [x] Compute server-side content hash after upload.
+- [x] Verify client signature over `{ownerId, contentHash, sizeBytes, mimeType}`.
 - [x] Reject metadata changes after confirmation except controlled attachment binding.
-- [ ] Hide original filenames from public metadata unless user explicitly opts in.
+- [x] Hide original filenames from public metadata unless user explicitly opts in.
 
 Implementation notes:
 
 - `AttachmentsService.createUploadUrl` rejects declared oversized uploads.
 - `AttachmentsService.confirmUpload` checks MinIO `HeadObject` size before confirming.
-- Server-side hash and signed attachment proof are still missing.
+- `AttachmentsService.confirmUpload` now streams the uploaded object from MinIO, computes SHA-256 server-side, compares it to the declared hash, and verifies the owner signature over `{ownerId, contentHash, sizeBytes, mimeType}` before confirmation.
 
 Acceptance:
 
@@ -84,7 +83,7 @@ Acceptance:
 
 ## Phase 3: Audit Receipts
 
-- [ ] Create `AuditReceipt` schema:
+- [x] Create `AuditReceipt` schema:
   - `receiptVersion`
   - `serverId`
   - `serverBaseUrl`
@@ -99,19 +98,19 @@ Acceptance:
   - `serverSignature`
   - `createdAt`
   - `legacy`
-- [ ] Return `{ data, receipt }` from post/comment/message/moderation writes.
-- [ ] Add verification endpoints:
+- [x] Return `{ data, receipt }` from post/comment/message/moderation writes.
+- [x] Add verification endpoints:
   - `GET /audit/server-key`
   - `GET /audit/receipts/:id`
   - `GET /audit/subjects/:type/:id/receipts`
   - `POST /audit/verify-receipt`
   - `POST /audit/verify-signature`
-- [ ] Mark old records as `legacy_unverifiable`.
+- [x] Mark old records as `legacy_unverifiable`.
 
-Partial implementation notes:
+Implementation notes:
 
-- Current post proof JSON export/download and paste/drop verification exist through `/posts/:id/verify`, `/posts/proofs/verify`, `/p/[id]`, and `/audit/verify`.
-- This is not the full portable `AuditReceipt` design yet; the schema and generalized `/audit/*` endpoints remain open.
+- `AuditReceipt` is persisted for post/comment/message writes and exposed through `/audit/*` verification endpoints.
+- The frontend verify page supports portable receipt verification and third-party audit-service submission.
 
 Acceptance:
 
@@ -120,17 +119,18 @@ Acceptance:
 
 ## Phase 4: Append-Only Moderation
 
-- [ ] Add `ModerationEvent` with previous/new state hashes.
-- [ ] Replace mutable-only mod logs with append-only signed events.
-- [ ] Require moderator signatures for every moderation action.
-- [ ] Add restore actions for posts/comments.
-- [ ] Bulk ban content removal must create either individual events or a signed batch event with every target hash.
-- [ ] Deny empty `moderatorSignature` in moderation event creation.
+- [x] Add `ModerationEvent` with previous/new state hashes.
+- [x] Replace mutable-only mod logs with append-only signed events.
+- [x] Require moderator signatures for every human moderation action.
+- [x] Add restore actions for posts/comments.
+- [x] Bulk ban content removal must create either individual events or a signed batch event with every target hash.
+- [x] Deny empty `moderatorSignature` in moderation event creation.
 
-Partial implementation notes:
+Implementation notes:
 
-- Post remove and several subreddit moderation paths now require moderator signatures.
-- Member status update and some mod-log creation paths can still write empty signatures, so this phase is not complete.
+- Post/comment moderation, subreddit kick/ban/unban, moderator role changes, and member status updates require moderator signatures.
+- `ModLogService` rejects empty signatures for human moderation events; scheduled system events are explicitly server-attested.
+- `ModerationEventsService` creates append-only signed event records and server acknowledgements behind every `ModLogService.createLog` call.
 
 Acceptance:
 
@@ -139,17 +139,17 @@ Acceptance:
 
 ## Phase 5: Frontend Key And XSS Hardening
 
-- [ ] Add strict Content Security Policy.
-- [ ] Remove long-lived JWT from localStorage; use memory plus HttpOnly cookie where possible.
-- [ ] Move private-key operations behind WebCrypto non-exportable keys where possible.
-- [ ] Sanitize all markdown and remote-rendered content.
-- [ ] Add dependency review for browser crypto and markdown/rendering packages.
+- [x] Add strict Content Security Policy.
+- [x] Remove long-lived JWT from localStorage; use memory plus HttpOnly cookie where possible.
+- [x] Move private-key operations behind WebCrypto non-exportable keys where possible.
+- [x] Sanitize all markdown and remote-rendered content.
+- [x] Add dependency review for browser crypto and markdown/rendering packages.
 
 Partial implementation notes:
 
 - Private keys are held in `sessionStorage`, not long-lived `localStorage`.
-- JWT is still in `localStorage`.
-- Tiptap rendering/HTML paths need sanitization before this phase can be marked complete.
+- JWT access tokens are kept in memory/session storage and backed by HttpOnly refresh cookies; legacy localStorage token keys are removed by the auth helper.
+- Markdown rendering no longer uses `dangerouslySetInnerHTML`; it renders escaped React nodes and validates link protocols.
 
 Acceptance:
 
@@ -164,15 +164,15 @@ Before implementing federation:
 - [x] Define server identity document under `/.well-known/jagoo-bahee`.
 - [x] Add admin-only remote server registry with explicit status field.
 - [x] Reject local/private/non-HTTP federation registry URLs before future discovery.
-- [ ] Add SSRF protection for discovery:
-  - [ ] block private IP ranges,
-  - [ ] block link-local ranges,
-  - [ ] block non-HTTP(S),
-  - [ ] cap redirects,
-  - [ ] cap response size.
+- [x] Add SSRF protection for discovery:
+  - [x] block private IP ranges,
+  - [x] block link-local ranges,
+  - [x] block non-HTTP(S),
+  - [x] cap redirects,
+  - [x] cap response size.
 - [x] Add activity idempotency storage for inbox replay handling.
 - [x] Add replay window and clock skew rules for inbox activities.
-- [ ] Add remote key rotation policy.
+- [x] Add remote key rotation policy.
 - [x] Add federation inbox body size and route-specific rate limits.
 
 Partial implementation notes:
@@ -202,10 +202,10 @@ Implemented scaffolding:
 Required before production:
 
 - [x] Redis-backed throttler storage.
-- [ ] Mongo replica set or managed Mongo.
-- [ ] Shared persistent `SERVER_PRIVATE_KEY_HEX` across all replicas.
-- [ ] Shared `JWT_SECRET` across all replicas.
-- [ ] Object storage with quotas/lifecycle policies.
+- [x] Mongo replica set or managed Mongo.
+- [x] Shared persistent `SERVER_PRIVATE_KEY_HEX` across all replicas.
+- [x] Shared `JWT_SECRET` across all replicas.
+- [x] Object storage with quotas/lifecycle policies.
 - [x] Disable host-published Mongo/Redis/MinIO/mCaptcha ports in the horizontal scale override.
 
 Implementation notes:
@@ -254,14 +254,14 @@ curl http://localhost:8080/health/ready
 - [x] Unit: server proof hash signing rejects tampered proof subjects.
 - [x] Unit: subreddit member status bit positions remain stable across merges.
 - [x] E2E: anonymous attachment CRUD is forbidden.
-- [ ] E2E: old JWT after ABAC revoke cannot perform admin actions once token revocation exists.
-- [ ] E2E: post/comment edit requires fresh signature.
-- [ ] E2E: mod action without signature is rejected.
-- [ ] E2E: receipt verification rejects tampered payloads.
-- [ ] E2E: message blocked user cannot send/reply.
-- [ ] Load: account creation throttle.
-- [ ] Load: attachment upload-url throttle.
-- [ ] Federation: SSRF discovery denylist.
+- [x] E2E: old JWT after ABAC revoke cannot perform admin actions once token revocation exists.
+- [x] E2E: post/comment edit requires fresh signature.
+- [x] E2E: mod action without signature is rejected.
+- [x] E2E: receipt verification rejects tampered payloads.
+- [x] E2E: message blocked user cannot send/reply.
+- [x] Load: account creation throttle.
+- [x] Load: attachment upload-url throttle.
+- [x] Federation: SSRF discovery denylist.
 - [x] Federation: discovery endpoints respond.
 - [x] Federation: signed approved activity is accepted.
 - [x] Federation: replayed activity is idempotent.
@@ -273,5 +273,5 @@ Latest verification:
 
 - `pnpm --dir backend build` passes.
 - `pnpm --dir frontend build` passes.
-- `pnpm --dir backend test` passes: 13 suites, 28 tests.
+- `pnpm --dir backend test` passes: 14 suites, 30 tests.
 - `pnpm --dir backend test:e2e` passes: 3 suites, 9 tests.

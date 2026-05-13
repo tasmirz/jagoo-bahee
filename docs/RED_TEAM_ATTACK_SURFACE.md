@@ -3,8 +3,48 @@
 Audit date: 2026-05-12
 Merge re-audit: 2026-05-13
 Hardening pass: 2026-05-13
+Second hardening pass: 2026-05-13
 
 Scope: local codebase review of the NestJS backend, Next.js frontend, Docker compose, cryptographic flows, moderation flows, file uploads, messaging, planned federation, and scaling posture. This is a defensive report for the project owner.
+
+## 2026-05-13 Second Red-Team Re-Audit
+
+Findings from the second pass and remediation status:
+
+`RT2-001` Portable proof gap across write types
+
+- Finding: post/comment proofs existed, but there was no generalized receipt model that third parties could verify consistently across content, messages, and moderation events.
+- Remediation applied: added `AuditReceipt` persistence, `/audit/*` verification endpoints, post/comment/message receipt returns, frontend local receipt storage, and standalone `audit-service/` submission/lookup/verification endpoints.
+
+`RT2-002` Mutable moderation history
+
+- Finding: moderation state changes depended on mutable `ModLog` rows.
+- Remediation applied: added append-only `ModerationEvent` records with previous/new state hashes, event hashes, server signatures, and server acknowledgements behind moderation log creation.
+
+`RT2-003` Moderator restore path missing
+
+- Finding: removed posts/comments could be removed but not restored through signed moderation actions.
+- Remediation applied: added signed post/comment restore endpoints and service methods; restores create moderation events.
+
+`RT2-004` Ban-with-delete created unverifiable bulk state changes
+
+- Finding: ban actions with `deleteContent` bulk-mutated posts/comments without per-target evidence.
+- Remediation applied: bulk ban deletion now enumerates affected posts/comments and creates per-content signed moderation events with target hashes/status snapshots.
+
+`RT2-005` Federation discovery SSRF risk
+
+- Finding: registry URL validation existed, but discovery fetches needed explicit redirect and response-size controls.
+- Remediation applied: admin federation registration now performs bounded discovery with protocol/private/link-local denylist, DNS public-address validation, redirect cap, response-size cap, and timeout.
+
+`RT2-006` Browser dependency risk in crypto/rendering path
+
+- Finding: frontend dependency audit reported vulnerable transitive browser packages.
+- Remediation applied: removed unused `crypto-browserify`/`secp256k1`, pinned `postcss` through pnpm overrides, and reran frontend/backend/audit-service audits with no known vulnerabilities remaining.
+
+`RT2-007` Permission inference and stale guard logic
+
+- Finding: content permission checks were not exposed for post/comment UI flows, and subreddit guard logic was embedded in the guard.
+- Remediation applied: added common actor context, `SubredditPermissionService`, and post/comment `permissions/me` endpoints.
 
 ## Current Security Posture
 
@@ -17,6 +57,8 @@ Resolved or partially mitigated in the current tree:
 - Abuse buckets fail closed in production when Redis is unavailable unless `ABUSE_LIMIT_FAIL_OPEN=true` is explicitly set.
 - Server-admin controls now expose registration closure, rate-limit tuning, user bans, global role grants, federation peer status, server rules, and IP blocks.
 - Initial federation discovery/inbox/outbox endpoints exist with approved-peer signature verification, replay idempotency, inbox body limits, and a federation-specific abuse bucket.
+- Federation discovery fetches are bounded against SSRF, redirect loops, and oversized responses.
+- Portable audit receipts now exist for content/message writes, and moderation events are append-only and server-signed.
 - API access can now be governed by auto-refilling credits; proof challenge/redeem endpoints exist for later computational credit earning.
 - Scale compose resets host-published Mongo, Redis, MinIO, and mCaptcha ports; only the backend load balancer and frontend are published.
 - Federation server registry rejects local/private/non-HTTP origins before future discovery code can fetch them.

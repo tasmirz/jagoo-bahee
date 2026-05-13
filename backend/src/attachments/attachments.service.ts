@@ -3,6 +3,9 @@ import { InjectModel } from '@nestjs/mongoose'
 import { Model, Types } from 'mongoose'
 import { Attachment } from './schemas/attachment.schema'
 import { MinioService } from './minio.service'
+import { createHash } from 'crypto'
+import { Readable } from 'stream'
+import { getAuthPublicKeyById, verifySignature } from 'src/common/signature.util'
 
 @Injectable()
 export class AttachmentsService {
@@ -78,6 +81,7 @@ export class AttachmentsService {
     attachedToId?: string
     isPublic?: boolean
     isNSFW?: boolean
+    exposeOriginalFilename?: boolean
   }) {
     const {
       ownerId,
@@ -90,7 +94,8 @@ export class AttachmentsService {
       attachedToType,
       attachedToId,
       isPublic = true,
-      isNSFW = false
+      isNSFW = false,
+      exposeOriginalFilename = false
     } = payload
 
     if (!ownerId) throw new HttpException('ownerId required', HttpStatus.BAD_REQUEST)
@@ -99,6 +104,10 @@ export class AttachmentsService {
     if (!declaredSize || declaredSize < 1 || declaredSize > maxUploadBytes) {
       throw new HttpException(`File size must be between 1 and ${maxUploadBytes} bytes`, HttpStatus.BAD_REQUEST)
     }
+    if (!/^[a-fA-F0-9]{64}$/.test(String(contentHash || ''))) {
+      throw new HttpException('contentHash must be a SHA-256 hex digest', HttpStatus.BAD_REQUEST)
+    }
+    if (!signature) throw new HttpException('signature required', HttpStatus.BAD_REQUEST)
 
     // create a safe minio key: ownerId/timestamp-rand-original
     const safeName = originalFilename ? originalFilename.replace(/[^a-zA-Z0-9._-]/g, '-') : 'file'
@@ -116,7 +125,8 @@ export class AttachmentsService {
       attachedToType,
       attachedToId: attachedToId ? new Types.ObjectId(attachedToId) : undefined,
       isPublic,
-      isNSFW
+      isNSFW,
+      exposeOriginalFilename
     })
 
     try {
@@ -126,7 +136,7 @@ export class AttachmentsService {
       await this.minio.ensureBucket()
 
       // Get a presigned PUT url (short expiry)
-      const url = await this.minio.presignedPutObject(minioKey)
+      const url = await this.minio.presignedPutObject(minioKey, 60 * 5, { contentType: mimeType, contentLength: declaredSize })
 
       return { attachment: saved, uploadUrl: url, minioKey }
     } catch (err) {
@@ -148,25 +158,26 @@ export class AttachmentsService {
       // find DB record by minioKey
       const doc = await this.model.findOne({ minioKey: key }).exec()
       if (!doc) {
-        // create record if it doesn't exist
-        const created = new this.model({
-          ownerId: new Types.ObjectId(ownerId),
-          minioKey: key,
-          originalFilename: opts.filename ?? key,
-          mimeType: contentType,
-          sizeBytes: size ?? 0,
-          signature: '',
-          contentHash: '',
-          confirmed: true,
-          confirmedAt: new Date()
-        })
-        return await created.save()
+        throw new HttpException('Attachment upload record not found', HttpStatus.NOT_FOUND)
+      }
+      if (String(doc.ownerId) !== String(ownerId)) throw new HttpException('Forbidden', HttpStatus.FORBIDDEN)
+
+      const computedHash = await this.computeObjectSha256(key)
+      if (doc.contentHash && doc.contentHash !== computedHash) {
+        throw new HttpException('Attachment content hash mismatch', HttpStatus.BAD_REQUEST)
+      }
+      const mimeType = contentType || doc.mimeType
+      const proofPayload = attachmentProofPayload(String(doc.ownerId), computedHash, Number(size || 0), mimeType)
+      const publicKey = await getAuthPublicKeyById((this.model as any).db, String(doc.ownerId))
+      if (!publicKey) throw new HttpException('Owner public key not found', HttpStatus.BAD_REQUEST)
+      if (!verifySignature(publicKey, proofPayload, doc.signature)) {
+        throw new HttpException('Invalid attachment signature', HttpStatus.BAD_REQUEST)
       }
 
       doc.confirmed = true
       doc.confirmedAt = new Date()
-      if (opts.filename) doc.originalFilename = opts.filename
-      if (contentType) doc.mimeType = contentType
+      doc.contentHash = computedHash
+      doc.mimeType = mimeType
       if (size) doc.sizeBytes = size
       return await doc.save()
     } catch (err) {
@@ -180,6 +191,14 @@ export class AttachmentsService {
     const doc = await this.model.findOne({ minioKey: key }).exec()
     if (!doc || !doc.confirmed) throw new HttpException('File not available', HttpStatus.NOT_FOUND)
     return this.minio.presignedGetObject(key)
+  }
+
+  sanitizeForRequester(doc: Attachment | any, user?: any) {
+    const obj = doc?.toObject ? doc.toObject() : { ...doc }
+    if (!obj) return obj
+    const canSeeFilename = obj.exposeOriginalFilename || String(obj.ownerId) === String(user?.id) || this.isAdminOrModerator(user)
+    if (!canSeeFilename) obj.originalFilename = ''
+    return obj
   }
 
   async deleteFileRecordAndObject(doc: Attachment) {
@@ -243,4 +262,33 @@ export class AttachmentsService {
     }
     return docs.length
   }
+
+  private async computeObjectSha256(key: string) {
+    const object = await this.minio.getObject(key)
+    const body = (object as any).Body
+    const hash = createHash('sha256')
+    if (body && typeof body.transformToByteArray === 'function') {
+      hash.update(Buffer.from(await body.transformToByteArray()))
+      return hash.digest('hex')
+    }
+    if (!body || typeof body.pipe !== 'function') {
+      throw new HttpException('Object body is not readable', HttpStatus.BAD_REQUEST)
+    }
+    await new Promise<void>((resolve, reject) => {
+      ;(body as Readable)
+        .on('data', (chunk) => hash.update(chunk))
+        .on('error', reject)
+        .on('end', resolve)
+    })
+    return hash.digest('hex')
+  }
+}
+
+export function attachmentProofPayload(ownerId: string, contentHash: string, sizeBytes: number, mimeType: string) {
+  return JSON.stringify({
+    ownerId: String(ownerId),
+    contentHash: String(contentHash),
+    sizeBytes: Number(sizeBytes),
+    mimeType: String(mimeType || '')
+  })
 }

@@ -86,8 +86,17 @@ export class MinioService implements OnModuleInit {
     this.bucketReady = true
   }
 
-  async presignedPutObject(objectName: string, expiresSeconds = 60 * 5): Promise<string> {
-    const cmd = new PutObjectCommand({ Bucket: this.bucket, Key: objectName })
+  async presignedPutObject(
+    objectName: string,
+    expiresSeconds = 60 * 5,
+    constraints: { contentType?: string; contentLength?: number } = {}
+  ): Promise<string> {
+    const cmd = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: objectName,
+      ContentType: constraints.contentType,
+      ContentLength: constraints.contentLength
+    })
     return getSignedUrl(this.client, cmd, { expiresIn: expiresSeconds })
   }
 
@@ -98,6 +107,11 @@ export class MinioService implements OnModuleInit {
 
   async headObject(objectName: string) {
     const cmd = new HeadObjectCommand({ Bucket: this.bucket, Key: objectName })
+    return this.client.send(cmd)
+  }
+
+  async getObject(objectName: string) {
+    const cmd = new GetObjectCommand({ Bucket: this.bucket, Key: objectName })
     return this.client.send(cmd)
   }
 

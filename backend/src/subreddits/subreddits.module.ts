@@ -15,6 +15,7 @@ import { SubredditSchedulerService } from './subreddit-scheduler.service'
 import { AuthModule } from 'src/auth/auth.module'
 import { RedisModule } from 'src/redis/redis.module'
 import { SubredditPermissionsCacheService } from './subreddit-permissions-cache.service'
+import { SubredditPermissionService } from './subreddit-permission.service'
 
 @Module({
   imports: [
@@ -31,7 +32,7 @@ import { SubredditPermissionsCacheService } from './subreddit-permissions-cache.
     RedisModule
   ],
   controllers: [SubredditsController, SubredditMembersController],
-  providers: [SubredditsService, SubredditMembersService, SubredditRbacGuard, SubredditSchedulerService, SubredditPermissionsCacheService],
-  exports: [SubredditsService, SubredditMembersService, SubredditRbacGuard, SubredditSchedulerService, SubredditPermissionsCacheService]
+  providers: [SubredditsService, SubredditMembersService, SubredditPermissionService, SubredditRbacGuard, SubredditSchedulerService, SubredditPermissionsCacheService],
+  exports: [SubredditsService, SubredditMembersService, SubredditPermissionService, SubredditRbacGuard, SubredditSchedulerService, SubredditPermissionsCacheService]
 })
 export class SubredditsModule {}

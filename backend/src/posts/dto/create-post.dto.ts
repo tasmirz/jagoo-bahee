@@ -30,9 +30,10 @@ export class CreatePostDto {
   @IsMongoId()
   subredditId: string
 
-  @ApiProperty({ example: '665b3f2a9c5a7d0012a1b235' })
+  @ApiPropertyOptional({ example: '665b3f2a9c5a7d0012a1b235', description: 'Legacy field ignored; backend derives author from JWT.' })
+  @IsOptional()
   @IsMongoId()
-  authorId: string
+  authorId?: string
 
   @ApiProperty({ example: 'Check out my project' })
   @IsString()

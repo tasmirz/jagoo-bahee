@@ -122,6 +122,12 @@ export class AuthService {
         Number(process.env.ACCOUNT_CREATE_LIMIT || 5),
         Number(process.env.ACCOUNT_CREATE_WINDOW_MS || 60 * 60 * 1000)
       )
+      await this.abuseLimiter.hit(
+        'account-create-subnet',
+        this.abuseLimiter.subnetTracker(req),
+        Number(process.env.ACCOUNT_CREATE_SUBNET_LIMIT || 20),
+        Number(process.env.ACCOUNT_CREATE_SUBNET_WINDOW_MS || 60 * 60 * 1000)
+      )
       authDoc = await this.authModel.create({ publicKey })
     }
 

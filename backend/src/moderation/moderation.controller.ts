@@ -5,11 +5,15 @@ import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
 import { InjectModel } from '@nestjs/mongoose'
 import { Model, Types } from 'mongoose'
 import { Report } from './schemas/report.schema'
+import { ModerationEventsService } from './moderation-events.service'
 
 @ApiTags('moderation')
 @Controller('moderation')
 export class ModerationController {
-  constructor(@InjectModel(Report.name) private reportModel: Model<Report>) {}
+  constructor(
+    @InjectModel(Report.name) private reportModel: Model<Report>,
+    private readonly moderationEvents: ModerationEventsService
+  ) {}
 
   @Get('server-public-key')
   getServerPublicKey() {
@@ -116,5 +120,21 @@ export class ModerationController {
     })
 
     return { pending, total }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('subreddits/:subredditId/events')
+  async getModerationEvents(
+    @Param('subredditId') subredditId: string,
+    @Query('limit') limit = '50',
+    @Query('skip') skip = '0'
+  ) {
+    return this.moderationEvents.listForSubreddit(subredditId, Number(limit), Number(skip))
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('events/:targetType/:targetId')
+  async getTargetModerationEvents(@Param('targetType') targetType: string, @Param('targetId') targetId: string, @Query('limit') limit = '50') {
+    return this.moderationEvents.findByTarget(targetType, targetId, Number(limit))
   }
 }

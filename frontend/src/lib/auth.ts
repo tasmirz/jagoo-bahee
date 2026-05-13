@@ -76,6 +76,7 @@ export async function signChallenge(
 const TOKEN_KEY = "auth:token";
 const PUB_KEY = "auth:pub";
 const PRIV_KEY = "auth:priv"; // stored in sessionStorage for slight safety
+let memoryToken: string | null = null;
 
 export function saveKeys(privateKey: Uint8Array, publicKey: Uint8Array) {
   try {
@@ -93,14 +94,21 @@ export function saveKeys(privateKey: Uint8Array, publicKey: Uint8Array) {
 }
 
 export function saveToken(token: string) {
+  memoryToken = token;
   try {
-    localStorage.setItem(TOKEN_KEY, token);
+    sessionStorage.setItem(TOKEN_KEY, token);
+    localStorage.removeItem(TOKEN_KEY);
   } catch (e) {}
 }
 
 export function getToken(): string | null {
+  if (memoryToken) return memoryToken;
   try {
-    return localStorage.getItem(TOKEN_KEY);
+    memoryToken = sessionStorage.getItem(TOKEN_KEY);
+    if (!memoryToken && localStorage.getItem(TOKEN_KEY)) {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+    return memoryToken;
   } catch (e) {
     return null;
   }
@@ -149,9 +157,11 @@ export function signHash(privateKey: Uint8Array, hash: Uint8Array): Uint8Array {
 }
 
 export function clearCredentials() {
+  memoryToken = null;
   try {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(PUB_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
     sessionStorage.removeItem(PRIV_KEY);
   } catch (e) {}
 }

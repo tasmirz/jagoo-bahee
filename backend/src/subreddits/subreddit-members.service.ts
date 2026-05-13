@@ -5,6 +5,7 @@ import { SubredditMember } from './schemas/subreddit-member.schema'
 import { ModLogService } from 'src/moderation/mod-log.service'
 import { RedisService } from 'src/redis/redis.service'
 import { COMMUNITY_ROLE_BITS, permissionNames, permissionsForRoleMask } from './community-permissions'
+import { getAuthPublicKeyById, verifySignature } from 'src/common/signature.util'
 
 type MemberType = 'member' | 'muted' | 'banned' | 'moderator' | 'contributor'
 
@@ -149,6 +150,13 @@ export class SubredditMembersService {
     moderatorSignature?: string
   ): Promise<SubredditMember | null> {
     if (!Types.ObjectId.isValid(id)) return null
+    if (moderatorId) {
+      await this.assertModeratorSignature(
+        moderatorId,
+        `update_member_status|${id}|${statusFlags?.toString?.() || String(statusFlags)}`,
+        moderatorSignature
+      )
+    }
     const updated = await this.model.findByIdAndUpdate(id, { statusFlags }, { new: true }).exec()
     if (updated) await this.invalidatePermissionCache(String(updated.subredditId), String(updated.userId))
     try {
@@ -161,7 +169,7 @@ export class SubredditMembersService {
           targetId: updated._id as Types.ObjectId,
           reason: undefined,
           details: { statusFlags: statusFlags?.toString?.() },
-          moderatorSignature: moderatorSignature || ''
+          moderatorSignature
         })
       }
     } catch (e) {
@@ -178,6 +186,13 @@ export class SubredditMembersService {
     moderatorSignature?: string
   ): Promise<SubredditMember | null> {
     if (!Types.ObjectId.isValid(id)) return null
+    if (moderatorId) {
+      await this.assertModeratorSignature(
+        moderatorId,
+        `ban_user|${id}|${until?.toISOString?.() || ''}|${reason || ''}`,
+        moderatorSignature
+      )
+    }
     const update: any = { statusFlags: BigInt(0) } // clear flags then set banned bit below
     if (until) update.bannedUntil = until
     if (reason) update.banReason = reason
@@ -199,7 +214,7 @@ export class SubredditMembersService {
           targetId: updated.userId as Types.ObjectId,
           reason: reason,
           details: { bannedUntil: until },
-          moderatorSignature: moderatorSignature || ''
+          moderatorSignature
         })
       }
     } catch (e) {
@@ -286,5 +301,13 @@ export class SubredditMembersService {
 
   private permissionCacheKey(subredditId: string, userId: string) {
     return `jb:permissions:${subredditId}:${userId}`
+  }
+
+  private async assertModeratorSignature(moderatorId: string, payload: string, moderatorSignature?: string) {
+    if (!moderatorSignature) throw new HttpException('Missing moderator signature', HttpStatus.FORBIDDEN)
+    const pub = await getAuthPublicKeyById((this.model as any).db, String(moderatorId))
+    if (!pub || !verifySignature(pub, payload, moderatorSignature)) {
+      throw new HttpException('Invalid moderator signature', HttpStatus.FORBIDDEN)
+    }
   }
 }

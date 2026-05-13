@@ -38,4 +38,34 @@ describe('AppController (e2e)', () => {
       .get('/attachments')
       .expect(401);
   });
+
+  it('/audit/receipts/verify rejects tampered payload hashes', async () => {
+    const canonicalPayload = JSON.stringify({ id: 'post-1', content: 'original' });
+    const receipt = {
+      receiptVersion: 1,
+      serverId: 'http://localhost:6000',
+      serverBaseUrl: 'http://localhost:6000',
+      keyId: 'test-key',
+      action: 'post.created',
+      subjectType: 'post',
+      subjectId: '665b3f2a9c5a7d0012a1b300',
+      contentType: 'post',
+      contentId: '665b3f2a9c5a7d0012a1b300',
+      actorPublicKey: '',
+      userPublicKey: '',
+      canonicalPayload: JSON.stringify({ id: 'post-1', content: 'tampered' }),
+      payloadHash: require('crypto').createHash('sha256').update(canonicalPayload).digest('hex'),
+      actorSignature: '',
+      userSignature: '',
+      serverSignature: 'invalid'
+    };
+
+    const res = await request(app.getHttpServer() as any)
+      .post('/audit/receipts/verify')
+      .send(receipt)
+      .expect(201);
+
+    expect(res.body.ok).toBe(false);
+    expect(res.body.payloadOk).toBe(false);
+  });
 });

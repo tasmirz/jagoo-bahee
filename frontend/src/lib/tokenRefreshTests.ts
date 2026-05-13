@@ -10,8 +10,8 @@ export async function testReactiveRefresh() {
   console.log("🧪 Test: Reactive Token Refresh");
   console.log("1️⃣ Clearing current access token to simulate expiration...");
 
-  const originalToken = localStorage.getItem("auth:token");
-  localStorage.setItem("auth:token", "expired-token");
+  const originalToken = sessionStorage.getItem("auth:token");
+  sessionStorage.setItem("auth:token", "expired-token");
 
   console.log("2️⃣ Making API call that should trigger refresh...");
 
@@ -22,7 +22,7 @@ export async function testReactiveRefresh() {
 
     if (response.ok) {
       console.log("✅ Test PASSED: Request succeeded after automatic refresh");
-      const newToken = localStorage.getItem("auth:token");
+      const newToken = sessionStorage.getItem("auth:token");
       console.log("📝 New token received:", newToken?.substring(0, 20) + "...");
     } else {
       console.log(
@@ -31,14 +31,14 @@ export async function testReactiveRefresh() {
       );
       // Restore original token
       if (originalToken) {
-        localStorage.setItem("auth:token", originalToken);
+        sessionStorage.setItem("auth:token", originalToken);
       }
     }
   } catch (error) {
     console.log("❌ Test FAILED with error:", error);
     // Restore original token
     if (originalToken) {
-      localStorage.setItem("auth:token", originalToken);
+      sessionStorage.setItem("auth:token", originalToken);
     }
   }
 }
@@ -47,14 +47,14 @@ export async function testReactiveRefresh() {
 export function testProactiveRefresh() {
   console.log("🧪 Test: Proactive Token Refresh Status");
 
-  const token = localStorage.getItem("auth:token");
+  const token = sessionStorage.getItem("auth:token");
 
   if (!token) {
     console.log("❌ No token found. Please log in first.");
     return;
   }
 
-  console.log("✅ Token found in localStorage");
+  console.log("✅ Token found in sessionStorage");
   console.log("📝 Token preview:", token.substring(0, 30) + "...");
   console.log("⏰ Proactive refresh runs every 12 minutes");
   console.log('💡 Check console for "[Auth] Auto-refreshing token..." message');
@@ -83,8 +83,9 @@ export async function testManualRefresh() {
       );
 
       // Save the token
-      localStorage.setItem("auth:token", data.accessToken);
-      console.log("💾 Token saved to localStorage");
+      sessionStorage.setItem("auth:token", data.accessToken);
+      localStorage.removeItem("auth:token");
+      console.log("💾 Token saved to sessionStorage");
     } else {
       console.log("❌ Manual refresh FAILED with status:", response.status);
       const text = await response.text();
@@ -100,7 +101,7 @@ export async function testConcurrentRefresh() {
   console.log("🧪 Test: Concurrent Refresh Prevention");
   console.log("1️⃣ Invalidating token...");
 
-  localStorage.setItem("auth:token", "expired-token");
+  sessionStorage.setItem("auth:token", "expired-token");
 
   console.log("2️⃣ Making 5 simultaneous API calls...");
 
@@ -143,7 +144,7 @@ export async function testConcurrentRefresh() {
 export function inspectToken() {
   console.log("🔍 Token Inspection");
 
-  const token = localStorage.getItem("auth:token");
+  const token = sessionStorage.getItem("auth:token");
 
   if (!token) {
     console.log("❌ No token found");

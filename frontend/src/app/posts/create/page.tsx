@@ -186,7 +186,13 @@ export default function CreatePostPage() {
         throw new Error(errorData.message || `Create post failed: ${res.status}`);
       }
       
-      const data = await res.json();
+      const envelope = await res.json();
+      const data = envelope?.data || envelope;
+      if (envelope?.receipt && typeof window !== "undefined") {
+        const key = "jagoo:audit:receipts";
+        const current = JSON.parse(localStorage.getItem(key) || "[]");
+        localStorage.setItem(key, JSON.stringify([{ ...envelope.receipt, savedAt: new Date().toISOString() }, ...current].slice(0, 250)));
+      }
       
       // Save the server proof to IndexedDB for persistent verification
       if (data.proofHash && data.proofSignature) {
@@ -221,7 +227,7 @@ export default function CreatePostPage() {
         }
       }
       
-      const id = data?.contentId || data?.id || null;
+      const id = data?.contentId || data?._id || data?.id || null;
       setMessage("Post created successfully!");
       if (id) {
         router.push(`/posts/${id}`);

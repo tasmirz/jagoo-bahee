@@ -32,7 +32,7 @@ export class SubredditSchedulerService {
           await this.modLog.createLog({
             subredditId: m.subredditId,
             moderatorId: null as any,
-            action: 'unban_expired',
+            action: 'system.unban_expired',
             targetType: 'user',
             targetId: m.userId,
             reason: 'Temporary ban expired'

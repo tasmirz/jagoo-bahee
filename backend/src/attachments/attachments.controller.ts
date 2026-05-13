@@ -96,12 +96,14 @@ export class AttachmentsController {
     } else {
       filter.ownerId = req.user?.id
     }
-    return this.service.findAll(filter, Number(limit), Number(skip))
+    const docs = await this.service.findAll(filter, Number(limit), Number(skip))
+    return docs.map((doc) => this.service.sanitizeForRequester(doc, req.user))
   }
 
   @Get(':id')
   async get(@Param('id') id: string, @Req() req: any) {
-    return this.service.assertRecordOwnerOrAdminOrModerator(id, req.user)
+    const doc = await this.service.assertRecordOwnerOrAdminOrModerator(id, req.user)
+    return this.service.sanitizeForRequester(doc, req.user)
   }
 
   @Put(':id')

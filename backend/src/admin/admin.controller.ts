@@ -3,6 +3,7 @@ import { InjectConnection } from '@nestjs/mongoose'
 import { Connection, Types } from 'mongoose'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
 import { RedisService } from 'src/redis/redis.service'
+import { lookup } from 'dns/promises'
 
 const GLOBAL_MOD_BIT = BigInt(1) << BigInt(4)
 const GLOBAL_ADMIN_BIT = BigInt(1) << BigInt(5)
@@ -96,11 +97,19 @@ export class AdminController {
   @Post('federation/servers')
   async addFederationServer(@Req() req: any, @Body() body: { name?: string; baseUrl: string; publicKey?: string; status?: string }) {
     await this.assertAdmin(req)
-    const baseUrl = validateFederationBaseUrl(body.baseUrl)
+    const baseUrl = await validateFederationBaseUrl(body.baseUrl)
+    const discovered = await discoverFederationIdentity(baseUrl)
     const doc = {
-      name: body.name || baseUrl,
+      name: body.name || discovered.name || baseUrl,
       baseUrl,
-      publicKey: body.publicKey,
+      publicKey: body.publicKey || discovered.publicKey,
+      keyId: discovered.keyId,
+      discoveredAt: new Date(),
+      keyRotation: {
+        currentKeyId: discovered.keyId || null,
+        previousKeyIds: [],
+        rotatedAt: null
+      },
       status: body.status || 'pending',
       createdAt: new Date(),
       updatedAt: new Date()
@@ -113,7 +122,7 @@ export class AdminController {
   async updateFederationServer(@Req() req: any, @Param('id') id: string, @Body() body: any): Promise<any> {
     await this.assertAdmin(req)
     const update = { ...body }
-    if (update.baseUrl) update.baseUrl = validateFederationBaseUrl(update.baseUrl)
+    if (update.baseUrl) update.baseUrl = await validateFederationBaseUrl(update.baseUrl)
     await this.connection.collection('federationservers').updateOne(
       { _id: new Types.ObjectId(id) },
       { $set: { ...update, updatedAt: new Date() } }
@@ -226,6 +235,7 @@ function sanitizeRateLimits(input: Record<string, { limit?: number; windowMs?: n
     'auth-challenge',
     'auth-submit',
     'account-create',
+    'account-create-subnet',
     'post-create',
     'post-update',
     'comment-create',
@@ -249,7 +259,7 @@ function normalizeIp(raw: string) {
   return ip
 }
 
-function validateFederationBaseUrl(raw: string) {
+async function validateFederationBaseUrl(raw: string) {
   let parsed: URL
   try {
     parsed = new URL(String(raw || '').trim())
@@ -263,8 +273,71 @@ function validateFederationBaseUrl(raw: string) {
   const hostname = parsed.hostname.toLowerCase()
   if (hostname === 'localhost' || hostname.endsWith('.localhost')) throw new BadRequestException('Local federation baseUrl is not allowed')
   if (isPrivateHost(hostname)) throw new BadRequestException('Private federation baseUrl is not allowed')
+  await assertPublicDns(hostname)
 
   return parsed.origin
+}
+
+async function discoverFederationIdentity(baseUrl: string) {
+  const url = `${baseUrl}/.well-known/jagoo-bahee`
+  const identity = await boundedJsonFetch(url, 0)
+  if (!identity || typeof identity !== 'object') throw new BadRequestException('Federation discovery response must be an object')
+  if (identity.baseUrl && String(identity.baseUrl).replace(/\/$/, '') !== baseUrl) {
+    throw new BadRequestException('Federation discovery baseUrl mismatch')
+  }
+  return identity as any
+}
+
+async function boundedJsonFetch(raw: string, redirectCount: number): Promise<any> {
+  if (redirectCount > Number(process.env.FEDERATION_DISCOVERY_MAX_REDIRECTS || 2)) {
+    throw new BadRequestException('Federation discovery redirect limit exceeded')
+  }
+  const parsed = new URL(raw)
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new BadRequestException('Federation discovery must use http or https')
+  if (isPrivateHost(parsed.hostname.toLowerCase())) throw new BadRequestException('Federation discovery resolved to a private address')
+  await assertPublicDns(parsed.hostname)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), Number(process.env.FEDERATION_DISCOVERY_TIMEOUT_MS || 5000))
+  try {
+    const response = await fetch(parsed.toString(), { redirect: 'manual', signal: controller.signal })
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get('location')
+      if (!location) throw new BadRequestException('Federation discovery redirect missing Location')
+      return boundedJsonFetch(new URL(location, parsed).toString(), redirectCount + 1)
+    }
+    if (!response.ok) throw new BadRequestException('Federation discovery failed')
+    const maxBytes = Number(process.env.FEDERATION_DISCOVERY_MAX_RESPONSE_BYTES || 64 * 1024)
+    const reader = response.body?.getReader()
+    if (!reader) throw new BadRequestException('Federation discovery response is not readable')
+    const chunks: Uint8Array[] = []
+    let total = 0
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value) {
+        total += value.byteLength
+        if (total > maxBytes) throw new BadRequestException('Federation discovery response too large')
+        chunks.push(value)
+      }
+    }
+    const rawBody = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString('utf8')
+    return JSON.parse(rawBody)
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+async function assertPublicDns(hostname: string) {
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname.includes(':')) return
+  try {
+    const addresses = await lookup(hostname, { all: true, verbatim: true })
+    if (addresses.length === 0 || addresses.some((item) => isPrivateHost(item.address.toLowerCase()))) {
+      throw new BadRequestException('Federation baseUrl must resolve to public addresses')
+    }
+  } catch (error) {
+    if (error instanceof BadRequestException) throw error
+    throw new BadRequestException('Federation baseUrl DNS resolution failed')
+  }
 }
 
 function isPrivateHost(hostname: string) {

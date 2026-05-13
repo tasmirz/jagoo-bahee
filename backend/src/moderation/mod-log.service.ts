@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common'
+import { BadRequestException, Injectable } from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
 import { Model, Types } from 'mongoose'
+import { ModerationEventsService } from './moderation-events.service'
 import { ModLog } from './schemas/mod-log.schema'
 
 export interface CreateModLogDto {
@@ -16,9 +17,16 @@ export interface CreateModLogDto {
 
 @Injectable()
 export class ModLogService {
-  constructor(@InjectModel(ModLog.name) private readonly model: Model<ModLog>) {}
+  constructor(
+    @InjectModel(ModLog.name) private readonly model: Model<ModLog>,
+    private readonly events?: ModerationEventsService
+  ) {}
 
   async createLog(dto: CreateModLogDto) {
+    const systemAction = !dto.moderatorId || String(dto.action || '').startsWith('system.')
+    if (!systemAction && !dto.moderatorSignature) {
+      throw new BadRequestException('moderatorSignature required for moderation events')
+    }
     const doc = {
       subredditId: dto.subredditId ? new Types.ObjectId(String(dto.subredditId)) : undefined,
       moderatorId: dto.moderatorId ? new Types.ObjectId(String(dto.moderatorId)) : undefined,
@@ -27,9 +35,22 @@ export class ModLogService {
       targetId: dto.targetId ? new Types.ObjectId(String(dto.targetId)) : undefined,
       reason: dto.reason,
       details: dto.details || {},
-      moderatorSignature: dto.moderatorSignature || ''
+      moderatorSignature: dto.moderatorSignature || 'server-attested-system-event'
     }
-    return this.model.create(doc)
+    const log = await this.model.create(doc)
+    if (doc.subredditId) {
+      await this.events?.createEvent({
+        subredditId: doc.subredditId,
+        actorAuthId: doc.moderatorId,
+        action: doc.action,
+        targetType: doc.targetType,
+        targetId: doc.targetId,
+        reason: doc.reason,
+        details: doc.details,
+        moderatorSignature: doc.moderatorSignature
+      })
+    }
+    return log
   }
 
   async listForSubreddit(subredditId: string | Types.ObjectId, limit = 50, skip = 0) {

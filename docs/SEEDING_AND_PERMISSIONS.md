@@ -26,6 +26,11 @@ The seeder is idempotent. It upserts deterministic development fixtures:
 - 1 signed message
 - 1 moderation log entry
 
+Latest verification on 2026-05-13:
+
+- `pnpm --dir backend seed` completes successfully against `mongodb://localhost:27018/jagoo-bahee`.
+- Seeded dataset reported: 5 users, 3 communities, 5 posts, 6 comments, 36 votes, and 1 message.
+
 Seed users:
 
 - `seed_admin`

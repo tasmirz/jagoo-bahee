@@ -73,7 +73,7 @@ describe('SubredditMembersService permission cache', () => {
       })
     })
 
-    await service.updateStatus(new Types.ObjectId().toString(), BigInt(1), new Types.ObjectId().toString(), 'sig')
+    await service.updateStatus(new Types.ObjectId().toString(), BigInt(1))
 
     expect(redis.delKeys).toHaveBeenCalledWith(`jb:member:${subredditId}:${userId}`, `jb:permissions:${subredditId}:${userId}`)
   })

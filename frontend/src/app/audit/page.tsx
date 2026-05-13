@@ -101,7 +101,7 @@ export default function AuditPage() {
       </div>
 
       <div className="mt-6 text-sm text-[var(--text-secondary)]">
-        For now this page uses the existing `/moderation/server-public-key` and `/posts/:id/verify` endpoints. Receipt and third-party audit hosting are next.
+        This page uses server proof endpoints and portable receipt verification under `/audit/*`; the verify page can submit receipts to the standalone audit service.
       </div>
       <div className="mt-4">
         <Link href="/audit/verify" className="text-sm font-medium text-[var(--primary)] hover:underline">

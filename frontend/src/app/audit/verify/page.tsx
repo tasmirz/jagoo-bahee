@@ -8,13 +8,15 @@ export default function AuditVerifyPage() {
   const [payload, setPayload] = useState<string>("");
   const [result, setResult] = useState<string>("");
   const [uploadedProof, setUploadedProof] = useState("");
+  const [thirdPartyUrl, setThirdPartyUrl] = useState("");
 
   async function verifyUploadedProof(raw = uploadedProof) {
     setResult("");
     setPayload(raw);
     try {
       const proof = JSON.parse(raw);
-      const res = await backend.backendJson("POST", "/posts/proofs/verify", { proof });
+      const isReceipt = proof.receiptVersion || proof.canonicalPayload || proof.payloadHash;
+      const res = await backend.backendJson(isReceipt ? "POST" : "POST", isReceipt ? "/audit/receipts/verify" : "/posts/proofs/verify", isReceipt ? proof : { proof });
       const data = await res.json();
       setResult(data.ok ? "Proof matches local acknowledgement." : `Proof did not verify: ${data.reason || "unknown reason"}`);
       setPayload(JSON.stringify(data, null, 2));
@@ -51,6 +53,27 @@ export default function AuditVerifyPage() {
     URL.revokeObjectURL(url);
   }
 
+  async function submitToAuditService() {
+    setResult("");
+    setThirdPartyUrl("");
+    try {
+      const receipt = JSON.parse(uploadedProof);
+      const baseUrl = (process.env.NEXT_PUBLIC_AUDIT_SERVICE_URL || "http://localhost:6100").replace(/\/$/, "");
+      const res = await fetch(`${baseUrl}/receipts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(receipt),
+      });
+      const data = await res.json();
+      if (!res.ok && !data.id) throw new Error(data.message || "Audit service submission failed");
+      setThirdPartyUrl(`${baseUrl}/receipts/${data.id}`);
+      setResult(data.verification?.ok ? "Receipt submitted and verified by audit service." : "Receipt submitted with verification warnings.");
+      setPayload(JSON.stringify(data, null, 2));
+    } catch (error) {
+      setResult(error instanceof Error ? error.message : "Could not submit receipt");
+    }
+  }
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-8">
       <h1 className="text-2xl font-semibold">Verify Proof</h1>
@@ -79,6 +102,14 @@ export default function AuditVerifyPage() {
           <Download size={16} />
           Download result
         </button>
+        <button onClick={submitToAuditService} disabled={!uploadedProof.trim()} className="ml-2 inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-4 py-2 text-sm font-semibold disabled:opacity-50">
+          Submit to audit service
+        </button>
+        {thirdPartyUrl && (
+          <a href={thirdPartyUrl} className="block break-all text-sm font-medium text-[var(--primary)] hover:underline">
+            {thirdPartyUrl}
+          </a>
+        )}
         {result && <p className="text-sm">{result}</p>}
         {payload && <pre className="overflow-auto rounded-xl border border-[var(--border)] bg-[var(--muted)] p-3 text-xs">{payload}</pre>}
       </div>

@@ -15,6 +15,9 @@ export class Attachment extends Document {
   @Prop({ type: String, required: true })
   originalFilename: string
 
+  @Prop({ type: Boolean, default: false })
+  exposeOriginalFilename: boolean
+
   @Prop({ type: String, required: true })
   mimeType: string
 

@@ -31,6 +31,21 @@ export class MessagesController {
     return this.messagesService.list(req.user.id, query)
   }
 
+  @Get('conversations')
+  async conversations(@Req() req: any) {
+    return this.messagesService.conversations(req.user.id)
+  }
+
+  @Get('conversation/:peerId')
+  async conversation(@Req() req: any, @Param('peerId') peerId: string) {
+    return this.messagesService.conversation(req.user.id, peerId)
+  }
+
+  @Patch('conversation/:peerId/read')
+  async markConversationRead(@Req() req: any, @Param('peerId') peerId: string) {
+    return this.messagesService.markConversationRead(req.user.id, peerId)
+  }
+
   @Patch('read')
   async markRead(@Req() req: any, @Body('ids') ids: string[] | 'all') {
     return this.messagesService.markRead(req.user.id, ids)

@@ -19,6 +19,7 @@ import { verifySignature, getAuthPublicKeyById } from 'src/common/signature.util
 import { signServerMessage, serverKeyId } from 'src/common/server-sign.util'
 import { RedisService } from 'src/redis/redis.service'
 import { ServerAcknowledgementsService } from 'src/moderation/server-acknowledgements.service'
+import { AuditReceiptsService } from 'src/moderation/audit-receipts.service'
 import { UsersService } from 'src/users/users.service'
 import { createHash } from 'crypto'
 
@@ -41,6 +42,7 @@ export class CommentsService {
     private readonly notifications: NotificationsService,
     private readonly redis: RedisService,
     private readonly acks: ServerAcknowledgementsService,
+    private readonly receipts: AuditReceiptsService,
     private readonly usersService: UsersService
   ) {}
 
@@ -76,10 +78,35 @@ export class CommentsService {
     }
   }
 
+  private async assertCanWriteInSubreddit(userId: string, subredditId: string, action: 'comment' | 'reply') {
+    const member = await (this as any).model.db.collection('subredditmembers').findOne({
+      subredditId: new Types.ObjectId(String(subredditId)),
+      userId: new Types.ObjectId(String(userId))
+    })
+    const flags = BigInt(member?.statusFlags ?? 0)
+    if ((flags & BigInt(4)) !== BigInt(0)) throw new ForbiddenException(`Banned users cannot ${action}`)
+    if ((flags & BigInt(2)) !== BigInt(0)) throw new ForbiddenException(`Muted users cannot ${action}`)
+  }
+
   private assertCommentSubreddit(doc: Comment, subredditId: string) {
     if (String((doc as any).subredditId) !== String(subredditId)) {
       throw new ForbiddenException('Comment does not belong to the supplied subreddit')
     }
+  }
+
+  private async assertModeratorSignature(
+    action: string,
+    subredditId: string,
+    commentId: string,
+    moderatorId: string,
+    moderatorSignature?: string,
+    reason = ''
+  ) {
+    if (!moderatorSignature) throw new BadRequestException('Missing moderator signature')
+    const pub = await getAuthPublicKeyById((this as any).model.db, String(moderatorId))
+    if (!pub) throw new BadRequestException('Moderator public key not found')
+    const payload = `${action}|${String(subredditId)}|${String(commentId)}|${reason || ''}`
+    if (!verifySignature(pub, payload, moderatorSignature)) throw new BadRequestException('Invalid moderator signature')
   }
 
   async create(data: Partial<Comment>) {
@@ -89,6 +116,9 @@ export class CommentsService {
     if (!data.userSignature) throw new BadRequestException('userSignature required')
     if (!data.contentHash) throw new BadRequestException('contentHash required')
     if (!data.content || String(data.content).trim().length === 0) throw new BadRequestException('content required')
+    const post = await this.postsService.findById(String(data.postId))
+    data.subredditId = data.subredditId || (post as any).subredditId
+    await this.assertCanWriteInSubreddit(String(data.authorId), String(data.subredditId), data.parentId ? 'reply' : 'comment')
     // rate limit: 1 comment per N seconds
     const userKey = `comment-rate:${String(data.authorId)}:${process.env.COMMENT_RATE_LIMIT_SECONDS || 10}`
     try {
@@ -218,7 +248,15 @@ export class CommentsService {
     } catch (e) {}
 
     await this.invalidateCommentCache(created)
-    return created
+    const receipt = await this.receipts.create({
+      action: 'comment.created',
+      subjectType: 'comment',
+      subjectId: (created as any)._id,
+      actorPublicKey: Buffer.from(pub).toString('base64'),
+      actorSignature: String(data.userSignature),
+      canonicalPayload: canonical
+    })
+    return { data: created, receipt }
   }
 
   async findById(id: string) {
@@ -227,6 +265,40 @@ export class CommentsService {
     )
     if (!doc) throw new NotFoundException('Comment not found')
     return doc
+  }
+
+  async permissionsFor(id: string, user: any) {
+    const comment = await this.model.findById(id).lean().exec()
+    if (!comment) throw new NotFoundException('Comment not found')
+    const actorId = String(user?.id || '')
+    const abac = BigInt(user?.abac ?? 0)
+    const isGlobalModerator = (abac & (BigInt(1) << BigInt(4))) !== BigInt(0)
+    const isGlobalAdmin = (abac & (BigInt(1) << BigInt(5))) !== BigInt(0)
+    const membership = await (this as any).model.db.collection('subredditmembers').findOne({
+      subredditId: new Types.ObjectId(String((comment as any).subredditId)),
+      userId: new Types.ObjectId(actorId)
+    })
+    const flags = BigInt(membership?.statusFlags ?? 0)
+    const isBanned = (flags & BigInt(4)) !== BigInt(0)
+    const isMuted = (flags & BigInt(2)) !== BigInt(0)
+    const isModerator = (flags & BigInt(8)) !== BigInt(0)
+    const isOwner = String((comment as any).authorId) === actorId
+    const canModerate = isGlobalAdmin || isGlobalModerator || isModerator
+    return {
+      commentId: id,
+      postId: String((comment as any).postId),
+      subredditId: String((comment as any).subredditId),
+      isOwner,
+      isModerator: canModerate,
+      isBanned,
+      isMuted,
+      canEdit: isOwner && !isBanned,
+      canDelete: (isOwner && !isBanned) || canModerate,
+      canVote: !!actorId && !isBanned,
+      canReply: !!actorId && !isBanned && !isMuted,
+      canModerate,
+      canRestore: canModerate
+    }
   }
 
   async findByPost(postId: string, limit = 100, skip = 0) {
@@ -248,7 +320,24 @@ export class CommentsService {
   async updateByAuthor(id: string, authorId: string, update: Partial<Comment>) {
     const doc = await this.findDocById(id)
     if (String(doc.authorId) !== String(authorId)) throw new ForbiddenException('Not the author')
-    Object.assign(doc, update, {
+    if (update.content !== undefined) {
+      const payloadObj = {
+        content: String(update.content),
+        postId: String(doc.postId),
+        parentId: doc.parentId ? String(doc.parentId) : null,
+        attachmentIds: ((doc as any).attachmentIds || []).map(String),
+        authorId: String(doc.authorId)
+      }
+      const canonical = JSON.stringify(payloadObj)
+      this.assertContentHash(canonical, String((update as any).contentHash || ''))
+      const pub = await getAuthPublicKeyById((this as any).model.db, String(authorId))
+      if (!pub) throw new BadRequestException('author public key not found')
+      if (!verifySignature(pub, canonical, String((update as any).userSignature || ''))) throw new BadRequestException('Invalid edit signature')
+      ;(doc as any).contentHash = (update as any).contentHash
+      ;(doc as any).userSignature = (update as any).userSignature
+    }
+    const { contentHash: _contentHash, userSignature: _userSignature, authorId: _authorId, ...safeUpdate } = update as any
+    Object.assign(doc, safeUpdate, {
       editedAt: new Date(),
       statusFlags: BigInt(Number(doc.statusFlags) | COMMENT_FLAGS.EDITED)
     })
@@ -257,11 +346,31 @@ export class CommentsService {
     return doc
   }
 
-  async removeByAuthor(id: string, authorId: string) {
+  async removeByAuthor(id: string, authorId: string, deletionSignature?: string) {
     const doc = await this.findDocById(id)
     if (String(doc.authorId) !== String(authorId)) throw new ForbiddenException('Not the author')
+    if (!deletionSignature) throw new BadRequestException('Missing deletion signature')
+    const payload = `DELETE|${String(doc._id)}|user_delete`
+    const pub = await getAuthPublicKeyById((this as any).model.db, String(authorId))
+    if (!pub) throw new BadRequestException('author public key not found')
+    if (!verifySignature(pub, payload, deletionSignature)) throw new BadRequestException('Invalid deletion signature')
     doc.statusFlags = BigInt(Number(doc.statusFlags) & ~COMMENT_FLAGS.ACTIVE) | BigInt(COMMENT_FLAGS.REMOVED)
     await doc.save()
+    try {
+      const ackPayload = `${String(doc._id)}|deleted|${doc.contentHash}`
+      const serverSig = signServerMessage(ackPayload)
+      await this.acks.create({
+        contentType: 'comment',
+        contentId: doc._id as any,
+        authorId: doc.authorId as any,
+        action: 'deleted',
+        contentHash: doc.contentHash,
+        userSignature: '',
+        serverSignature: serverSig,
+        metadata: { serverKeyId },
+        createdAt: new Date()
+      })
+    } catch (e) {}
     await this.invalidateCommentCache(doc)
     return doc
   }
@@ -304,9 +413,10 @@ export class CommentsService {
   }
 
   // Moderation actions
-  async modApprove(commentId: string, subredditId: string, moderatorId: string) {
+  async modApprove(commentId: string, subredditId: string, moderatorId: string, moderatorSignature?: string) {
     const doc = await this.findDocById(commentId)
     this.assertCommentSubreddit(doc, subredditId)
+    await this.assertModeratorSignature('comment.approve', subredditId, commentId, moderatorId, moderatorSignature)
     doc.statusFlags =
       BigInt(Number(doc.statusFlags) | COMMENT_FLAGS.APPROVED) & ~BigInt(COMMENT_FLAGS.FLAGGED | COMMENT_FLAGS.REMOVED)
     await doc.save()
@@ -315,15 +425,17 @@ export class CommentsService {
       moderatorId,
       action: 'comment.approve',
       targetType: 'comment',
-      targetId: commentId
+      targetId: commentId,
+      moderatorSignature
     })
     await this.invalidateCommentCache(doc)
     return doc
   }
 
-  async modRemove(commentId: string, subredditId: string, moderatorId: string, reason?: string) {
+  async modRemove(commentId: string, subredditId: string, moderatorId: string, reason?: string, moderatorSignature?: string) {
     const doc = await this.findDocById(commentId)
     this.assertCommentSubreddit(doc, subredditId)
+    await this.assertModeratorSignature('comment.remove', subredditId, commentId, moderatorId, moderatorSignature, reason)
     doc.statusFlags = BigInt(Number(doc.statusFlags) | COMMENT_FLAGS.REMOVED) & ~BigInt(COMMENT_FLAGS.APPROVED)
     doc.removalReason = reason
     doc.removedBy = this.toId(moderatorId)
@@ -334,15 +446,38 @@ export class CommentsService {
       action: 'comment.remove',
       targetType: 'comment',
       targetId: commentId,
-      reason
+      reason,
+      moderatorSignature
     })
     await this.invalidateCommentCache(doc)
     return doc
   }
 
-  async modCollapse(commentId: string, subredditId: string, moderatorId: string) {
+  async modRestore(commentId: string, subredditId: string, moderatorId: string, reason?: string, moderatorSignature?: string) {
     const doc = await this.findDocById(commentId)
     this.assertCommentSubreddit(doc, subredditId)
+    await this.assertModeratorSignature('comment.restore', subredditId, commentId, moderatorId, moderatorSignature, reason)
+    doc.statusFlags = (BigInt(Number(doc.statusFlags)) & ~BigInt(COMMENT_FLAGS.REMOVED)) | BigInt(COMMENT_FLAGS.ACTIVE)
+    doc.removalReason = undefined
+    doc.removedBy = undefined
+    await doc.save()
+    await this.modLog.createLog({
+      subredditId,
+      moderatorId,
+      action: 'comment.restore',
+      targetType: 'comment',
+      targetId: commentId,
+      reason,
+      moderatorSignature
+    })
+    await this.invalidateCommentCache(doc)
+    return doc
+  }
+
+  async modCollapse(commentId: string, subredditId: string, moderatorId: string, moderatorSignature?: string) {
+    const doc = await this.findDocById(commentId)
+    this.assertCommentSubreddit(doc, subredditId)
+    await this.assertModeratorSignature('comment.collapse', subredditId, commentId, moderatorId, moderatorSignature)
     doc.statusFlags = BigInt(Number(doc.statusFlags) | COMMENT_FLAGS.COLLAPSED)
     await doc.save()
     await this.modLog.createLog({
@@ -350,15 +485,17 @@ export class CommentsService {
       moderatorId,
       action: 'comment.collapse',
       targetType: 'comment',
-      targetId: commentId
+      targetId: commentId,
+      moderatorSignature
     })
     await this.invalidateCommentCache(doc)
     return doc
   }
 
-  async modUncollapse(commentId: string, subredditId: string, moderatorId: string) {
+  async modUncollapse(commentId: string, subredditId: string, moderatorId: string, moderatorSignature?: string) {
     const doc = await this.findDocById(commentId)
     this.assertCommentSubreddit(doc, subredditId)
+    await this.assertModeratorSignature('comment.uncollapse', subredditId, commentId, moderatorId, moderatorSignature)
     doc.statusFlags = BigInt(Number(doc.statusFlags) & ~COMMENT_FLAGS.COLLAPSED)
     await doc.save()
     await this.modLog.createLog({
@@ -366,15 +503,17 @@ export class CommentsService {
       moderatorId,
       action: 'comment.uncollapse',
       targetType: 'comment',
-      targetId: commentId
+      targetId: commentId,
+      moderatorSignature
     })
     await this.invalidateCommentCache(doc)
     return doc
   }
 
-  async modFlag(commentId: string, subredditId: string, moderatorId: string) {
+  async modFlag(commentId: string, subredditId: string, moderatorId: string, moderatorSignature?: string) {
     const doc = await this.findDocById(commentId)
     this.assertCommentSubreddit(doc, subredditId)
+    await this.assertModeratorSignature('comment.flag', subredditId, commentId, moderatorId, moderatorSignature)
     doc.statusFlags = BigInt(Number(doc.statusFlags) | COMMENT_FLAGS.FLAGGED)
     await doc.save()
     await this.modLog.createLog({
@@ -382,15 +521,17 @@ export class CommentsService {
       moderatorId,
       action: 'comment.flag',
       targetType: 'comment',
-      targetId: commentId
+      targetId: commentId,
+      moderatorSignature
     })
     await this.invalidateCommentCache(doc)
     return doc
   }
 
-  async modUnflag(commentId: string, subredditId: string, moderatorId: string) {
+  async modUnflag(commentId: string, subredditId: string, moderatorId: string, moderatorSignature?: string) {
     const doc = await this.findDocById(commentId)
     this.assertCommentSubreddit(doc, subredditId)
+    await this.assertModeratorSignature('comment.unflag', subredditId, commentId, moderatorId, moderatorSignature)
     doc.statusFlags = BigInt(Number(doc.statusFlags) & ~COMMENT_FLAGS.FLAGGED)
     await doc.save()
     await this.modLog.createLog({
@@ -398,7 +539,8 @@ export class CommentsService {
       moderatorId,
       action: 'comment.unflag',
       targetType: 'comment',
-      targetId: commentId
+      targetId: commentId,
+      moderatorSignature
     })
     await this.invalidateCommentCache(doc)
     return doc

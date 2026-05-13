@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/context/AuthContext';
 import { backendFetch } from '@/lib/backend';
 import { Message } from '@/lib/types';
 import { useParams, useRouter } from 'next/navigation';
-import { getPrivateKey, signHash, toB64 } from '@/lib/auth';
+import { getAuthIdFromToken, getPrivateKey, signHash, toB64 } from '@/lib/auth';
 import { sha256 } from '@/lib/crypto';
 
 export default function ConversationPage() {
@@ -66,9 +66,19 @@ export default function ConversationPage() {
     setSending(true);
 
     try {
-      // Hash and sign the message
-      const contentHash = await sha256(newMessage.trim());
-      const signature = signHash(privateKey, contentHash);
+      const senderId = getAuthIdFromToken();
+      if (!senderId) throw new Error('Sign in again to send messages.');
+      const canonical = JSON.stringify({
+        senderId,
+        recipientId: userId,
+        subject: '',
+        content: newMessage.trim(),
+        attachmentIds: [],
+        parentMessageId: null,
+      });
+      const contentHashBytes = await sha256(canonical);
+      const contentHash = Array.from(contentHashBytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+      const signature = signHash(privateKey, contentHashBytes);
       const signatureB64 = toB64(signature);
 
       const res = await backendFetch('/messages', {
@@ -76,13 +86,17 @@ export default function ConversationPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           recipientId: userId,
+          subject: '',
           content: newMessage.trim(),
+          contentHash,
+          attachmentIds: [],
           senderSignature: signatureB64,
         }),
       });
 
       if (res.ok) {
-        const sentMessage = await res.json();
+        const envelope = await res.json();
+        const sentMessage = envelope?.data || envelope;
         setMessages((prev) => [...prev, sentMessage]);
         setNewMessage('');
       } else {

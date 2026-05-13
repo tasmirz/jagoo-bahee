@@ -70,6 +70,12 @@ export class PostsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get(':id/permissions/me')
+  async myPermissions(@Req() req: any, @Param('id') id: string) {
+    return this.posts.permissionsFor(id, req.user)
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Patch(':id')
   async update(@Req() req: any, @Param('id') id: string, @Body() body: UpdatePostDto) {
     if (body.authorId && String(body.authorId) !== String(req.user.id)) {
@@ -102,8 +108,8 @@ export class PostsController {
   // Moderation routes - require subreddit mod/admin
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/approve')
-  modApprove(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto) {
-    return this.posts.modApprove(id, String(body.subredditId), String(req.user.id))
+  modApprove(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto & { moderatorSignature?: string }) {
+    return this.posts.modApprove(id, String(body.subredditId), String(req.user.id), body.moderatorSignature)
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
@@ -116,6 +122,12 @@ export class PostsController {
       body.reason,
       body.moderatorSignature
     )
+  }
+
+  @UseGuards(JwtAuthGuard, SubredditRbacGuard)
+  @HttpPost(':id/mod/restore')
+  modRestore(@Req() req: any, @Param('id') id: string, @Body() body: PostModRemoveDto & { moderatorSignature?: string }) {
+    return this.posts.modRestore(id, String(body.subredditId), String(req.user.id), body.reason, body.moderatorSignature)
   }
 
   @Get(':id/verify')
@@ -135,38 +147,38 @@ export class PostsController {
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/lock')
-  modLock(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto) {
-    return this.posts.modLock(id, String(body.subredditId), String(req.user.id))
+  modLock(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto & { moderatorSignature?: string }) {
+    return this.posts.modLock(id, String(body.subredditId), String(req.user.id), body.moderatorSignature)
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/unlock')
-  modUnlock(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto) {
-    return this.posts.modUnlock(id, String(body.subredditId), String(req.user.id))
+  modUnlock(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto & { moderatorSignature?: string }) {
+    return this.posts.modUnlock(id, String(body.subredditId), String(req.user.id), body.moderatorSignature)
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/pin')
-  modPin(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto) {
-    return this.posts.modPin(id, String(body.subredditId), String(req.user.id))
+  modPin(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto & { moderatorSignature?: string }) {
+    return this.posts.modPin(id, String(body.subredditId), String(req.user.id), body.moderatorSignature)
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/unpin')
-  modUnpin(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto) {
-    return this.posts.modUnpin(id, String(body.subredditId), String(req.user.id))
+  modUnpin(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto & { moderatorSignature?: string }) {
+    return this.posts.modUnpin(id, String(body.subredditId), String(req.user.id), body.moderatorSignature)
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/flag')
-  modFlag(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto) {
-    return this.posts.modFlag(id, String(body.subredditId), String(req.user.id))
+  modFlag(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto & { moderatorSignature?: string }) {
+    return this.posts.modFlag(id, String(body.subredditId), String(req.user.id), body.moderatorSignature)
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/unflag')
-  modUnflag(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto) {
-    return this.posts.modUnflag(id, String(body.subredditId), String(req.user.id))
+  modUnflag(@Req() req: any, @Param('id') id: string, @Body() body: PostModBaseDto & { moderatorSignature?: string }) {
+    return this.posts.modUnflag(id, String(body.subredditId), String(req.user.id), body.moderatorSignature)
   }
 
   @Get(':id/comments')

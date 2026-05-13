@@ -34,6 +34,7 @@ export class FederationService {
       baseUrl,
       keyId: serverKeyId,
       publicKey: getServerPublicKeyBase64(),
+      capabilities: ['discovery', 'signed-inbox', 'outbox', 'approved-server-registry'],
       endpoints: {
         inbox: `${baseUrl}/federation/inbox`,
         outbox: `${baseUrl}/federation/outbox`

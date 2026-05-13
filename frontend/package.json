@@ -21,15 +21,18 @@
     "axios": "^1.16.0",
     "bip32": "^5.0.1",
     "bip39": "^3.1.0",
-    "crypto-browserify": "^3.12.1",
     "framer-motion": "^12.38.0",
     "js-sha256": "^0.11.1",
     "lucide-react": "^1.14.0",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "secp256k1": "^5.0.1",
     "tiny-secp256k1": "^2.2.4"
+  },
+  "pnpm": {
+    "overrides": {
+      "postcss": "8.5.10"
+    }
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",

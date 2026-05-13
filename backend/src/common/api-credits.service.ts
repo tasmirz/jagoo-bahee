@@ -39,7 +39,7 @@ export class ApiCreditsService {
     name: 'sha256-leading-zeroes',
     issue: async (subject) => {
       const challenge = randomBytes(24).toString('base64url')
-      const difficulty = Number(process.env.API_CREDIT_POW_DIFFICULTY || 4)
+      const difficulty = await this.currentDifficulty(subject)
       await this.redis.setJson(this.challengeKey(challenge), { subject, difficulty }, 5 * 60)
       return { challenge, difficulty, algorithm: 'sha256(challenge + nonce) has leading zero hex digits' }
     },
@@ -114,6 +114,15 @@ export class ApiCreditsService {
 
   private challengeKey(challenge: string) {
     return `jb:api-credit-challenge:${this.digest(challenge)}`
+  }
+
+  private async currentDifficulty(subject: string) {
+    const base = Number(process.env.API_CREDIT_POW_DIFFICULTY || 4)
+    const max = Number(process.env.API_CREDIT_POW_MAX_DIFFICULTY || 6)
+    const status = await this.getStatus(subject)
+    const pressure = status.maxCredits > 0 ? 1 - status.credits / status.maxCredits : 0
+    const bump = pressure > 0.8 ? 2 : pressure > 0.5 ? 1 : 0
+    return Math.min(max, Math.max(1, base + bump))
   }
 
   private digest(value: string) {

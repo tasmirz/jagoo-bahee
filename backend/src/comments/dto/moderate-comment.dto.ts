@@ -6,9 +6,10 @@ export class CommentModBaseDto {
   @IsMongoId()
   subredditId: string
 
-  @ApiProperty({ example: '665b3f2a9c5a7d0012a1b200' })
+  @ApiPropertyOptional({ example: '665b3f2a9c5a7d0012a1b200', description: 'Legacy field ignored; backend derives moderator from JWT.' })
+  @IsOptional()
   @IsMongoId()
-  moderatorId: string
+  moderatorId?: string
 }
 
 export class CommentModRemoveDto extends CommentModBaseDto {

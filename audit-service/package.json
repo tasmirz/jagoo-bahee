@@ -1,0 +1,16 @@
+{
+  "name": "jagoo-bahee-audit-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "tiny-secp256k1": "^2.2.4"
+  },
+  "devDependencies": {}
+}

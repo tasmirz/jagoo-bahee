@@ -270,7 +270,13 @@ export default function PostPage() {
         throw new Error(errorData.message || 'Failed to post comment');
       }
 
-      const newComment = await response.json();
+      const envelope = await response.json();
+      const newComment = envelope?.data || envelope;
+      if (envelope?.receipt && typeof window !== "undefined") {
+        const key = "jagoo:audit:receipts";
+        const current = JSON.parse(localStorage.getItem(key) || "[]");
+        localStorage.setItem(key, JSON.stringify([{ ...envelope.receipt, savedAt: new Date().toISOString() }, ...current].slice(0, 250)));
+      }
       setComments([newComment, ...comments]);
       setCommentContent('');
     } catch (error) {

@@ -8,6 +8,9 @@ import { QueryMessagesDto } from './dto/query-messages.dto'
 import { verifySignature, getAuthPublicKeyById } from 'src/common/signature.util'
 import { createHash } from 'crypto'
 import { UserBlock } from 'src/users/schemas/user-block.schema'
+import { signServerMessage, serverKeyId } from 'src/common/server-sign.util'
+import { ServerAcknowledgementsService } from 'src/moderation/server-acknowledgements.service'
+import { AuditReceiptsService } from 'src/moderation/audit-receipts.service'
 
 @Injectable()
 export class MessagesService {
@@ -16,6 +19,8 @@ export class MessagesService {
     private readonly messageModel: Model<Message>,
     @InjectModel(UserBlock.name)
     private readonly userBlockModel: Model<UserBlock>,
+    private readonly acknowledgements: ServerAcknowledgementsService,
+    private readonly receipts: AuditReceiptsService
   ) {}
 
   private async assertCanMessage(senderId: string, recipientId: string) {
@@ -58,7 +63,8 @@ export class MessagesService {
       parentMessageId: dto.parentMessageId ? new Types.ObjectId(dto.parentMessageId) : undefined,
       senderSignature: dto.senderSignature,
     })
-    return doc
+    const receipt = await this.createReceipt(doc, senderId, Buffer.from(pub).toString('base64'), dto.senderSignature, canonical, 'message.sent')
+    return { data: doc, receipt }
   }
 
   async reply(
@@ -100,7 +106,8 @@ export class MessagesService {
       parentMessageId: new Types.ObjectId(dto.parentMessageId),
       senderSignature: dto.senderSignature,
     })
-    return doc
+    const receipt = await this.createReceipt(doc, senderId, Buffer.from(pub).toString('base64'), dto.senderSignature, canonical, 'message.replied')
+    return { data: doc, receipt }
   }
 
   async list(userId: string, query: QueryMessagesDto) {
@@ -126,6 +133,66 @@ export class MessagesService {
     return { items, total, page, limit }
   }
 
+  async conversations(userId: string) {
+    const actor = new Types.ObjectId(userId)
+    const messages = await this.messageModel
+      .find({ $or: [{ senderId: actor }, { recipientId: actor }], isDeleted: false })
+      .sort({ createdAt: -1 })
+      .limit(500)
+      .lean()
+
+    const byPeer = new Map<string, any>()
+    for (const message of messages as any[]) {
+      const sender = String(message.senderId)
+      const recipient = String(message.recipientId)
+      const peerId = sender === userId ? recipient : sender
+      const existing = byPeer.get(peerId)
+      if (!existing) {
+        byPeer.set(peerId, {
+          userId: peerId,
+          username: peerId,
+          lastMessage: message,
+          unreadCount: !message.isRead && recipient === userId ? 1 : 0
+        })
+      } else if (!message.isRead && recipient === userId) {
+        existing.unreadCount += 1
+      }
+    }
+
+    const peerIds = [...byPeer.keys()].filter((id) => Types.ObjectId.isValid(id)).map((id) => new Types.ObjectId(id))
+    const users = peerIds.length
+      ? await (this.messageModel as any).db.collection('users').find({ _id: { $in: peerIds } }).project({ username: 1 }).toArray()
+      : []
+    for (const user of users) {
+      const entry = byPeer.get(String(user._id))
+      if (entry) entry.username = user.username || String(user._id)
+    }
+    return [...byPeer.values()]
+  }
+
+  async conversation(userId: string, peerId: string) {
+    const actor = new Types.ObjectId(userId)
+    const peer = new Types.ObjectId(peerId)
+    return this.messageModel
+      .find({
+        isDeleted: false,
+        $or: [
+          { senderId: actor, recipientId: peer },
+          { senderId: peer, recipientId: actor }
+        ]
+      })
+      .sort({ createdAt: 1 })
+      .lean()
+  }
+
+  async markConversationRead(userId: string, peerId: string) {
+    const res = await this.messageModel.updateMany(
+      { senderId: new Types.ObjectId(peerId), recipientId: new Types.ObjectId(userId), isRead: false },
+      { $set: { isRead: true, readAt: new Date() } }
+    )
+    return { matched: (res as any).matchedCount, modified: (res as any).modifiedCount }
+  }
+
   async markRead(userId: string, ids: string[] | 'all') {
     const filter: any = { recipientId: new Types.ObjectId(userId), isRead: false }
     if (Array.isArray(ids)) {
@@ -144,5 +211,36 @@ export class MessagesService {
     msg.isDeleted = true
     await msg.save()
     return { success: true }
+  }
+
+  private async createReceipt(
+    doc: Message,
+    senderId: string,
+    actorPublicKey: string,
+    actorSignature: string,
+    canonicalPayload: string,
+    action: string
+  ) {
+    const contentHash = createHash('sha256').update(canonicalPayload).digest('hex')
+    const serverSignature = signServerMessage(`${String((doc as any)._id)}|${action}|${contentHash}`)
+    await this.acknowledgements.create({
+      contentType: 'message',
+      contentId: (doc as any)._id,
+      authorId: new Types.ObjectId(senderId),
+      action: action === 'message.replied' ? 'updated' : 'created',
+      contentHash,
+      userSignature: actorSignature,
+      serverSignature,
+      metadata: { serverKeyId, action },
+      createdAt: new Date()
+    })
+    return this.receipts.create({
+      action,
+      subjectType: 'message',
+      subjectId: (doc as any)._id,
+      actorPublicKey,
+      actorSignature,
+      canonicalPayload
+    })
   }
 }

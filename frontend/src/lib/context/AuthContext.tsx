@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { getToken, getPublicKey, getAuthIdFromToken } from '@/lib/auth';
+import { clearCredentials, getToken, getPublicKey, getAuthIdFromToken, saveToken } from '@/lib/auth';
 import { backendFetch } from '@/lib/backend';
 
 interface AuthContextType {
@@ -33,8 +33,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await response.json();
         const newToken = data.accessToken;
         
-        // Save the new token
-        localStorage.setItem('auth:token', newToken);
+        // Keep access tokens out of localStorage; refresh is backed by HttpOnly cookie.
+        saveToken(newToken);
         setToken(newToken);
         
         // Extract auth ID from token
@@ -96,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (response.ok) {
           const data = await response.json();
-          localStorage.setItem('auth:token', data.accessToken);
+          saveToken(data.accessToken);
           setToken(data.accessToken);
           console.log('[Auth] Token auto-refreshed successfully');
         } else if (response.status === 401) {
@@ -141,13 +141,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Continue with client-side cleanup even if backend call fails
     }
 
-    // Clear all auth data from localStorage
-    localStorage.removeItem('auth:token');
+    // Clear auth data from volatile storage and legacy localStorage keys.
+    clearCredentials();
     localStorage.removeItem('auth:publicKey');
     localStorage.removeItem('auth:privateKey');
-    localStorage.removeItem('auth:pub');
     localStorage.removeItem('auth:priv');
-    sessionStorage.removeItem('auth:priv');
     
     setToken(null);
     setAuthId(null);

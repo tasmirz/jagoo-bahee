@@ -4,9 +4,11 @@ import { MessagesService } from './messages.service'
 import { MessagesController } from './messages.controller'
 import { Message, MessageSchema } from './schemas/message.schema'
 import { UserBlock, UserBlockSchema } from 'src/users/schemas/user-block.schema'
+import { ModerationModule } from 'src/moderation/moderation.module'
 
 @Module({
   imports: [
+    ModerationModule,
     MongooseModule.forFeature([
       { name: Message.name, schema: MessageSchema },
       { name: UserBlock.name, schema: UserBlockSchema }

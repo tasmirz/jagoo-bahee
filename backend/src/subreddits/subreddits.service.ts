@@ -155,7 +155,8 @@ export class SubredditsService {
         targetType: 'user',
         targetId: String((targetUser as any)._id),
         reason,
-        details: { previousStatusFlags: String(prevFlags), kickedAt: new Date() }
+        details: { previousStatusFlags: String(prevFlags), kickedAt: new Date() },
+        moderatorSignature
       } as any)
 
       // notify
@@ -269,6 +270,20 @@ export class SubredditsService {
         // update posts and comments in this subreddit by this user — best-effort batch
         const postsColl = (this as any).model.db.collection('posts')
         const commentsColl = (this as any).model.db.collection('comments')
+        const postTargets = await postsColl
+          .find({
+            subredditId: new Types.ObjectId(String(subreddit._id)),
+            authorId: new Types.ObjectId(String((targetUser as any)._id))
+          })
+          .project({ _id: 1, statusFlags: 1, contentHash: 1 })
+          .toArray()
+        const commentTargets = await commentsColl
+          .find({
+            subredditId: new Types.ObjectId(String(subreddit._id)),
+            authorId: new Types.ObjectId(String((targetUser as any)._id))
+          })
+          .project({ _id: 1, statusFlags: 1, contentHash: 1 })
+          .toArray()
         await postsColl.updateMany(
           {
             subredditId: new Types.ObjectId(String(subreddit._id)),
@@ -295,6 +310,38 @@ export class SubredditsService {
             }
           }
         )
+        for (const target of postTargets) {
+          await this.modLog.createLog({
+            subredditId: subreddit._id,
+            moderatorId: String(moderatorAuth.id),
+            action: 'post.remove.batch_ban',
+            targetType: 'post',
+            targetId: String(target._id),
+            reason: 'User banned - content removed',
+            details: {
+              batchAction: 'ban_user_delete_content',
+              targetHash: target.contentHash || null,
+              previousStatusFlags: String(target.statusFlags ?? '')
+            },
+            moderatorSignature
+          } as any)
+        }
+        for (const target of commentTargets) {
+          await this.modLog.createLog({
+            subredditId: subreddit._id,
+            moderatorId: String(moderatorAuth.id),
+            action: 'comment.remove.batch_ban',
+            targetType: 'comment',
+            targetId: String(target._id),
+            reason: 'User banned - content removed',
+            details: {
+              batchAction: 'ban_user_delete_content',
+              targetHash: target.contentHash || null,
+              previousStatusFlags: String(target.statusFlags ?? '')
+            },
+            moderatorSignature
+          } as any)
+        }
       } catch (e) {
         // ignore
       }
@@ -315,7 +362,8 @@ export class SubredditsService {
         contentDeleted: !!deleteContent,
         moderatorNote: note,
         previousStatusFlags: String(prevFlags)
-      }
+      },
+      moderatorSignature
     } as any)
 
     // notify
@@ -388,7 +436,8 @@ export class SubredditsService {
       action: 'unban_user',
       targetType: 'user',
       targetId: String(targetUserId),
-      reason: reason || 'Unbanned'
+      reason: reason || 'Unbanned',
+      moderatorSignature
     } as any)
     try {
       await this.notificationsService.create({
@@ -707,7 +756,7 @@ export class SubredditsService {
   }
 
   // add a moderator (sets moderator bit)
-  async addModerator(idOrName: string, userId: string, moderatorAuth: any) {
+  async addModerator(idOrName: string, userId: string, moderatorAuth: any, moderatorSignature?: string) {
     if (!moderatorAuth || !moderatorAuth.id) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED)
     const subreddit = await this.findOne(idOrName)
     if (!subreddit) throw new HttpException('Subreddit not found', HttpStatus.NOT_FOUND)
@@ -718,6 +767,12 @@ export class SubredditsService {
       'assign_roles'
     )
     if (!allowed) throw new HttpException('Forbidden', HttpStatus.FORBIDDEN)
+    if (!moderatorSignature) throw new HttpException('Missing moderator signature', HttpStatus.FORBIDDEN)
+    const addPayload = `add_moderator|${String(subreddit._id)}|${String(userId)}`
+    const addPub = await getAuthPublicKeyById((this as any).model.db, String(moderatorAuth.id))
+    if (!addPub || !verifySignature(addPub, addPayload, moderatorSignature)) {
+      throw new HttpException('Invalid moderator signature', HttpStatus.FORBIDDEN)
+    }
 
     const user = await this.usersService.findById(userId)
     if (!user) throw new HttpException('User not found', HttpStatus.BAD_REQUEST)
@@ -750,7 +805,8 @@ export class SubredditsService {
       targetType: 'user',
       targetId: String((user as any)._id),
       reason: 'added as moderator',
-      details: { previousStatusFlags: String(prevFlags) }
+      details: { previousStatusFlags: String(prevFlags) },
+      moderatorSignature
     } as any)
     try {
       await this.notificationsService.create({
@@ -767,7 +823,7 @@ export class SubredditsService {
   }
 
   // remove moderator (unset moderator bit)
-  async removeModerator(idOrName: string, userId: string, moderatorAuth: any) {
+  async removeModerator(idOrName: string, userId: string, moderatorAuth: any, moderatorSignature?: string) {
     if (!moderatorAuth || !moderatorAuth.id) throw new HttpException('Unauthorized', HttpStatus.UNAUTHORIZED)
     const subreddit = await this.findOne(idOrName)
     if (!subreddit) throw new HttpException('Subreddit not found', HttpStatus.NOT_FOUND)
@@ -778,6 +834,12 @@ export class SubredditsService {
       'assign_roles'
     )
     if (!allowed) throw new HttpException('Forbidden', HttpStatus.FORBIDDEN)
+    if (!moderatorSignature) throw new HttpException('Missing moderator signature', HttpStatus.FORBIDDEN)
+    const removePayload = `remove_moderator|${String(subreddit._id)}|${String(userId)}`
+    const removePub = await getAuthPublicKeyById((this as any).model.db, String(moderatorAuth.id))
+    if (!removePub || !verifySignature(removePub, removePayload, moderatorSignature)) {
+      throw new HttpException('Invalid moderator signature', HttpStatus.FORBIDDEN)
+    }
 
     const member = await this.memberModel
       .findOne({ subredditId: subreddit._id, userId: new Types.ObjectId(String(userId)) })
@@ -798,7 +860,8 @@ export class SubredditsService {
       action: 'remove_moderator',
       targetType: 'user',
       targetId: String(userId),
-      reason: 'removed moderator'
+      reason: 'removed moderator',
+      moderatorSignature
     } as any)
     try {
       await this.notificationsService.create({

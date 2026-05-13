@@ -3,7 +3,7 @@ import { Document, Types } from 'mongoose'
 
 @Schema({ timestamps: { createdAt: true, updatedAt: false } })
 export class ServerAcknowledgement extends Document {
-  @Prop({ type: String, required: true, enum: ['post', 'comment'] })
+  @Prop({ type: String, required: true, enum: ['post', 'comment', 'moderation_event', 'attachment', 'message', 'federation_activity'] })
   contentType: string
 
   @Prop({ type: Types.ObjectId, required: true })

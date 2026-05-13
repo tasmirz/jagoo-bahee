@@ -44,6 +44,13 @@ export class AbuseRateLimiterService {
     return [actorId || 'anonymous', ip, userAgent, extra || ''].join('|')
   }
 
+  subnetTracker(req?: Request, actorId = 'anonymous'): string {
+    const ip = this.clientIp(req)
+    const subnet = ip.includes(':') ? ip.split(':').slice(0, 4).join(':') + '::/64' : ip.split('.').slice(0, 3).join('.') + '.0/24'
+    const userAgent = String(req?.headers?.['user-agent'] || 'unknown').slice(0, 120)
+    return [actorId, subnet, userAgent].join('|')
+  }
+
   async assertIpAllowed(req?: Request): Promise<void> {
     const ip = this.clientIp(req)
     try {

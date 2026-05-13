@@ -32,6 +32,12 @@ export class CommentsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get(':id/permissions/me')
+  myPermissions(@Req() req: any, @Param('id') id: string) {
+    return this.comments.permissionsFor(id, req.user)
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Patch(':id')
   update(@Req() req: any, @Param('id') id: string, @Body() body: UpdateCommentDto) {
     if (body.authorId && String(body.authorId) !== String(req.user.id)) {
@@ -42,11 +48,11 @@ export class CommentsController {
 
   @UseGuards(JwtAuthGuard)
   @Delete(':id')
-  remove(@Req() req: any, @Param('id') id: string, @Body('authorId') authorId: string) {
+  remove(@Req() req: any, @Param('id') id: string, @Body('authorId') authorId: string, @Body('deletionSignature') deletionSignature?: string) {
     if (authorId && String(authorId) !== String(req.user.id)) {
       throw new ForbiddenException('Cannot impersonate another user');
     }
-    return this.comments.removeByAuthor(id, String(req.user.id))
+    return this.comments.removeByAuthor(id, String(req.user.id), deletionSignature)
   }
 
   @UseGuards(JwtAuthGuard)
@@ -58,37 +64,43 @@ export class CommentsController {
   // Moderation routes
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/approve')
-  modApprove(@Req() req: any, @Param('id') id: string, @Body() body: CommentModBaseDto) {
-    return this.comments.modApprove(id, String(body.subredditId), String(req.user.id))
+  modApprove(@Req() req: any, @Param('id') id: string, @Body() body: CommentModBaseDto & { moderatorSignature?: string }) {
+    return this.comments.modApprove(id, String(body.subredditId), String(req.user.id), body.moderatorSignature)
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/remove')
-  modRemove(@Req() req: any, @Param('id') id: string, @Body() body: CommentModRemoveDto) {
-    return this.comments.modRemove(id, String(body.subredditId), String(req.user.id), body.reason)
+  modRemove(@Req() req: any, @Param('id') id: string, @Body() body: CommentModRemoveDto & { moderatorSignature?: string }) {
+    return this.comments.modRemove(id, String(body.subredditId), String(req.user.id), body.reason, body.moderatorSignature)
+  }
+
+  @UseGuards(JwtAuthGuard, SubredditRbacGuard)
+  @HttpPost(':id/mod/restore')
+  modRestore(@Req() req: any, @Param('id') id: string, @Body() body: CommentModRemoveDto & { moderatorSignature?: string }) {
+    return this.comments.modRestore(id, String(body.subredditId), String(req.user.id), body.reason, body.moderatorSignature)
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/collapse')
-  modCollapse(@Req() req: any, @Param('id') id: string, @Body() body: CommentModBaseDto) {
-    return this.comments.modCollapse(id, String(body.subredditId), String(req.user.id))
+  modCollapse(@Req() req: any, @Param('id') id: string, @Body() body: CommentModBaseDto & { moderatorSignature?: string }) {
+    return this.comments.modCollapse(id, String(body.subredditId), String(req.user.id), body.moderatorSignature)
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/uncollapse')
-  modUncollapse(@Req() req: any, @Param('id') id: string, @Body() body: CommentModBaseDto) {
-    return this.comments.modUncollapse(id, String(body.subredditId), String(req.user.id))
+  modUncollapse(@Req() req: any, @Param('id') id: string, @Body() body: CommentModBaseDto & { moderatorSignature?: string }) {
+    return this.comments.modUncollapse(id, String(body.subredditId), String(req.user.id), body.moderatorSignature)
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/flag')
-  modFlag(@Req() req: any, @Param('id') id: string, @Body() body: CommentModBaseDto) {
-    return this.comments.modFlag(id, String(body.subredditId), String(req.user.id))
+  modFlag(@Req() req: any, @Param('id') id: string, @Body() body: CommentModBaseDto & { moderatorSignature?: string }) {
+    return this.comments.modFlag(id, String(body.subredditId), String(req.user.id), body.moderatorSignature)
   }
 
   @UseGuards(JwtAuthGuard, SubredditRbacGuard)
   @HttpPost(':id/mod/unflag')
-  modUnflag(@Req() req: any, @Param('id') id: string, @Body() body: CommentModBaseDto) {
-    return this.comments.modUnflag(id, String(body.subredditId), String(req.user.id))
+  modUnflag(@Req() req: any, @Param('id') id: string, @Body() body: CommentModBaseDto & { moderatorSignature?: string }) {
+    return this.comments.modUnflag(id, String(body.subredditId), String(req.user.id), body.moderatorSignature)
   }
 }

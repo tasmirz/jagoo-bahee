@@ -120,6 +120,12 @@ export default function SinglePostPage() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.message || 'Failed to add comment');
       }
+      const envelope = await res.json();
+      if (envelope?.receipt && typeof window !== 'undefined') {
+        const key = 'jagoo:audit:receipts';
+        const current = JSON.parse(localStorage.getItem(key) || '[]');
+        localStorage.setItem(key, JSON.stringify([{ ...envelope.receipt, savedAt: new Date().toISOString() }, ...current].slice(0, 250)));
+      }
 
       setCommentText('');
       const commentsRes = await backend.backendFetch(`/posts/${id}/comments`);

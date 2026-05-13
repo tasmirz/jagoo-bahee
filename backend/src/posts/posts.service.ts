@@ -10,6 +10,7 @@ import { createHash } from 'crypto'
 import { signServerMessage, serverKeyId } from 'src/common/server-sign.util'
 import { AuthService } from '../auth/auth.service'
 import { ServerAcknowledgementsService } from 'src/moderation/server-acknowledgements.service'
+import { AuditReceiptsService } from 'src/moderation/audit-receipts.service'
 import { RedisService } from 'src/redis/redis.service'
 
 const POST_FLAGS = {
@@ -34,6 +35,7 @@ export class PostsService {
     private readonly subreddits: SubredditsService,
     private readonly authService: AuthService,
     private readonly acks: ServerAcknowledgementsService,
+    private readonly receipts: AuditReceiptsService,
     private readonly redis: RedisService
   ) {}
 
@@ -79,6 +81,21 @@ export class PostsService {
     }
   }
 
+  private async assertModeratorSignature(
+    action: string,
+    subredditId: string,
+    postId: string,
+    moderatorId: string,
+    moderatorSignature?: string,
+    reason = ''
+  ) {
+    if (!moderatorSignature) throw new BadRequestException('Missing moderator signature')
+    const pub = await getAuthPublicKeyById((this as any).model.db, String(moderatorId))
+    if (!pub) throw new BadRequestException('Moderator public key not found')
+    const payload = `${action}|${String(subredditId)}|${String(postId)}|${reason || ''}`
+    if (!verifySignature(pub, payload, moderatorSignature)) throw new BadRequestException('Invalid moderator signature')
+  }
+
   private buildCreateCanonical(data: Partial<Post>) {
     return JSON.stringify({
       title: data.title,
@@ -100,6 +117,16 @@ export class PostsService {
       subredditId: String(data.subredditId),
       authorId: String(data.authorId)
     })
+  }
+
+  private async assertCanWriteInSubreddit(userId: string, subredditId: string, action: 'post' | 'comment') {
+    const member = await (this as any).model.db.collection('subredditmembers').findOne({
+      subredditId: new Types.ObjectId(String(subredditId)),
+      userId: new Types.ObjectId(String(userId))
+    })
+    const flags = BigInt(member?.statusFlags ?? 0)
+    if ((flags & BigInt(4)) !== BigInt(0)) throw new ForbiddenException(`Banned users cannot ${action}`)
+    if ((flags & BigInt(2)) !== BigInt(0)) throw new ForbiddenException(`Muted users cannot ${action}`)
   }
 
   private async attachAuthorPublicKeys<T extends any>(docs: T[]): Promise<T[]> {
@@ -142,9 +169,10 @@ export class PostsService {
       if ((typ === 'image' || typ === 'video') && sro.allowImagePosts === false && sro.allowVideoPosts === false) {
         throw new BadRequestException('Media posts not allowed')
       }
+      await this.assertCanWriteInSubreddit(String(data.authorId), String(data.subredditId), 'post')
     } catch (e) {
       // bubble up
-      if (e instanceof BadRequestException) throw e
+      if (e instanceof BadRequestException || e instanceof ForbiddenException) throw e
     }
 
     // If attachments are provided, ensure they exist and are confirmed and owned by author
@@ -198,8 +226,16 @@ export class PostsService {
     }
 
     const result = this.convertBigIntToString(doc)
+    const receipt = await this.receipts.create({
+      action: 'post.created',
+      subjectType: 'post',
+      subjectId: (doc as any)._id,
+      actorPublicKey: Buffer.from(pub).toString('base64'),
+      actorSignature: String(data.userSignature),
+      canonicalPayload: canonical
+    })
     await this.invalidatePostCache(result)
-    return result
+    return { data: result, receipt }
   }
 
   async findById(id: string) {
@@ -219,11 +255,63 @@ export class PostsService {
     return doc
   }
 
+  async permissionsFor(id: string, user: any) {
+    const post = await this.model.findById(id).lean().exec()
+    if (!post) throw new NotFoundException('Post not found')
+    const actorId = String(user?.id || '')
+    const abac = BigInt(user?.abac ?? 0)
+    const isGlobalModerator = (abac & (BigInt(1) << BigInt(4))) !== BigInt(0)
+    const isGlobalAdmin = (abac & (BigInt(1) << BigInt(5))) !== BigInt(0)
+    const membership = await (this as any).model.db.collection('subredditmembers').findOne({
+      subredditId: new Types.ObjectId(String((post as any).subredditId)),
+      userId: new Types.ObjectId(actorId)
+    })
+    const flags = BigInt(membership?.statusFlags ?? 0)
+    const isBanned = (flags & BigInt(4)) !== BigInt(0)
+    const isMuted = (flags & BigInt(2)) !== BigInt(0)
+    const isModerator = (flags & BigInt(8)) !== BigInt(0)
+    const isOwner = String((post as any).authorId) === actorId
+    const canModerate = isGlobalAdmin || isGlobalModerator || isModerator
+    return {
+      postId: id,
+      subredditId: String((post as any).subredditId),
+      isOwner,
+      isModerator: canModerate,
+      isBanned,
+      isMuted,
+      canEdit: isOwner && !isBanned,
+      canDelete: (isOwner && !isBanned) || canModerate,
+      canVote: !!actorId && !isBanned,
+      canComment: !!actorId && !isBanned && !isMuted,
+      canModerate,
+      canRestore: canModerate
+    }
+  }
+
   async updateByAuthor(id: string, authorId: string, update: Partial<Post>) {
     const docRaw = await this.model.findById(id)
     if (!docRaw) throw new NotFoundException('Post not found')
     if (String(docRaw.authorId) !== String(authorId)) throw new ForbiddenException('Not the author')
-    Object.assign(docRaw, update, { editedAt: new Date() })
+    if (update.title !== undefined || update.content !== undefined || (update as any).url !== undefined || (update as any).attachmentIds !== undefined) {
+      const canonical = JSON.stringify({
+        title: update.title ?? docRaw.title,
+        content: update.content ?? docRaw.content ?? '',
+        type: docRaw.type,
+        subredditId: String(docRaw.subredditId),
+        authorId: String(docRaw.authorId),
+        url: (update as any).url ?? (docRaw as any).url ?? '',
+        attachmentIds: Array.isArray((update as any).attachmentIds) ? (update as any).attachmentIds.map(String) : ((docRaw as any).attachmentIds || []).map(String),
+        flair: (update as any).flair ?? (docRaw as any).flair ?? ''
+      })
+      this.assertContentHash(canonical, String((update as any).contentHash || ''))
+      const pub = await getAuthPublicKeyById((this as any).model.db, String(authorId))
+      if (!pub) throw new BadRequestException('author public key not found')
+      if (!verifySignature(pub, canonical, String((update as any).userSignature || ''))) throw new BadRequestException('Invalid edit signature')
+      ;(docRaw as any).contentHash = (update as any).contentHash
+      ;(docRaw as any).userSignature = (update as any).userSignature
+    }
+    const { contentHash: _contentHash, userSignature: _userSignature, authorId: _authorId, ...safeUpdate } = update as any
+    Object.assign(docRaw, safeUpdate, { editedAt: new Date() })
     await docRaw.save()
     const result = this.convertBigIntToString(docRaw)
     await this.invalidatePostCache(result)
@@ -234,14 +322,12 @@ export class PostsService {
     const docRaw = await this.model.findById(id)
     if (!docRaw) throw new NotFoundException('Post not found')
     if (String(docRaw.authorId) !== String(authorId)) throw new ForbiddenException('Not the author')
-    // if author provided a deletion signature, verify it against stored public key
-    if (deletionSignature) {
-      const payload = `DELETE|${String(docRaw._id)}|user_delete`
-      const pub = await getAuthPublicKeyById((this as any).model.db, String(authorId))
-      if (!pub) throw new BadRequestException('author public key not found')
-      const ok = verifySignature(pub, payload, deletionSignature)
-      if (!ok) throw new BadRequestException('Invalid deletion signature')
-    }
+    if (!deletionSignature) throw new BadRequestException('Missing deletion signature')
+    const payload = `DELETE|${String(docRaw._id)}|user_delete`
+    const pub = await getAuthPublicKeyById((this as any).model.db, String(authorId))
+    if (!pub) throw new BadRequestException('author public key not found')
+    const ok = verifySignature(pub, payload, deletionSignature)
+    if (!ok) throw new BadRequestException('Invalid deletion signature')
     docRaw.statusFlags = BigInt(Number(docRaw.statusFlags) & ~POST_FLAGS.ACTIVE) | BigInt(POST_FLAGS.REMOVED)
     await docRaw.save()
     // create server acknowledgement
@@ -270,13 +356,16 @@ export class PostsService {
   async getVerification(id: string) {
     const doc = await this.findById(id)
     const acks = await this.acks.findByContent('post', doc._id)
+    const receipts = await this.receipts.findBySubject('post', String(doc._id))
     return {
       proofVersion: 1,
       subjectType: 'post',
       subjectId: String(doc._id),
       contentHash: doc.contentHash,
       userSignature: doc.userSignature,
-      serverAcknowledgements: acks
+      serverAcknowledgements: acks,
+      receipts,
+      verificationState: receipts.length > 0 ? 'verifiable' : 'legacy_unverifiable'
     }
   }
 
@@ -303,8 +392,9 @@ export class PostsService {
     const doc = await this.findById(id)
     // post versions (if versioning implemented) - fall back to server acknowledgements and mod logs
     const acks = await this.acks.findByContent('post', doc._id)
+    const receipts = await this.receipts.findBySubject('post', String(doc._id))
     const logs = await this.modLog.listForSubreddit(String(doc.subredditId), 100)
-    return { post: doc, serverAcknowledgements: acks, modLogs: logs }
+    return { post: doc, serverAcknowledgements: acks, receipts, verificationState: receipts.length > 0 ? 'verifiable' : 'legacy_unverifiable', modLogs: logs }
   }
 
   /** List posts with optional filter/pagination. Populates subreddit name for convenience. */
@@ -430,10 +520,11 @@ export class PostsService {
   }
 
   // Moderation actions
-  async modApprove(postId: string, subredditId: string, moderatorId: string) {
+  async modApprove(postId: string, subredditId: string, moderatorId: string, moderatorSignature?: string) {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
     this.assertPostSubreddit(docRaw, subredditId)
+    await this.assertModeratorSignature('post.approve', subredditId, postId, moderatorId, moderatorSignature)
     docRaw.statusFlags =
       BigInt(Number(docRaw.statusFlags) | POST_FLAGS.APPROVED) & ~BigInt(POST_FLAGS.FLAGGED | POST_FLAGS.REMOVED)
     await docRaw.save()
@@ -442,7 +533,8 @@ export class PostsService {
       moderatorId,
       action: 'post.approve',
       targetType: 'post',
-      targetId: postId
+      targetId: postId,
+      moderatorSignature
     })
     const result = this.convertBigIntToString(docRaw)
     await this.invalidatePostCache(result)
@@ -459,14 +551,8 @@ export class PostsService {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
     this.assertPostSubreddit(docRaw, subredditId)
-    // require moderator signature to be provided
     const maybeSig = moderatorSignature
-    if (!maybeSig) throw new BadRequestException('Missing moderator signature')
-    const payload = `remove_post|${String(subredditId)}|${String(postId)}|${reason || ''}`
-    const pub = await getAuthPublicKeyById((this as any).model.db, String(moderatorId))
-    if (!pub) throw new BadRequestException('Moderator public key not found')
-    const ok = verifySignature(pub, payload, maybeSig)
-    if (!ok) throw new BadRequestException('Invalid moderator signature')
+    await this.assertModeratorSignature('post.remove', subredditId, postId, moderatorId, maybeSig, reason)
     docRaw.statusFlags = BigInt(Number(docRaw.statusFlags) | POST_FLAGS.REMOVED) & ~BigInt(POST_FLAGS.APPROVED)
     docRaw.removalReason = reason
     docRaw.removedBy = this.toId(moderatorId)
@@ -485,22 +571,47 @@ export class PostsService {
     return result
   }
 
-  async modLock(postId: string, subredditId: string, moderatorId: string) {
+  async modRestore(postId: string, subredditId: string, moderatorId: string, reason?: string, moderatorSignature?: string) {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
     this.assertPostSubreddit(docRaw, subredditId)
-    docRaw.statusFlags = BigInt(Number(docRaw.statusFlags) | POST_FLAGS.LOCKED)
+    await this.assertModeratorSignature('post.restore', subredditId, postId, moderatorId, moderatorSignature, reason)
+    docRaw.statusFlags = (BigInt(Number(docRaw.statusFlags)) & ~BigInt(POST_FLAGS.REMOVED)) | BigInt(POST_FLAGS.ACTIVE)
+    docRaw.removalReason = undefined
+    docRaw.removedBy = undefined
     await docRaw.save()
-    await this.modLog.createLog({ subredditId, moderatorId, action: 'post.lock', targetType: 'post', targetId: postId })
+    await this.modLog.createLog({
+      subredditId,
+      moderatorId,
+      action: 'post.restore',
+      targetType: 'post',
+      targetId: postId,
+      reason,
+      moderatorSignature
+    } as any)
     const result = this.convertBigIntToString(docRaw)
     await this.invalidatePostCache(result)
     return result
   }
 
-  async modUnlock(postId: string, subredditId: string, moderatorId: string) {
+  async modLock(postId: string, subredditId: string, moderatorId: string, moderatorSignature?: string) {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
     this.assertPostSubreddit(docRaw, subredditId)
+    await this.assertModeratorSignature('post.lock', subredditId, postId, moderatorId, moderatorSignature)
+    docRaw.statusFlags = BigInt(Number(docRaw.statusFlags) | POST_FLAGS.LOCKED)
+    await docRaw.save()
+    await this.modLog.createLog({ subredditId, moderatorId, action: 'post.lock', targetType: 'post', targetId: postId, moderatorSignature })
+    const result = this.convertBigIntToString(docRaw)
+    await this.invalidatePostCache(result)
+    return result
+  }
+
+  async modUnlock(postId: string, subredditId: string, moderatorId: string, moderatorSignature?: string) {
+    const docRaw = await this.model.findById(postId)
+    if (!docRaw) throw new NotFoundException('Post not found')
+    this.assertPostSubreddit(docRaw, subredditId)
+    await this.assertModeratorSignature('post.unlock', subredditId, postId, moderatorId, moderatorSignature)
     docRaw.statusFlags = BigInt(Number(docRaw.statusFlags) & ~POST_FLAGS.LOCKED)
     await docRaw.save()
     await this.modLog.createLog({
@@ -508,29 +619,32 @@ export class PostsService {
       moderatorId,
       action: 'post.unlock',
       targetType: 'post',
-      targetId: postId
+      targetId: postId,
+      moderatorSignature
     })
     const result = this.convertBigIntToString(docRaw)
     await this.invalidatePostCache(result)
     return result
   }
 
-  async modPin(postId: string, subredditId: string, moderatorId: string) {
+  async modPin(postId: string, subredditId: string, moderatorId: string, moderatorSignature?: string) {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
     this.assertPostSubreddit(docRaw, subredditId)
+    await this.assertModeratorSignature('post.pin', subredditId, postId, moderatorId, moderatorSignature)
     docRaw.statusFlags = BigInt(Number(docRaw.statusFlags) | POST_FLAGS.PINNED)
     await docRaw.save()
-    await this.modLog.createLog({ subredditId, moderatorId, action: 'post.pin', targetType: 'post', targetId: postId })
+    await this.modLog.createLog({ subredditId, moderatorId, action: 'post.pin', targetType: 'post', targetId: postId, moderatorSignature })
     const result = this.convertBigIntToString(docRaw)
     await this.invalidatePostCache(result)
     return result
   }
 
-  async modUnpin(postId: string, subredditId: string, moderatorId: string) {
+  async modUnpin(postId: string, subredditId: string, moderatorId: string, moderatorSignature?: string) {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
     this.assertPostSubreddit(docRaw, subredditId)
+    await this.assertModeratorSignature('post.unpin', subredditId, postId, moderatorId, moderatorSignature)
     docRaw.statusFlags = BigInt(Number(docRaw.statusFlags) & ~POST_FLAGS.PINNED)
     await docRaw.save()
     await this.modLog.createLog({
@@ -538,29 +652,32 @@ export class PostsService {
       moderatorId,
       action: 'post.unpin',
       targetType: 'post',
-      targetId: postId
+      targetId: postId,
+      moderatorSignature
     })
     const result = this.convertBigIntToString(docRaw)
     await this.invalidatePostCache(result)
     return result
   }
 
-  async modFlag(postId: string, subredditId: string, moderatorId: string) {
+  async modFlag(postId: string, subredditId: string, moderatorId: string, moderatorSignature?: string) {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
     this.assertPostSubreddit(docRaw, subredditId)
+    await this.assertModeratorSignature('post.flag', subredditId, postId, moderatorId, moderatorSignature)
     docRaw.statusFlags = BigInt(Number(docRaw.statusFlags) | POST_FLAGS.FLAGGED)
     await docRaw.save()
-    await this.modLog.createLog({ subredditId, moderatorId, action: 'post.flag', targetType: 'post', targetId: postId })
+    await this.modLog.createLog({ subredditId, moderatorId, action: 'post.flag', targetType: 'post', targetId: postId, moderatorSignature })
     const result = this.convertBigIntToString(docRaw)
     await this.invalidatePostCache(result)
     return result
   }
 
-  async modUnflag(postId: string, subredditId: string, moderatorId: string) {
+  async modUnflag(postId: string, subredditId: string, moderatorId: string, moderatorSignature?: string) {
     const docRaw = await this.model.findById(postId)
     if (!docRaw) throw new NotFoundException('Post not found')
     this.assertPostSubreddit(docRaw, subredditId)
+    await this.assertModeratorSignature('post.unflag', subredditId, postId, moderatorId, moderatorSignature)
     docRaw.statusFlags = BigInt(Number(docRaw.statusFlags) & ~POST_FLAGS.FLAGGED)
     await docRaw.save()
     await this.modLog.createLog({
@@ -568,7 +685,8 @@ export class PostsService {
       moderatorId,
       action: 'post.unflag',
       targetType: 'post',
-      targetId: postId
+      targetId: postId,
+      moderatorSignature
     })
     const result = this.convertBigIntToString(docRaw)
     await this.invalidatePostCache(result)

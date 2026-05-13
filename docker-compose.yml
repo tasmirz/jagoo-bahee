@@ -40,7 +40,20 @@ services:
       - minio_data:/data
     restart: unless-stopped
 
+  audit-service:
+    build:
+      context: ./audit-service
+    ports:
+      - "6100:6100"
+    environment:
+      AUDIT_SERVICE_PORT: "6100"
+      AUDIT_STORE_PATH: "/data/receipts.json"
+    volumes:
+      - audit_data:/data
+    restart: unless-stopped
+
 volumes:
   mongo_data:
   redis_data:
   minio_data:
+  audit_data:
