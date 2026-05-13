@@ -64,6 +64,7 @@ export default function Navbar() {
             <NavLink href="/notifications">Notifications</NavLink>
             <NavLink href="/awards">Awards</NavLink>
             <NavLink href="/acknowledgements">Proofs</NavLink>
+            <NavLink href="/admin">Admin</NavLink>
           </div>
 
           {/* Desktop Search */}
@@ -127,6 +128,9 @@ export default function Navbar() {
                       </Link>
                       <Link href="/saved" className="block px-4 py-2 text-sm hover:bg-[var(--muted)]" onClick={() => setShowUserMenu(false)}>
                         Saved
+                      </Link>
+                      <Link href="/admin" className="block px-4 py-2 text-sm hover:bg-[var(--muted)]" onClick={() => setShowUserMenu(false)}>
+                        Server Admin
                       </Link>
                       <Link href="/acknowledgements" className="flex items-center justify-between px-4 py-2 text-sm hover:bg-[var(--muted)]" onClick={() => setShowUserMenu(false)}>
                         <span><span className="emoji">🛡️</span> Proofs & Audit Trail</span>
@@ -263,6 +267,13 @@ export default function Navbar() {
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   <span className="emoji">💾</span> Saved
+                </Link>
+                <Link
+                  href="/admin"
+                  className="block px-4 py-3 text-sm hover:bg-[var(--muted)] rounded-lg"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Server Admin
                 </Link>
                 <Link
                   href="/acknowledgements"

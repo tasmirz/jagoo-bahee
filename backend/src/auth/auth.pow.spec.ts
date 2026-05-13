@@ -18,6 +18,7 @@ describe('AuthService Proof of Work logic', () => {
     mockUsersService = { ensureUserForAuth: jest.fn() };
     mockRedis = { setIfAbsent: jest.fn().mockResolvedValue(true) };
     mockAbuseLimiter = {
+      assertIpAllowed: jest.fn().mockResolvedValue(undefined),
       hit: jest.fn().mockResolvedValue(undefined),
       tracker: jest.fn().mockReturnValue('test-tracker')
     };

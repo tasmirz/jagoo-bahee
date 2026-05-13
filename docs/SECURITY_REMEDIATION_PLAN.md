@@ -47,6 +47,9 @@ Partial implementation notes:
 - Used challenge IDs are persisted through Redis `setIfAbsent`.
 - Route-specific buckets and account swarm quotas are not implemented yet.
 - Route-specific buckets are implemented by `AbuseRateLimiterService`.
+- Server admins can tune route-specific limits from `/admin`; settings are persisted in MongoDB and cached in Redis.
+- Server admins can close new registrations during account-creation DoS.
+- Server admins can block individual IPs; runtime checks fall back to MongoDB if Redis has lost the cache entry.
 - Subnet buckets, adaptive difficulty, and federation inbox buckets remain open.
 
 Acceptance:
@@ -206,6 +209,19 @@ Implementation notes:
 - Scaling scaffolding and Redis-backed rate limiting are done.
 - The checked compose command requires shared `JWT_SECRET` and `SERVER_PRIVATE_KEY_HEX`, but production secret management is still an operator requirement, so those remain unchecked.
 - `docker-compose.scale.yml` resets database/cache/object-storage/admin challenge ports and only publishes HAProxy `8080` and frontend `6001`.
+
+## Phase 7A: Server Admin Operations
+
+- [x] Add server-admin dashboard entry point at `/admin`.
+- [x] Add health counters for users, communities, posts, federation peers, reports, moderation logs, and IP blocks.
+- [x] Add user ban/unban controls.
+- [x] Add global moderator/admin controls.
+- [x] Add federation peer add/status/delete controls.
+- [x] Add moderation report/log overview.
+- [x] Add registration open/closed control for DoS response.
+- [x] Add route-specific rate-limit controls persisted through server config.
+- [x] Add server rules editor.
+- [x] Add IP block list/add/delete controls.
 
 Scale test command:
 

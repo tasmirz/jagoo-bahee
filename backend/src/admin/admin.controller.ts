@@ -1,7 +1,8 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common'
 import { InjectConnection } from '@nestjs/mongoose'
 import { Connection, Types } from 'mongoose'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
+import { RedisService } from 'src/redis/redis.service'
 
 const GLOBAL_MOD_BIT = BigInt(1) << BigInt(4)
 const GLOBAL_ADMIN_BIT = BigInt(1) << BigInt(5)
@@ -9,18 +10,24 @@ const GLOBAL_ADMIN_BIT = BigInt(1) << BigInt(5)
 @Controller('admin')
 @UseGuards(JwtAuthGuard)
 export class AdminController {
-  constructor(@InjectConnection() private readonly connection: Connection) {}
+  constructor(
+    @InjectConnection() private readonly connection: Connection,
+    private readonly redis: RedisService
+  ) {}
 
   @Get('summary')
   async summary(@Req() req: any) {
     await this.assertAdmin(req)
-    const [users, communities, posts, federationServers] = await Promise.all([
+    const [users, communities, posts, federationServers, pendingReports, modLogs, blockedIps] = await Promise.all([
       this.connection.collection('users').countDocuments(),
       this.connection.collection('subreddits').countDocuments(),
       this.connection.collection('posts').countDocuments(),
-      this.connection.collection('federationservers').countDocuments().catch(() => 0)
+      this.connection.collection('federationservers').countDocuments().catch(() => 0),
+      this.connection.collection('reports').countDocuments({ status: 'pending' }).catch(() => 0),
+      this.connection.collection('modlogs').countDocuments().catch(() => 0),
+      this.connection.collection('ipblocks').countDocuments().catch(() => 0)
     ])
-    return { users, communities, posts, federationServers }
+    return { users, communities, posts, federationServers, pendingReports, modLogs, blockedIps }
   }
 
   @Get('users')
@@ -33,7 +40,7 @@ export class AdminController {
         { $limit: 100 },
         { $lookup: { from: 'auths', localField: '_id', foreignField: '_id', as: 'auth' } },
         { $unwind: { path: '$auth', preserveNullAndEmptyArrays: true } },
-        { $project: { username: 1, postKarma: 1, commentKarma: 1, createdAt: 1, abac: '$auth.abac', publicKey: '$auth.publicKey' } }
+        { $project: { username: 1, postKarma: 1, commentKarma: 1, createdAt: 1, bannedUntil: 1, banReason: 1, abac: '$auth.abac', publicKey: '$auth.publicKey' } }
       ])
       .toArray()
     return users.map((user: any) => ({
@@ -41,6 +48,30 @@ export class AdminController {
       abac: String(user.abac || 0),
       publicKey: user.publicKey ? Buffer.from(user.publicKey.buffer || user.publicKey).toString('base64') : undefined
     }))
+  }
+
+  @Patch('users/:id/ban')
+  async banUser(@Req() req: any, @Param('id') id: string, @Body() body: { days?: number; reason?: string }) {
+    await this.assertAdmin(req)
+    if (!Types.ObjectId.isValid(id)) throw new ForbiddenException('Invalid user id')
+    const days = Math.min(Math.max(Number(body.days || 7), 1), 3650)
+    const bannedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+    await this.connection.collection('users').updateOne(
+      { _id: new Types.ObjectId(id) },
+      { $set: { bannedUntil, banReason: String(body.reason || 'server_admin_ban').slice(0, 500), updatedAt: new Date() } }
+    )
+    return { userId: id, bannedUntil }
+  }
+
+  @Patch('users/:id/unban')
+  async unbanUser(@Req() req: any, @Param('id') id: string) {
+    await this.assertAdmin(req)
+    if (!Types.ObjectId.isValid(id)) throw new ForbiddenException('Invalid user id')
+    await this.connection.collection('users').updateOne(
+      { _id: new Types.ObjectId(id) },
+      { $unset: { bannedUntil: '', banReason: '' }, $set: { updatedAt: new Date() } }
+    )
+    return { userId: id, bannedUntil: null }
   }
 
   @Patch('users/:id/global-role')
@@ -90,6 +121,97 @@ export class AdminController {
     return this.connection.collection('federationservers').findOne({ _id: new Types.ObjectId(id) })
   }
 
+  @Delete('federation/servers/:id')
+  async deleteFederationServer(@Req() req: any, @Param('id') id: string) {
+    await this.assertAdmin(req)
+    if (!Types.ObjectId.isValid(id)) throw new ForbiddenException('Invalid federation server id')
+    await this.connection.collection('federationservers').deleteOne({ _id: new Types.ObjectId(id) })
+    return { success: true }
+  }
+
+  @Get('moderation/overview')
+  async moderationOverview(@Req() req: any): Promise<any> {
+    await this.assertAdmin(req)
+    const [reports, logs] = await Promise.all([
+      this.connection.collection('reports').find({}).sort({ createdAt: -1 }).limit(20).toArray().catch(() => []),
+      this.connection.collection('modlogs').find({}).sort({ createdAt: -1 }).limit(20).toArray().catch(() => [])
+    ])
+    return { reports, logs }
+  }
+
+  @Get('security/config')
+  async securityConfig(@Req() req: any) {
+    await this.assertAdmin(req)
+    let [security, rateLimits, rules] = await Promise.all([
+      this.redis.getJson('jb:config:security'),
+      this.redis.getJson('jb:config:rate-limits'),
+      this.redis.getJson('jb:config:server-rules')
+    ])
+    if (!security && !rateLimits && !rules) {
+      const persisted = await this.connection.collection('serverconfigs').findOne({ key: 'security' })
+      security = persisted?.security
+      rateLimits = persisted?.rateLimits
+      rules = persisted?.rules
+    }
+    return {
+      security: security || { registrationsOpen: true },
+      rateLimits: rateLimits || {},
+      rules: rules || []
+    }
+  }
+
+  @Put('security/config')
+  async updateSecurityConfig(
+    @Req() req: any,
+    @Body() body: { registrationsOpen?: boolean; rateLimits?: Record<string, { limit?: number; windowMs?: number }>; rules?: string[] }
+  ) {
+    await this.assertAdmin(req)
+    const security = { registrationsOpen: body.registrationsOpen !== false, updatedAt: new Date().toISOString() }
+    const rateLimits = sanitizeRateLimits(body.rateLimits || {})
+    const rules = Array.isArray(body.rules) ? body.rules.map((rule) => String(rule).trim()).filter(Boolean).slice(0, 25) : []
+    await Promise.all([
+      this.redis.setJson('jb:config:security', security, 60 * 60 * 24 * 365),
+      this.redis.setJson('jb:config:rate-limits', rateLimits, 60 * 60 * 24 * 365),
+      this.redis.setJson('jb:config:server-rules', rules, 60 * 60 * 24 * 365),
+      this.connection.collection('serverconfigs').updateOne(
+        { key: 'security' },
+        { $set: { key: 'security', security, rateLimits, rules, updatedAt: new Date() } },
+        { upsert: true }
+      )
+    ])
+    return { security, rateLimits, rules }
+  }
+
+  @Get('security/ip-blocks')
+  async listIpBlocks(@Req() req: any): Promise<any[]> {
+    await this.assertAdmin(req)
+    return this.connection.collection('ipblocks').find({}).sort({ createdAt: -1 }).limit(200).toArray()
+  }
+
+  @Post('security/ip-blocks')
+  async addIpBlock(@Req() req: any, @Body() body: { ip: string; reason?: string }) {
+    await this.assertAdmin(req)
+    const ip = normalizeIp(body.ip)
+    const doc = {
+      ip,
+      reason: String(body.reason || 'server_admin_block').slice(0, 500),
+      createdBy: new Types.ObjectId(String(req.user.id)),
+      createdAt: new Date()
+    }
+    await this.connection.collection('ipblocks').updateOne({ ip }, { $set: doc }, { upsert: true })
+    await this.redis.getClient().set(`jb:security:ip-block:${ip}`, '1')
+    return doc
+  }
+
+  @Delete('security/ip-blocks/:ip')
+  async deleteIpBlock(@Req() req: any, @Param('ip') ipParam: string) {
+    await this.assertAdmin(req)
+    const ip = normalizeIp(decodeURIComponent(ipParam))
+    await this.connection.collection('ipblocks').deleteOne({ ip })
+    await this.redis.delKeys(`jb:security:ip-block:${ip}`)
+    return { success: true }
+  }
+
   private async assertAdmin(req: any) {
     const flags = BigInt(req.user?.abac || 0)
     if ((flags & GLOBAL_ADMIN_BIT) !== BigInt(0)) return
@@ -97,6 +219,33 @@ export class AdminController {
     const storedFlags = BigInt(auth?.abac || 0)
     if ((storedFlags & GLOBAL_ADMIN_BIT) === BigInt(0)) throw new ForbiddenException('Global admin required')
   }
+}
+
+function sanitizeRateLimits(input: Record<string, { limit?: number; windowMs?: number }>) {
+  const allowed = new Set([
+    'auth-challenge',
+    'auth-submit',
+    'account-create',
+    'post-create',
+    'post-update',
+    'comment-create',
+    'message-send',
+    'message-reply',
+    'attachment-upload-url'
+  ])
+  return Object.entries(input).reduce((acc: Record<string, { limit: number; windowMs: number }>, [scope, value]) => {
+    if (!allowed.has(scope)) return acc
+    const limit = Math.min(Math.max(Number(value.limit || 1), 1), 10000)
+    const windowMs = Math.min(Math.max(Number(value.windowMs || 60000), 1000), 24 * 60 * 60 * 1000)
+    acc[scope] = { limit: Math.floor(limit), windowMs: Math.floor(windowMs) }
+    return acc
+  }, {})
+}
+
+function normalizeIp(raw: string) {
+  const ip = String(raw || '').trim()
+  if (!/^[0-9a-fA-F:.]{3,45}$/.test(ip)) throw new BadRequestException('Invalid IP address')
+  return ip
 }
 
 function validateFederationBaseUrl(raw: string) {

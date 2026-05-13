@@ -15,6 +15,7 @@ Resolved or partially mitigated in the current tree:
 - Global throttling uses Redis-backed storage, so rate limits are shared across horizontally scaled backend replicas.
 - Additional Redis abuse buckets now cover auth challenge, auth submit, account creation, post creation/update, comment creation, message send/reply, and attachment upload-url creation.
 - Abuse buckets fail closed in production when Redis is unavailable unless `ABUSE_LIMIT_FAIL_OPEN=true` is explicitly set.
+- Server-admin controls now expose registration closure, rate-limit tuning, user bans, global role grants, federation peer status, server rules, and IP blocks.
 - Scale compose resets host-published Mongo, Redis, MinIO, and mCaptcha ports; only the backend load balancer and frontend are published.
 - Federation server registry rejects local/private/non-HTTP origins before future discovery code can fetch them.
 
@@ -419,6 +420,13 @@ Highest-risk classes:
 
 - Surface: `/health/live`, `/health/ready`.
 - Risk: future readiness details should not include secrets or internal URLs.
+
+`OPS-006` admin operations concentration
+
+- Surface: `/admin` APIs and dashboard.
+- Attack: compromised global admin can ban users, close registrations, grant roles, approve peers, and block IPs.
+- Current mitigation: backend rechecks the stored admin ABAC bit instead of trusting only JWT claims.
+- Required defense: add append-only admin audit events, admin step-up authentication, and break-glass recovery keys.
 
 ### 10. Federation-Specific Attack Cases
 

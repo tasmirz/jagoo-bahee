@@ -26,6 +26,7 @@ export class AuthService {
   ) {}
 
   async challenge(req?: Request): Promise<string> {
+    await this.abuseLimiter.assertIpAllowed(req)
     await this.abuseLimiter.hit(
       'auth-challenge',
       this.abuseLimiter.tracker(req),
@@ -46,6 +47,7 @@ export class AuthService {
     // DTO transforms produce Uint8Array; convert to Buffer for mongoose and tiny-secp256k1
     const publicKey = Buffer.from(auth.publicKey as any)
     const signedData = Buffer.from(auth.signedData as any)
+    await this.abuseLimiter.assertIpAllowed(req)
     const publicKeyFingerprint = createHash('sha256').update(publicKey).digest('hex')
     await this.abuseLimiter.hit(
       'auth-submit',
@@ -112,6 +114,8 @@ export class AuthService {
     // Mongoose stores buffers as Buffer; query by publicKey directly
     let authDoc = await this.authModel.findOne({ publicKey }).exec()
     if (authDoc == null) {
+      const securityConfig = await this.redis.getJson<{ registrationsOpen?: boolean }>('jb:config:security')
+      if (securityConfig?.registrationsOpen === false) throw new UnauthorizedException('Registrations are temporarily closed')
       await this.abuseLimiter.hit(
         'account-create',
         this.abuseLimiter.tracker(req, undefined, publicKeyFingerprint),
@@ -124,8 +128,12 @@ export class AuthService {
     // Ensure a User profile exists for this auth record using UsersService which
     // implements retries for unique username generation.
     try {
-      await this.usersService.ensureUserForAuth(authDoc._id as Types.ObjectId)
+      const user = await this.usersService.ensureUserForAuth(authDoc._id as Types.ObjectId)
+      if (user?.bannedUntil && new Date(user.bannedUntil).getTime() > Date.now()) {
+        throw new UnauthorizedException('User is banned')
+      }
     } catch (e) {
+      if (e instanceof UnauthorizedException) throw e
       // best-effort; if user creation fails leave auth flow intact
       console.warn('Failed to ensure user profile for auth:', e)
     }

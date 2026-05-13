@@ -12,7 +12,7 @@ describe('AbuseRateLimiterService', () => {
       }),
       pexpire: jest.fn(async () => 1)
     }
-    const service = new AbuseRateLimiterService({ getClient: () => client } as any)
+    const service = new AbuseRateLimiterService({ getClient: () => client } as any, { collection: jest.fn() } as any)
     return { service, client }
   }
 
@@ -42,7 +42,7 @@ describe('AbuseRateLimiterService', () => {
       getClient: () => {
         throw new Error('redis down')
       }
-    } as any)
+    } as any, { collection: jest.fn() } as any)
 
     await expect(service.hit('auth-submit', 'subject', 1, 60_000)).rejects.toThrow('Rate limiter unavailable')
     process.env.NODE_ENV = previousEnv
