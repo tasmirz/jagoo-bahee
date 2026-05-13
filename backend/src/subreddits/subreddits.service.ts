@@ -3,6 +3,8 @@ import { InjectModel } from '@nestjs/mongoose'
 import { Model, Types } from 'mongoose'
 import { Subreddit } from './schemas/subreddit.schema'
 import { SubredditMember } from './schemas/subreddit-member.schema'
+import { Post } from 'src/posts/schemas/post.schema'
+import { Comment } from 'src/comments/schemas/comment.schema'
 import { AttachmentsService } from 'src/attachments/attachments.service'
 import { NotificationsService } from 'src/notifications/notifications.service'
 import { ModLogService } from 'src/moderation/mod-log.service'
@@ -16,6 +18,8 @@ export class SubredditsService {
   constructor(
     @InjectModel(Subreddit.name) private readonly model: Model<Subreddit>,
     @InjectModel(SubredditMember.name) private readonly memberModel: Model<SubredditMember>,
+    @InjectModel(Post.name) private readonly postModel: Model<Post>,
+    @InjectModel(Comment.name) private readonly commentModel: Model<Comment>,
     private readonly attachmentsService: AttachmentsService,
     private readonly notificationsService: NotificationsService,
     private readonly modLog: ModLogService,
@@ -705,6 +709,83 @@ export class SubredditsService {
     const doc = await this.model.findByIdAndUpdate(id, update, { new: true }).exec()
     await this.invalidateSubredditCache(doc)
     return doc
+  }
+
+  async transferOwnership(id: string, newOwnerId: string, actor: any): Promise<Subreddit | null> {
+    if (!Types.ObjectId.isValid(id) || !Types.ObjectId.isValid(newOwnerId)) {
+      throw new HttpException('Invalid community or user id', HttpStatus.BAD_REQUEST)
+    }
+
+    const subreddit = await this.findOne(id)
+    if (!subreddit) throw new HttpException('Subreddit not found', HttpStatus.NOT_FOUND)
+
+    const abac = BigInt(actor?.abac ?? 0)
+    const isAdmin = (abac & (BigInt(1) << BigInt(5))) !== BigInt(0)
+    const actorProfile = actor?.id ? await this.usersService.findByAuthId(actor.id).catch(() => null) : null
+    const isOwner = actorProfile?._id && String((subreddit as any).createdBy) === String(actorProfile._id)
+
+    if (!isAdmin && !isOwner) {
+      throw new HttpException('Only the owner or a global admin can transfer ownership', HttpStatus.FORBIDDEN)
+    }
+
+    const doc = await this.model
+      .findByIdAndUpdate(id, { createdBy: new Types.ObjectId(newOwnerId) }, { new: true })
+      .exec()
+    await this.invalidateSubredditCache(doc)
+    return doc
+  }
+
+  async stats(idOrName: string) {
+    const subreddit = await this.findOne(idOrName)
+    if (!subreddit) throw new HttpException('Subreddit not found', HttpStatus.NOT_FOUND)
+
+    const subredditId = new Types.ObjectId(String((subreddit as any)._id))
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    const [postCount, commentCount, recentPostAuthors, recentCommentAuthors] = await Promise.all([
+      this.postModel.countDocuments({ subredditId }),
+      this.commentModel.countDocuments({ subredditId }),
+      this.postModel.distinct('authorId', { subredditId, createdAt: { $gte: since } }),
+      this.commentModel.distinct('authorId', { subredditId, createdAt: { $gte: since } })
+    ])
+
+    const activeUsers = new Set([...recentPostAuthors, ...recentCommentAuthors].map(String)).size
+    const postsByDay = await this.postModel.aggregate([
+      { $match: { subredditId } },
+      { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, count: { $sum: 1 } } },
+      { $sort: { _id: -1 } },
+      { $limit: 30 },
+      { $project: { _id: 0, date: '$_id', count: 1 } }
+    ])
+
+    const topContributors = await this.postModel.aggregate([
+      { $match: { subredditId } },
+      { $group: { _id: '$authorId', postCount: { $sum: 1 }, karma: { $sum: '$score' } } },
+      { $sort: { postCount: -1, karma: -1 } },
+      { $limit: 10 },
+      { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'user' } },
+      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 0,
+          userId: { $toString: '$_id' },
+          username: { $ifNull: ['$user.username', 'unknown'] },
+          postCount: 1,
+          commentCount: { $literal: 0 },
+          karma: { $ifNull: ['$karma', 0] }
+        }
+      }
+    ])
+
+    return {
+      memberCount: (subreddit as any).memberCount || 0,
+      postCount,
+      commentCount,
+      activeUsers,
+      growthRate: 0,
+      topContributors,
+      postsByDay: postsByDay.reverse(),
+      engagementRate: ((subreddit as any).memberCount || 0) > 0 ? activeUsers / (subreddit as any).memberCount : 0
+    }
   }
 
   // list moderators for a subreddit

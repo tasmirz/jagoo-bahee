@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Subreddit, Post } from '@/lib/types';
-import { backendFetch, getBackendOrigin } from '@/lib/backend';
+import { backendFetch } from '@/lib/backend';
 import PostCard from '@/components/PostCard';
 import Link from 'next/link';
 import { useAuth } from '@/lib/context/AuthContext';
 import { useUser } from '@/lib/context/UserContext';
+import { BarChart3, Flag, ListChecks, Plus, Shield, Users } from 'lucide-react';
+import CommunitySidebar from '@/components/CommunitySidebar';
 
 export default function SubredditPage() {
   const params = useParams();
@@ -24,9 +26,61 @@ export default function SubredditPage() {
   const [isJoining, setIsJoining] = useState(false);
   const [isModerator, setIsModerator] = useState(false);
   const [isCreator, setIsCreator] = useState(false);
-  const [userStatusFlags, setUserStatusFlags] = useState<number>(0);
   const [iconUrl, setIconUrl] = useState<string | null>(null);
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
+
+  const fetchAttachmentUrl = useCallback(async (attachmentId: string, type: 'icon' | 'banner') => {
+    try {
+      const presignedResponse = await backendFetch(`/attachments/${attachmentId}/presigned-get`);
+      if (presignedResponse.ok) {
+        const { url } = await presignedResponse.json();
+        if (type === 'icon') {
+          setIconUrl(url);
+        } else {
+          setBannerUrl(url);
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to fetch ${type} URL:`, error);
+    }
+  }, []);
+
+  const checkMembership = useCallback(async (subredditId: string) => {
+    try {
+      const response = await backendFetch('/users/me/subreddits');
+      if (response.ok) {
+        const joinedSubs = await response.json() as Array<{ _id?: string; name?: string }>;
+        const isMember = joinedSubs.some((sub) => sub._id === subredditId || sub.name === name);
+        setIsJoined(isMember);
+      }
+    } catch (error) {
+      console.error('Failed to check membership:', error);
+    }
+  }, [name]);
+
+  const checkModeratorStatus = useCallback(async (subredditId: string) => {
+    if (!user || !user._id) {
+      return;
+    }
+
+    try {
+      const response = await backendFetch(`/subreddits/${subredditId}/is-moderator`);
+
+      if (response.ok) {
+        const data = await response.json();
+
+        setIsCreator(!!data.isCreator);
+        setIsModerator(!!data.isModerator || !!data.isCreator);
+      } else {
+        setIsModerator(false);
+        setIsCreator(false);
+      }
+    } catch (error) {
+      console.error('[checkModeratorStatus] Failed to check moderator status:', error);
+      setIsModerator(false);
+      setIsCreator(false);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (!name) return;
@@ -80,85 +134,7 @@ export default function SubredditPage() {
     }
 
     fetchData();
-  }, [name, sortBy, timeRange, isAuthenticated]);
-
-  const fetchAttachmentUrl = async (attachmentId: string, type: 'icon' | 'banner') => {
-    try {
-      const response = await backendFetch(`/attachments/${attachmentId}`);
-      if (response.ok) {
-        const attachment = await response.json();
-        
-        // Get a presigned URL from the backend
-        const presignedResponse = await backendFetch(`/attachments/${attachmentId}/presigned-get`);
-        if (presignedResponse.ok) {
-          const { url } = await presignedResponse.json();
-          if (type === 'icon') {
-            setIconUrl(url);
-          } else {
-            setBannerUrl(url);
-          }
-        }
-      }
-    } catch (error) {
-      console.error(`Failed to fetch ${type} URL:`, error);
-    }
-  };
-
-  const checkMembership = async (subredditId: string) => {
-    try {
-      const response = await backendFetch('/users/me/subreddits');
-      if (response.ok) {
-        const joinedSubs = await response.json();
-        const isMember = joinedSubs.some((sub: any) => sub._id === subredditId || sub.name === name);
-        setIsJoined(isMember);
-      }
-    } catch (error) {
-      console.error('Failed to check membership:', error);
-    }
-  };
-
-  const checkModeratorStatus = async (subredditId: string) => {
-    if (!user || !user._id) {
-      console.log('[checkModeratorStatus] No user or user ID, skipping');
-      return;
-    }
-    
-    console.log('[checkModeratorStatus] Checking for subreddit:', subredditId, 'user:', user._id);
-    
-    try {
-      // Use the is-moderator endpoint which now returns full status
-      const response = await backendFetch(`/subreddits/${subredditId}/is-moderator`);
-      console.log('[checkModeratorStatus] Response status:', response.status);
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('[checkModeratorStatus] Response data:', data);
-        
-        setUserStatusFlags(data.statusFlags || 0);
-        setIsCreator(data.isCreator || false);
-        setIsModerator(data.isModerator || false);
-        
-        console.log('[checkModeratorStatus] State updated:', { 
-          subredditId, 
-          userId: user._id,
-          statusFlags: data.statusFlags,
-          isCreator: data.isCreator,
-          isModerator: data.isModerator,
-          isBanned: data.isBanned
-        });
-      } else {
-        console.log('[checkModeratorStatus] Response not OK, setting to false');
-        setIsModerator(false);
-        setIsCreator(false);
-        setUserStatusFlags(0);
-      }
-    } catch (error) {
-      console.error('[checkModeratorStatus] Failed to check moderator status:', error);
-      setIsModerator(false);
-      setIsCreator(false);
-      setUserStatusFlags(0);
-    }
-  };
+  }, [name, sortBy, timeRange, isAuthenticated, fetchAttachmentUrl, checkMembership, checkModeratorStatus]);
 
   const handleJoinLeave = async () => {
     if (!subreddit || !isAuthenticated) return;
@@ -269,11 +245,19 @@ export default function SubredditPage() {
     );
   }
 
+  const rules = Array.isArray(subreddit.rules) ? subreddit.rules : (subreddit.rules || '').split('\n').filter(Boolean);
+  const canManage = isModerator || isCreator;
+  const communityLinks = [
+    { href: `/r/${name}/members`, label: 'Members', icon: Users },
+    { href: `/r/${name}/stats`, label: 'Stats', icon: BarChart3 },
+    { href: `/r/${name}/reports`, label: 'Reports', icon: Flag },
+    { href: `/r/${name}/modlog`, label: 'Mod Log', icon: ListChecks },
+  ];
   return (
-    <div className="min-h-screen bg-[var(--background)]">
+    <div className="reddit-community-page">
       {/* Banner */}
       <div 
-        className="h-32 sm:h-48 bg-gradient-to-r from-[var(--primary)] to-[var(--accent)]"
+        className="reddit-community-inner h-20 rounded-b-lg bg-gradient-to-r from-[var(--primary)] to-[var(--warning)] sm:h-32"
         style={{
           backgroundImage: bannerUrl ? `url(${bannerUrl})` : undefined,
           backgroundSize: 'cover',
@@ -282,36 +266,42 @@ export default function SubredditPage() {
       />
 
       {/* Subreddit Header */}
-      <div className="bg-[var(--card)] border-b border-[var(--border)]">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex items-end gap-4 -mt-4 pb-4">
+      <div>
+        <div className="reddit-community-inner px-3">
+          <div className="flex flex-col gap-4 pb-4 sm:flex-row sm:items-end">
             {/* Icon */}
-            <div className="w-20 h-20 bg-[var(--card)] border-4 border-[var(--background)] rounded-full overflow-hidden flex items-center justify-center shadow-lg">
+            <div className="-mt-8 flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-4 border-[var(--background)] bg-[var(--card)] shadow-lg sm:h-24 sm:w-24">
               {iconUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={iconUrl} alt={subreddit.name} className="w-full h-full object-cover" />
               ) : (
-                <span className="text-3xl font-bold text-[var(--primary)]">{(subreddit?.name?.[0] ?? 'r').toUpperCase()}</span>
+                <span className="text-4xl font-bold text-[var(--primary)]">{(subreddit?.name?.[0] ?? 'r').toUpperCase()}</span>
               )}
             </div>
 
             {/* Info */}
             <div className="flex-1 min-w-0 pb-2">
-              <h1 className="text-2xl font-bold">r/{subreddit?.name || 'Community'}</h1>
+              <h1 className="text-3xl font-bold">r/{subreddit?.name || 'Community'}</h1>
               <p className="text-sm text-[var(--text-secondary)]">{subreddit?.displayName || ''}</p>
             </div>
 
-            {/* Join Button */}
-            {isAuthenticated && (
-              <div className="flex items-center gap-3">
+            {/* Primary actions */}
+            <div className="flex items-center gap-2 pb-2">
+              {isAuthenticated ? (
+                <>
+                <Link
+                  href={`/r/${name}/create`}
+                  className="inline-flex h-10 items-center gap-2 rounded-full border border-[var(--border)] px-4 text-sm font-semibold hover:bg-[var(--muted)]"
+                >
+                  <Plus size={17} />
+                  Create Post
+                </Link>
                 {isModerator && (
                   <Link
                     href={`/r/${name}/mod`}
-                    className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white rounded-full hover:opacity-90 transition-opacity font-medium"
+                    className="inline-flex h-10 items-center gap-2 rounded-full bg-[var(--primary)] px-4 text-sm font-semibold text-white hover:opacity-90"
                   >
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M9.504 1.132a1 1 0 01.992 0l1.75 1a1 1 0 11-.992 1.736L10 3.152l-1.254.716a1 1 0 11-.992-1.736l1.75-1zM5.618 4.504a1 1 0 01-.372 1.364L5.016 6l.23.132a1 1 0 11-.992 1.736L4 7.723V8a1 1 0 01-2 0V6a.996.996 0 01.52-.878l1.734-.99a1 1 0 011.364.372zm8.764 0a1 1 0 011.364-.372l1.733.99A1.002 1.002 0 0118 6v2a1 1 0 11-2 0v-.277l-.254.145a1 1 0 11-.992-1.736l.23-.132-.23-.132a1 1 0 01-.372-1.364zm-7 4a1 1 0 011.364-.372L10 8.848l1.254-.716a1 1 0 11.992 1.736L11 10.58V12a1 1 0 11-2 0v-1.42l-1.246-.712a1 1 0 01-.372-1.364zM3 11a1 1 0 011 1v1.42l1.246.712a1 1 0 11-.992 1.736l-1.75-1A1 1 0 012 14v-2a1 1 0 011-1zm14 0a1 1 0 011 1v2a1 1 0 01-.504.868l-1.75 1a1 1 0 11-.992-1.736L16 13.42V12a1 1 0 011-1zm-9.618 5.504a1 1 0 011.364-.372l.254.145V16a1 1 0 112 0v.277l.254-.145a1 1 0 11.992 1.736l-1.735.992a.995.995 0 01-1.022 0l-1.735-.992a1 1 0 01-.372-1.364z" clipRule="evenodd" />
-                    </svg>
+                    <Shield size={17} />
                     Mod Tools
                   </Link>
                 )}
@@ -326,8 +316,16 @@ export default function SubredditPage() {
                 >
                   {isJoining ? 'Loading...' : isJoined ? 'Joined' : 'Join'}
                 </button>
-              </div>
-            )}
+                </>
+              ) : (
+                <Link
+                  href="/auth"
+                  className="inline-flex h-10 items-center rounded-full bg-[var(--primary)] px-5 text-sm font-semibold text-white hover:opacity-90"
+                >
+                  Log In to Join
+                </Link>
+              )}
+            </div>
           </div>
 
           {/* Stats */}
@@ -347,8 +345,32 @@ export default function SubredditPage() {
         </div>
       </div>
 
+      {/* Community navigation */}
+      <div>
+        <div className="reddit-community-inner flex gap-2 overflow-x-auto border-b border-[var(--border)] px-3 py-2">
+          <Link href={`/r/${name}`} className="whitespace-nowrap border-b-2 border-[var(--primary)] px-3 py-2 text-sm font-medium text-[var(--primary)]">
+            Posts
+          </Link>
+          {communityLinks.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link key={item.href} href={item.href} className="inline-flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
+                <Icon size={16} />
+                {item.label}
+              </Link>
+            );
+          })}
+          {canManage && (
+            <Link href={`/r/${name}/mod`} className="inline-flex items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium text-[var(--primary)] hover:bg-[var(--muted)]">
+              <Shield size={16} />
+              Mod Tools
+            </Link>
+          )}
+        </div>
+      </div>
+
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-4 py-6">
+      <div className="reddit-community-inner px-3 py-4">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Posts */}
           <div className="lg:col-span-2 space-y-4">
@@ -402,12 +424,12 @@ export default function SubredditPage() {
 
             {/* Posts List */}
             {posts.length === 0 ? (
-              <div className="bg-[var(--card)] border border-[var(--border)] rounded-md p-12 text-center">
-                <h3 className="text-xl font-semibold mb-2">No posts yet</h3>
-                <p className="text-[var(--text-secondary)] mb-4">Be the first to post in this community!</p>
+              <div className="py-28 text-center">
+                <h3 className="text-2xl font-semibold text-[var(--foreground)]">This community doesn&apos;t have any posts yet</h3>
+                <p className="mb-5 mt-2 text-[var(--primary)]">Make one and get this feed started.</p>
                 <Link
-                  href="/posts/create"
-                  className="inline-block px-6 py-2 bg-[var(--primary)] text-white rounded-full hover:opacity-90 transition-opacity"
+                  href={`/r/${name}/create`}
+                  className="inline-block rounded-full bg-[var(--primary)] px-6 py-2 text-sm font-bold text-white hover:opacity-90"
                 >
                   Create Post
                 </Link>
@@ -417,43 +439,11 @@ export default function SubredditPage() {
             )}
           </div>
 
-          {/* Sidebar */}
-          <div className="space-y-4">
-            {/* Moderator Tools */}
-            {isModerator && (
-              <div className="bg-[var(--card)] border border-[var(--border)] rounded-md p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <svg className="w-5 h-5 text-[var(--primary)]" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M9.504 1.132a1 1 0 01.992 0l1.75 1a1 1 0 11-.992 1.736L10 3.152l-1.254.716a1 1 0 11-.992-1.736l1.75-1zM5.618 4.504a1 1 0 01-.372 1.364L5.016 6l.23.132a1 1 0 11-.992 1.736L4 7.723V8a1 1 0 01-2 0V6a.996.996 0 01.52-.878l1.734-.99a1 1 0 011.364.372zm8.764 0a1 1 0 011.364-.372l1.733.99A1.002 1.002 0 0118 6v2a1 1 0 11-2 0v-.277l-.254.145a1 1 0 11-.992-1.736l.23-.132-.23-.132a1 1 0 01-.372-1.364zm-7 4a1 1 0 011.364-.372L10 8.848l1.254-.716a1 1 0 11.992 1.736L11 10.58V12a1 1 0 11-2 0v-1.42l-1.246-.712a1 1 0 01-.372-1.364zM3 11a1 1 0 011 1v1.42l1.246.712a1 1 0 11-.992 1.736l-1.75-1A1 1 0 012 14v-2a1 1 0 011-1zm14 0a1 1 0 011 1v2a1 1 0 01-.504.868l-1.75 1a1 1 0 11-.992-1.736L16 13.42V12a1 1 0 011-1zm-9.618 5.504a1 1 0 011.364-.372l.254.145V16a1 1 0 112 0v.277l.254-.145a1 1 0 11.992 1.736l-1.735.992a.995.995 0 01-1.022 0l-1.735-.992a1 1 0 01-.372-1.364z" clipRule="evenodd" />
-                </svg>
-                <h3 className="font-bold text-[var(--foreground)]">Moderator Tools</h3>
-              </div>
-              <div className="space-y-2">
-                <Link
-                href={`/r/${name}/mod/queue`}
-                className="block px-4 py-2 bg-[var(--muted)] hover:bg-[var(--border)] rounded-md transition-colors text-sm font-medium text-[var(--foreground)]"
-                >
-                📥 Mod Queue
-                </Link>
-                <Link
-                href={`/r/${name}/mod/settings`}
-                className="block px-4 py-2 bg-[var(--muted)] hover:bg-[var(--border)] rounded-md transition-colors text-sm font-medium text-[var(--foreground)]"
-                >
-                ⚙️ Settings
-                </Link>
-                <Link
-                href={`/r/${name}/mod`}
-                className="block px-4 py-2 bg-[var(--muted)] hover:bg-[var(--border)] rounded-md transition-colors text-sm font-medium text-[var(--foreground)]"
-                >
-                🛡️ All Mod Tools
-                </Link>
-              </div>
-              </div>
-            )}
-
+          <div>
+            <CommunitySidebar name={name} subreddit={subreddit} rules={rules} canManage={canManage} />
             {/* Creator Tools - Only for Creators */}
             {isCreator && (
-              <div className="bg-[var(--card)] border border-[var(--border)] rounded-md p-4">
+              <div className="reddit-side-card mt-3">
               <div className="flex items-center gap-2 mb-3">
                 <svg className="w-5 h-5 text-[var(--primary)]" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
@@ -490,41 +480,6 @@ export default function SubredditPage() {
                 🗑️ Delete Subreddit
                 </button>
               </div>
-              </div>
-            )}
-
-            {/* About */}
-            <div className="bg-[var(--card)] border border-[var(--border)] rounded-md p-4">
-              <h3 className="font-semibold mb-3 text-[var(--foreground)]">About Community</h3>
-              {subreddit.description && (
-              <p className="text-sm text-[var(--text-secondary)] mb-4">
-                {subreddit.description}
-              </p>
-              )}
-              <div className="text-xs text-[var(--text-secondary)] mb-4">
-              Created {subreddit?.createdAt ? new Date(subreddit.createdAt).toLocaleDateString() : 'recently'}
-              </div>
-              {isAuthenticated && (
-              <Link
-                href={`/posts/create?subreddit=${subreddit?._id || ''}`}
-                className="block w-full px-4 py-2 bg-[var(--primary)] text-white text-center rounded-md hover:opacity-90 transition-opacity"
-              >
-                Create Post
-              </Link>
-              )}
-            </div>
-
-            {/* Rules */}
-            {subreddit?.rules && (Array.isArray(subreddit.rules) ? subreddit.rules : subreddit.rules.split('\n').filter(Boolean)).length > 0 && (
-              <div className="bg-[var(--card)] border border-[var(--border)] rounded-md p-4">
-                <h3 className="font-semibold mb-3">Rules</h3>
-                <ol className="space-y-2 text-sm">
-                  {(Array.isArray(subreddit.rules) ? subreddit.rules : subreddit.rules.split('\n').filter(Boolean)).map((rule, index) => (
-                    <li key={index} className="text-[var(--text-secondary)]">
-                      {index + 1}. {rule}
-                    </li>
-                  ))}
-                </ol>
               </div>
             )}
           </div>

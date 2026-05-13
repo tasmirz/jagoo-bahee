@@ -29,7 +29,7 @@ export default function ModToolsPage() {
       title: 'Mod Log',
       description: 'View all moderation actions',
       icon: '📜',
-      href: `/r/${subredditName}/mod/logs`,
+      href: `/r/${subredditName}/modlog`,
       color: 'from-blue-500 to-cyan-500',
     },
     {
@@ -63,16 +63,9 @@ export default function ModToolsPage() {
     {
       title: 'Moderators',
       description: 'Manage moderator team',
-      icon: '�',
+      icon: '🛡️',
       href: `/r/${subredditName}/mod/moderators`,
       color: 'from-yellow-500 to-amber-500',
-    },
-    {
-      title: 'Auto-Moderator',
-      description: 'Configure automatic moderation',
-      icon: '🤖',
-      href: `/r/${subredditName}/mod/automod`,
-      color: 'from-indigo-500 to-blue-500',
     },
   ];
 

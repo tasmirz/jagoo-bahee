@@ -52,6 +52,7 @@ export class PostsController {
     @Query('skip') skip = '0',
     @Query('subreddit') subreddit?: string,
     @Query('authorId') authorId?: string,
+    @Query('q') q?: string,
     @Query('sort') sort: 'hot' | 'new' | 'top' | 'controversial' = 'hot'
   ) {
     const filter: any = {}
@@ -60,6 +61,10 @@ export class PostsController {
     }
     if (authorId) {
       filter.authorId = authorId
+    }
+    if (q?.trim()) {
+      const escaped = q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      filter.$or = [{ title: { $regex: escaped, $options: 'i' } }, { content: { $regex: escaped, $options: 'i' } }]
     }
     return this.posts.findAll(filter, Number(limit), Number(skip), sort)
   }
@@ -137,6 +142,11 @@ export class PostsController {
 
   @HttpPost('proofs/verify')
   verifyProof(@Body() body: any) {
+    return this.posts.verifyProof(body?.proof || body)
+  }
+
+  @HttpPost('verify-proof')
+  verifyProofLegacy(@Body() body: any) {
     return this.posts.verifyProof(body?.proof || body)
   }
 

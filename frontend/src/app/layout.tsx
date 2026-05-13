@@ -5,12 +5,15 @@ import { AuthProvider } from "@/lib/context/AuthContext";
 import { UserProvider } from "@/lib/context/UserContext";
 import { ToastProvider } from "@/lib/context/ToastContext";
 import Navbar from "@/components/Navbar";
+import RedditAppFrame from "@/components/RedditAppFrame";
 
 export const metadata: Metadata = {
   title: "Jagoo Bahee",
   description: "A decentralized-identity Reddit clone",
   manifest: "/manifest.json",
 };
+
+export const dynamic = "force-dynamic";
 
 export default function RootLayout({
   children,
@@ -25,7 +28,7 @@ export default function RootLayout({
             <UserProvider>
               <ToastProvider>
                 <Navbar />
-                <main>{children}</main>
+                <RedditAppFrame>{children}</RedditAppFrame>
               </ToastProvider>
             </UserProvider>
           </AuthProvider>

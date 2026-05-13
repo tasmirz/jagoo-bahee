@@ -78,6 +78,17 @@ export class AttachmentsController {
     return this.service.getPresignedGet(key)
   }
 
+  @Get(':id/presigned-get')
+  async presignedGetById(@Param('id') id: string, @Req() req: any) {
+    const doc = await this.service.findOne(id)
+    if (!doc) return { viewUrl: null }
+    if (!(doc as any).isPublic) {
+      await this.service.assertRecordOwnerOrAdminOrModerator(id, req.user)
+    }
+    const viewUrl = await this.service.getPresignedGet((doc as any).minioKey)
+    return { viewUrl, url: viewUrl }
+  }
+
   /** Delete by minioKey (owner/admin should be validated by caller) */
   @Delete('by-key/:key')
   @HttpCode(HttpStatus.NO_CONTENT)

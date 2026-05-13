@@ -33,14 +33,14 @@ export default function UserProfilePage() {
           setUser(userData);
 
           // Fetch user's posts
-          const postsRes = await backendFetch(`/users/${userData._id}/posts?limit=50`);
+          const postsRes = await backendFetch(`/posts?authorId=${userData._id}&limit=50`);
           if (postsRes.ok) {
             const postsData = await postsRes.json();
             setPosts(Array.isArray(postsData) ? postsData : postsData.data || []);
           }
 
           // Fetch user's comments
-          const commentsRes = await backendFetch(`/users/${userData._id}/comments?limit=50`);
+          const commentsRes = await backendFetch(`/comments?authorId=${userData._id}&limit=50`);
           if (commentsRes.ok) {
             const commentsData = await commentsRes.json();
             setComments(Array.isArray(commentsData) ? commentsData : commentsData.data || []);

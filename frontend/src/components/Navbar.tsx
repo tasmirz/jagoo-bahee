@@ -8,6 +8,21 @@ import { useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { getAllAcknowledgements, refreshDB } from '@/lib/indexeddb';
 import ThemeToggle from './theme-toggle';
+import {
+  Bell,
+  CircleDollarSign,
+  Crown,
+  FileText,
+  LogOut,
+  MessageCircle,
+  PlusSquare,
+  Settings,
+  Shield,
+  Shirt,
+  Sparkles,
+  Trophy,
+  UserCircle,
+} from 'lucide-react';
 
 export default function Navbar() {
   const { isAuthenticated, logout } = useAuth();
@@ -46,15 +61,15 @@ export default function Navbar() {
   }, [isAuthenticated]);
 
   return (
-    <nav className="sticky top-0 z-50 border-b border-[var(--border)] bg-[var(--card)]/95 shadow-sm backdrop-blur">
-      <div className="mx-auto max-w-7xl px-3 sm:px-4 lg:px-6">
-        <div className="flex h-14 items-center gap-3">
+    <nav className="sticky top-0 z-50 border-b border-[var(--border)] bg-[var(--background)]/95 backdrop-blur">
+      <div className="px-3 sm:px-4">
+        <div className="flex h-12 items-center gap-3">
           {/* Logo */}
           <Link href="/" className="flex min-w-fit shrink-0 items-center gap-2 hover:opacity-80 transition-opacity">
             <div className="relative h-8 w-8 flex-shrink-0">
               <Image src="/jagoo-bahee.png" alt="Jagoo Bahee" width={32} height={32} />
             </div>
-            <span className="hidden whitespace-nowrap text-base font-bold text-[var(--foreground)] sm:inline">Jagoo Bahee</span>
+            <span className="hidden whitespace-nowrap text-2xl font-bold text-[var(--foreground)] sm:inline">jagoo</span>
           </Link>
 
           <div className="hidden shrink-0 items-center gap-1 lg:flex">
@@ -83,8 +98,8 @@ export default function Navbar() {
                 type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search communities, posts..."
-                className="w-full px-4 py-2 bg-[var(--muted)] border border-[var(--border)] rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
+                placeholder="Find anything"
+                className="mx-auto w-full max-w-xl rounded-full border border-[var(--primary)] bg-[var(--background)] px-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
               />
             </form>
           )}
@@ -96,60 +111,79 @@ export default function Navbar() {
               <>
                 <Link
                   href="/posts/create"
-                  className="inline-flex items-center whitespace-nowrap rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+                  className="inline-flex items-center gap-2 whitespace-nowrap rounded-full px-3 py-2 text-sm font-semibold transition-colors hover:bg-[var(--muted)]"
                 >
-                  Create Post
+                  <PlusSquare size={18} />
+                  Create
+                </Link>
+                <Link href="/messages" className="rounded-full p-2 transition-colors hover:bg-[var(--muted)]" title="Messages">
+                  <MessageCircle size={20} />
                 </Link>
                 <Link
                   href="/notifications"
                   className="p-2 hover:bg-[var(--muted)] rounded-full transition-colors"
                   title="Notifications"
                 >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                  </svg>
+                  <Bell size={20} />
                 </Link>
                 <div className="relative">
                   <button 
                     onClick={() => setShowUserMenu(!showUserMenu)}
-                    className="p-2 hover:bg-[var(--muted)] rounded-full transition-colors"
+                    className="grid h-9 w-9 place-items-center rounded-full bg-[var(--muted)] transition-colors hover:bg-[var(--muted-hover)]"
                   >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
+                    <UserCircle size={24} />
                   </button>
                   {showUserMenu && (
-                    <div className="absolute right-0 mt-2 w-48 bg-[var(--card)] border border-[var(--border)] rounded-md shadow-lg py-1">
-                      <Link href={user?.username ? `/u/${user.username}` : '/profile'} className="block px-4 py-2 text-sm hover:bg-[var(--muted)]" onClick={() => setShowUserMenu(false)}>
-                        Profile
-                      </Link>
-                      <Link href="/settings" className="block px-4 py-2 text-sm hover:bg-[var(--muted)]" onClick={() => setShowUserMenu(false)}>
-                        Settings
-                      </Link>
-                      <Link href="/saved" className="block px-4 py-2 text-sm hover:bg-[var(--muted)]" onClick={() => setShowUserMenu(false)}>
-                        Saved
-                      </Link>
-                      <Link href="/admin" className="block px-4 py-2 text-sm hover:bg-[var(--muted)]" onClick={() => setShowUserMenu(false)}>
-                        Server Admin
-                      </Link>
-                      <Link href="/acknowledgements" className="flex items-center justify-between px-4 py-2 text-sm hover:bg-[var(--muted)]" onClick={() => setShowUserMenu(false)}>
-                        <span><span className="emoji">🛡️</span> Proofs & Audit Trail</span>
-                        {ackCount > 0 && (
-                          <span className="ml-2 px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">
-                            {ackCount}
-                          </span>
-                        )}
-                      </Link>
-                      <hr className="my-1 border-[var(--border)]" />
+                    <div className="absolute right-0 mt-2 w-64 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)] py-2 shadow-2xl">
+                      <MenuLink href={user?.username ? `/u/${user.username}` : '/profile'} icon={<UserCircle size={21} />} onClick={() => setShowUserMenu(false)}>
+                        <span>
+                          <span className="block">View Profile</span>
+                          <span className="block text-xs text-[var(--text-secondary)]">u/{user?.username || 'me'}</span>
+                        </span>
+                      </MenuLink>
+                      <MenuLink href="/settings" icon={<Shirt size={21} />} onClick={() => setShowUserMenu(false)}>Edit Avatar</MenuLink>
+                      <MenuLink href="/posts/create" icon={<FileText size={21} />} onClick={() => setShowUserMenu(false)}>Drafts</MenuLink>
+                      <MenuLink href="/awards" icon={<Trophy size={21} />} onClick={() => setShowUserMenu(false)}>
+                        <span>
+                          <span className="block">Achievements</span>
+                          <span className="block text-xs text-[var(--text-secondary)]">4 unlocked</span>
+                        </span>
+                      </MenuLink>
+                      <MenuLink href="/awards" icon={<CircleDollarSign size={21} />} onClick={() => setShowUserMenu(false)}>
+                        <span>
+                          <span className="block">Earn</span>
+                          <span className="block text-xs text-[var(--text-secondary)]">Earn cash on Jagoo</span>
+                        </span>
+                      </MenuLink>
+                      <MenuLink href="/awards" icon={<Crown size={21} />} onClick={() => setShowUserMenu(false)}>Premium</MenuLink>
+                      <div className="flex items-center justify-between px-4 py-3 text-sm">
+                        <span className="flex items-center gap-4"><Shield size={21} /> Mod Mode</span>
+                        <span className="relative h-8 w-12 rounded-full bg-blue-600"><span className="absolute right-1 top-1 h-6 w-6 rounded-full bg-white" /></span>
+                      </div>
+                      <div className="flex items-center justify-between px-4 py-3 text-sm">
+                        <span className="flex items-center gap-4"><Sparkles size={21} /> Display Mode</span>
+                        <ThemeToggle />
+                      </div>
+                      <MenuLink href="/admin" icon={<Settings size={21} />} onClick={() => setShowUserMenu(false)}>Server Admin</MenuLink>
+                      <MenuLink href="/acknowledgements" icon={<Shield size={21} />} onClick={() => setShowUserMenu(false)}>
+                        <span className="flex w-full items-center justify-between">
+                          <span>Proofs & Audit Trail</span>
+                          {ackCount > 0 && <span className="rounded-full bg-blue-600 px-2 py-0.5 text-xs text-white">{ackCount}</span>}
+                        </span>
+                      </MenuLink>
+                      <hr className="my-2 border-[var(--border)]" />
                       <button
                         onClick={() => {
                           logout();
                           setShowUserMenu(false);
                         }}
-                        className="w-full text-left px-4 py-2 text-sm hover:bg-[var(--muted)] text-[var(--error)]"
+                        className="flex w-full items-center gap-4 px-4 py-3 text-left text-sm hover:bg-[var(--muted)] text-[var(--error)]"
                       >
+                        <LogOut size={21} />
                         Logout
                       </button>
+                      <hr className="my-2 border-[var(--border)]" />
+                      <MenuLink href="/settings" icon={<Settings size={21} />} onClick={() => setShowUserMenu(false)}>Settings</MenuLink>
                     </div>
                   )}
                 </div>
@@ -318,6 +352,25 @@ function NavLink({ href, children }: { href: string; children: React.ReactNode }
   return (
     <Link href={href} className="whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium hover:bg-[var(--muted)]">
       {children}
+    </Link>
+  );
+}
+
+function MenuLink({
+  href,
+  icon,
+  children,
+  onClick,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <Link href={href} className="flex items-center gap-4 px-4 py-3 text-sm hover:bg-[var(--muted)]" onClick={onClick}>
+      <span className="shrink-0 text-[var(--text-secondary)]">{icon}</span>
+      <span className="min-w-0 flex-1">{children}</span>
     </Link>
   );
 }

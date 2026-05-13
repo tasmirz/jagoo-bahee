@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import Image from 'next/image';
-import Link from 'next/link';
-import { getToken } from '@/lib/auth';
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { ChevronRight, Plus, Search } from "lucide-react";
+import { getToken } from "@/lib/auth";
 
 interface Subreddit {
   _id: string;
@@ -21,237 +21,256 @@ interface Subreddit {
   isJoined?: boolean;
 }
 
+const categories = [
+  "All",
+  "Most Visited",
+  "Internet Culture",
+  "Games",
+  "Q&As & Stories",
+  "Movies & TV",
+  "Technology",
+  "Places & Travel",
+  "Pop Culture",
+  "Sports",
+  "Business & Finance",
+];
+
+function initials(name: string) {
+  return name.slice(0, 2).toUpperCase();
+}
+
 export default function SubredditsListPage() {
   const [subreddits, setSubreddits] = useState<Subreddit[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [sortBy, setSortBy] = useState<'newest' | 'popular' | 'alphabetical'>('popular');
-  const [filter, setFilter] = useState<'all' | 'joined' | 'public'>('all');
-  const [mounted, setMounted] = useState(false);
-
+  const [searchTerm, setSearchTerm] = useState("");
+  const [sortBy, setSortBy] = useState<"newest" | "popular" | "alphabetical">("popular");
+  const [filter, setFilter] = useState<"all" | "joined" | "public">("all");
+  const [activeCategory, setActiveCategory] = useState("All");
   const token = getToken();
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    loadSubreddits();
-  }, [sortBy, filter]);
-
-  async function loadSubreddits() {
+  const loadSubreddits = useCallback(async function loadSubreddits() {
     try {
       setLoading(true);
       setError(null);
-      const backend = await import('@/lib/backend');
-      
+      const backend = await import("@/lib/backend");
+
       const params = new URLSearchParams({
         sort: sortBy,
-        limit: '50'
+        limit: "60",
       });
-      
-      if (filter === 'joined' && token) {
-        params.append('joined', 'true');
-      } else if (filter === 'public') {
-        params.append('public', 'true');
+
+      if (filter === "joined" && token) {
+        params.append("joined", "true");
+      } else if (filter === "public") {
+        params.append("public", "true");
       }
-      
+
       const res = await backend.backendFetch(`/subreddits?${params}`);
       if (!res.ok) {
         if (res.status === 401) {
-          throw new Error('Please sign in to view communities');
+          throw new Error("Please sign in to view communities");
         }
         throw new Error(`Failed to load communities (${res.status})`);
       }
-      
+
       const data = await res.json();
-      // Handle different response formats
-      const subredditsArray = Array.isArray(data) ? data : (data.subreddits || data.data || []);
-      setSubreddits(subredditsArray);
+      setSubreddits(Array.isArray(data) ? data : data.subreddits || data.data || []);
     } catch (err) {
-      console.error('SubredditsPage load error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load communities');
+      console.error("SubredditsPage load error:", err);
+      setError(err instanceof Error ? err.message : "Failed to load communities");
     } finally {
       setLoading(false);
     }
-  }
+  }, [filter, sortBy, token]);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => void loadSubreddits(), 0);
+    return () => window.clearTimeout(id);
+  }, [loadSubreddits]);
 
   async function handleJoin(subredditId: string, isJoined: boolean) {
     if (!token) {
-      window.location.href = '/auth';
+      window.location.href = "/auth";
       return;
     }
 
     try {
-      const backend = await import('@/lib/backend');
-      const res = await backend.backendJson(
-        isJoined ? 'DELETE' : 'POST',
-        `/subreddits/${subredditId}/join`
-      );
-      
+      const backend = await import("@/lib/backend");
+      const res = await backend.backendJson("POST", `/subreddits/${subredditId}/${isJoined ? "leave" : "join"}`);
+
       if (res.ok) {
-        setSubreddits(prev => 
-          prev.map(sub => 
-            sub._id === subredditId 
-              ? { ...sub, isJoined: !isJoined, memberCount: sub.memberCount + (isJoined ? -1 : 1) }
-              : sub
-          )
+        setSubreddits((prev) =>
+          prev.map((sub) =>
+            sub._id === subredditId
+              ? { ...sub, isJoined: !isJoined, memberCount: Math.max(0, sub.memberCount + (isJoined ? -1 : 1)) }
+              : sub,
+          ),
         );
       }
     } catch (err) {
-      console.error('Join/leave error:', err);
+      console.error("Join/leave error:", err);
     }
   }
 
-  const filteredSubreddits = subreddits.filter(sub => 
-    sub.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    sub.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    sub.description.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredSubreddits = useMemo(() => {
+    return subreddits.filter((sub) => {
+      const matchesSearch =
+        sub.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        sub.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        sub.description.toLowerCase().includes(searchTerm.toLowerCase());
+      if (!matchesSearch) return false;
+      if (activeCategory === "All" || activeCategory === "Most Visited") return true;
+      return sub.description.toLowerCase().includes(activeCategory.split(" ")[0].toLowerCase());
+    });
+  }, [activeCategory, searchTerm, subreddits]);
+
+  const sections = [
+    { title: "Recommended for you", items: filteredSubreddits.slice(0, 6) },
+    { title: "Games", items: filteredSubreddits.slice(6, 12) },
+    { title: "Q&As & Stories", items: filteredSubreddits.slice(12, 18) },
+  ].filter((section) => section.items.length > 0);
 
   return (
-    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        <div className="flex items-center gap-4 mb-6">
-          <div className="w-14 h-14 relative">
-            <Image src="/jagoo-bahee.png" alt="jagoo-bahee" fill sizes="56px" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold">Communities</h1>
-            <div className="text-sm text-[var(--text-secondary)]">Create and discover communities</div>
-          </div>
+    <div className="mx-auto w-full max-w-[1080px] px-4 py-6">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-normal">Explore Communities</h1>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">Find active spaces, join them, and post with your existing backend identity.</p>
         </div>
-
-        <div className="flex flex-col sm:flex-row gap-4 mb-6">
-          <div className="flex-1">
-            <input
-              type="text"
-              placeholder="Search communities..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-4 py-2 border border-[var(--border)] rounded-md bg-[var(--background)] text-[var(--foreground)] placeholder-[var(--placeholder)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
-            />
-          </div>
-          
-          <div className="flex gap-2">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-              className="px-3 py-2 border border-[var(--border)] rounded-md bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-            >
-              <option value="popular">Popular</option>
-              <option value="newest">Newest</option>
-              <option value="alphabetical">A-Z</option>
-            </select>
-            
-            <select
-              value={filter}
-              onChange={(e) => setFilter(e.target.value as typeof filter)}
-              className="px-3 py-2 border border-[var(--border)] rounded-md bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
-            >
-              <option value="all">All</option>
-              <option value="public">Public</option>
-              {mounted && token && <option value="joined">Joined</option>}
-            </select>
-          </div>
-        </div>
-
-        {mounted && token && (
-          <div className="mb-6">
-            <div className="flex gap-2">
-              <Link
-                href="/subreddits/create"
-                className="inline-flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-md hover:opacity-90 transition-opacity"
-              >
-                <span>+</span>
-                Create Community
-              </Link>
-              <Link
-                href="/posts/create"
-                className="inline-flex items-center gap-2 border border-[var(--border)] px-4 py-2 rounded-md hover:opacity-90 transition-opacity"
-              >
-                Create Post
-              </Link>
-            </div>
-          </div>
-        )}
-
-        {loading ? (
-          <div className="text-center py-8">
-            <div className="text-[var(--text-secondary)]">Loading communities...</div>
-          </div>
-        ) : error ? (
-          <div className="text-center py-8">
-            <div className="text-[var(--error)]">{error}</div>
-            <button
-              onClick={loadSubreddits}
-              className="mt-4 px-4 py-2 bg-[var(--primary)] text-white rounded-md hover:opacity-90"
-            >
-              Try Again
-            </button>
-          </div>
-        ) : filteredSubreddits.length === 0 ? (
-          <div className="text-center py-8">
-            <div className="text-[var(--text-secondary)]">
-              {searchTerm ? 'No communities found matching your search.' : 'No communities found.'}
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredSubreddits.map((subreddit) => (
-              <div key={subreddit._id} className="bg-[var(--card)] border border-[var(--border)] rounded-lg p-4 hover:shadow-md transition-shadow">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex-1">
-                    <Link href={`/r/${subreddit.name}`} className="block">
-                      <h3 className="font-semibold text-[var(--foreground)] hover:text-[var(--primary)] transition-colors">
-                        r/{subreddit.name}
-                      </h3>
-                      <p className="text-sm text-[var(--text-secondary)] mt-1">
-                        {subreddit.displayName}
-                      </p>
-                    </Link>
-                  </div>
-                  {subreddit.isPrivate && (
-                    <span className="text-xs bg-[var(--warning)]/10 text-[var(--warning)] px-2 py-1 rounded">
-                      Private
-                    </span>
-                  )}
-                </div>
-
-                <p className="text-sm text-[var(--text-secondary)] mb-3 line-clamp-2">
-                  {subreddit.description || 'No description provided.'}
-                </p>
-
-                <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-3">
-                  <span>{subreddit.memberCount} members</span>
-                  <span>{subreddit.postCount} posts</span>
-                  <span>Created {new Date(subreddit.createdAt).toLocaleDateString()}</span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="text-xs text-[var(--text-secondary)]">
-                    by u/{subreddit.createdBy?.username ?? 'unknown'}
-                  </div>
-                  
-                  {token && (
-                    <button
-                      onClick={() => handleJoin(subreddit._id, subreddit.isJoined || false)}
-                      className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                        subreddit.isJoined
-                          ? 'bg-[var(--muted)] text-[var(--text-secondary)] hover:bg-[var(--error)]/10 hover:text-[var(--error)]'
-                          : 'bg-[var(--primary)] text-white hover:opacity-90'
-                      }`}
-                    >
-                      {subreddit.isJoined ? 'Leave' : 'Join'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+        {token && (
+          <Link href="/subreddits/create" className="inline-flex items-center gap-2 rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-white">
+            <Plus size={18} />
+            Start a community
+          </Link>
         )}
       </div>
+
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        {categories.map((category) => (
+          <button
+            key={category}
+            type="button"
+            onClick={() => setActiveCategory(category)}
+            className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
+              activeCategory === category
+                ? "border-[var(--muted)] bg-[var(--muted)]"
+                : "border-[var(--border)] hover:bg-[var(--muted)]"
+            }`}
+          >
+            {category}
+          </button>
+        ))}
+        <ChevronRight size={18} className="text-[var(--text-secondary)]" />
+      </div>
+
+      <div className="mb-8 flex flex-col gap-3 border-t border-[var(--border)] pt-4 sm:flex-row">
+        <label className="relative min-w-0 flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" size={18} />
+          <input
+            type="text"
+            placeholder="Search communities"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full rounded-full border border-[var(--border)] bg-[var(--muted)] py-2 pl-10 pr-4 text-sm outline-none focus:border-[var(--primary)]"
+          />
+        </label>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+          className="rounded-full border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+        >
+          <option value="popular">Popular</option>
+          <option value="newest">Newest</option>
+          <option value="alphabetical">A-Z</option>
+        </select>
+        <select
+          value={filter}
+          onChange={(e) => setFilter(e.target.value as typeof filter)}
+          className="rounded-full border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+        >
+          <option value="all">All</option>
+          <option value="public">Public</option>
+          {token && <option value="joined">Joined</option>}
+        </select>
+      </div>
+
+      {loading ? (
+        <div className="py-16 text-center text-[var(--text-secondary)]">Loading communities...</div>
+      ) : error ? (
+        <div className="py-16 text-center">
+          <div className="text-[var(--error)]">{error}</div>
+          <button onClick={loadSubreddits} className="mt-4 rounded-full bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-white">
+            Try Again
+          </button>
+        </div>
+      ) : filteredSubreddits.length === 0 ? (
+        <div className="py-16 text-center text-[var(--text-secondary)]">
+          {searchTerm ? "No communities found matching your search." : "No communities found."}
+        </div>
+      ) : (
+        <div className="space-y-9">
+          {sections.map((section) => (
+            <section key={section.title}>
+              <h2 className="mb-3 text-xl font-semibold text-[var(--text-secondary)]">{section.title}</h2>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {section.items.map((subreddit) => (
+                  <CommunityCard key={subreddit._id} subreddit={subreddit} token={token} onJoin={handleJoin} />
+                ))}
+              </div>
+              {section.items.length >= 6 && (
+                <div className="mt-4 flex justify-center">
+                  <button className="rounded-full bg-[var(--muted)] px-4 py-2 text-sm font-semibold hover:bg-[var(--muted-hover)]">Show more</button>
+                </div>
+              )}
+            </section>
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+function CommunityCard({
+  subreddit,
+  token,
+  onJoin,
+}: {
+  subreddit: Subreddit;
+  token: string | null;
+  onJoin: (subredditId: string, isJoined: boolean) => void;
+}) {
+  return (
+    <article className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 transition-colors hover:bg-[var(--muted)]/40">
+      <div className="flex items-start gap-3">
+        <Link
+          href={`/r/${subreddit.name}`}
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[var(--primary)] text-sm font-bold text-white"
+        >
+          {initials(subreddit.name)}
+        </Link>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <Link href={`/r/${subreddit.name}`} className="min-w-0">
+              <h3 className="truncate font-semibold hover:text-[var(--primary)]">r/{subreddit.name}</h3>
+              <p className="text-xs text-[var(--text-secondary)]">{subreddit.memberCount.toLocaleString()} members</p>
+            </Link>
+            {token && (
+              <button
+                onClick={() => onJoin(subreddit._id, subreddit.isJoined || false)}
+                className={`rounded-full px-4 py-2 text-xs font-bold ${
+                  subreddit.isJoined ? "bg-[var(--muted)] text-[var(--foreground)]" : "bg-[var(--primary)] text-white"
+                }`}
+              >
+                {subreddit.isJoined ? "Joined" : "Join"}
+              </button>
+            )}
+          </div>
+          <p className="mt-2 line-clamp-2 text-sm text-[var(--text-secondary)]">
+            {subreddit.description || subreddit.displayName || "A community on Jagoo Bahee."}
+          </p>
+        </div>
+      </div>
+    </article>
   );
 }

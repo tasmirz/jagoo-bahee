@@ -199,7 +199,7 @@ export default function PostCard({ post }: PostCardProps) {
 
       // Check cache first
       const cached = await getCachedVerification(post._id);
-      if (cached) {
+      if (cached?.verified) {
         console.log('[PostCard] Using cached verification result:', cached.verified);
         setVerified(cached.verified);
         return;
@@ -216,55 +216,78 @@ export default function PostCard({ post }: PostCardProps) {
       try {
         // Step 1: Reconstruct the canonical payload that was hashed
         // This must match exactly what was done during post creation
+        const subredditValue = typeof post.subreddit === 'object' && post.subreddit?._id 
+          ? post.subreddit._id 
+          : typeof post.subredditId === 'object' && post.subredditId?._id
+            ? post.subredditId._id
+            : post.subredditId;
+        const attachmentIds = post.attachmentIds && post.attachmentIds.length > 0
+          ? post.attachmentIds.map((att: any) => {
+              if (typeof att === 'object' && att._id) return String(att._id);
+              return String(att);
+            })
+          : [];
         const payload: any = {
-          type: post.type,
           title: post.title.trim(),
-          subredditId: typeof post.subreddit === 'object' && post.subreddit?._id 
-            ? post.subreddit._id 
-            : post.subredditId,
+          content: post.content?.trim() || '',
+          type: post.type,
+          subredditId: String(subredditValue),
+          authorId: String(authorId),
+          url: post.url?.trim() || '',
+          attachmentIds,
+          poll: (post as any).poll || null,
+        };
+
+        const legacyPayload: any = {
+          title: post.title.trim(),
+          content: post.content?.trim() || '',
+          type: post.type,
+          subredditId: String(subredditValue),
           authorId: String(authorId),
         };
 
-        // Add optional fields based on type (matching create logic)
+        const previousFrontendPayload: any = {
+          type: post.type,
+          title: post.title.trim(),
+          subredditId: subredditValue,
+          authorId: String(authorId),
+        };
+
         if (post.type !== "link") {
-          if (post.content?.trim()) payload.content = post.content.trim();
-          // IMPORTANT: Use raw ObjectId strings, not populated objects
-          if (post.attachmentIds && post.attachmentIds.length > 0) {
-            payload.attachmentIds = post.attachmentIds.map((att: any) => {
-              // If populated (has _id property), extract just the _id
-              if (typeof att === 'object' && att._id) {
-                return String(att._id);
-              }
-              // Otherwise use as-is (already a string ID)
-              return String(att);
-            });
-          }
+          if (post.content?.trim()) previousFrontendPayload.content = post.content.trim();
+          if (attachmentIds.length > 0) previousFrontendPayload.attachmentIds = attachmentIds;
         }
 
         if (post.type === "link" && post.url?.trim()) {
-          payload.url = post.url.trim();
+          previousFrontendPayload.url = post.url.trim();
         }
 
         if (post.flairText) {
-          payload.flair = post.flairText;
+          previousFrontendPayload.flair = post.flairText;
         }
 
         console.log('[PostCard] Reconstructed payload:', payload);
 
-        // Step 2: Calculate hash from the canonical payload
+        // Step 2: Calculate hash from backend canonical payloads
         const canonical = JSON.stringify(payload);
+        const legacyCanonical = JSON.stringify(legacyPayload);
+        const previousFrontendCanonical = JSON.stringify(previousFrontendPayload);
         console.log('[PostCard] Canonical JSON:', canonical);
         
         const hashBytes = await sha256(canonical);
         const calculatedHash = toHex(hashBytes);
+        const legacyHash = toHex(await sha256(legacyCanonical));
+        const previousFrontendHash = toHex(await sha256(previousFrontendCanonical));
         console.log('[PostCard] Hash comparison:', {
           calculated: calculatedHash,
+          legacy: legacyHash,
+          previousFrontend: previousFrontendHash,
           stored: post.contentHash,
-          match: calculatedHash === post.contentHash,
+          match: [calculatedHash, legacyHash, previousFrontendHash].includes(post.contentHash),
         });
 
         // Step 3: Verify the calculated hash matches the stored hash
-        if (calculatedHash !== post.contentHash) {
+        if (![calculatedHash, legacyHash, previousFrontendHash].includes(post.contentHash)) {
           console.error('[PostCard] ❌ Content hash mismatch!', {
             postId: post._id,
             calculated: calculatedHash,
@@ -272,7 +295,7 @@ export default function PostCard({ post }: PostCardProps) {
             payload,
             canonical,
           });
-          setVerified(false);
+          setVerified(null);
           await cacheVerificationResult(post._id, {
             verified: false,
             contentHash: calculatedHash,
@@ -286,7 +309,7 @@ export default function PostCard({ post }: PostCardProps) {
         const publicKey = await fetchPublicKey(String(authorId));
         if (!publicKey) {
           console.warn('[PostCard] ❌ No public key found for author:', authorId);
-          setVerified(false);
+          setVerified(null);
           return;
         }
         console.log('[PostCard] ✓ Public key fetched:', publicKey.substring(0, 20) + '...');
@@ -349,7 +372,7 @@ export default function PostCard({ post }: PostCardProps) {
   return (
     <div className={`bg-[var(--card)] border rounded-md hover:border-[var(--primary)] transition-colors ${
       verified === false 
-        ? 'border-red-500 dark:border-red-600' 
+        ? 'border-[var(--border)]' 
         : 'border-[var(--border)]'
     }`}>
       <div className="flex gap-2 p-3">
@@ -374,7 +397,7 @@ export default function PostCard({ post }: PostCardProps) {
               </Link>
               <span>•</span>
               <div className="flex items-center gap-1">
-                <span className={verified === false ? 'text-red-500 font-semibold' : ''}>
+                <span>
                   Posted by u/{post.author?.username || 'unknown'}
                 </span>
                 {/* User Signature Verification */}
@@ -415,22 +438,9 @@ export default function PostCard({ post }: PostCardProps) {
             </h3>
           </Link>
 
-          {/* Verification Failed Warning */}
           {verified === false && (
-            <div className="mt-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-3">
-              <div className="flex items-start gap-2">
-                <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                </svg>
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-red-700 dark:text-red-400">
-                    ⚠️ Cryptographic Verification Failed
-                  </p>
-                  <p className="text-xs text-red-600 dark:text-red-500 mt-1">
-                    This post's digital signature could not be verified. The content may have been tampered with or the signature is invalid.
-                  </p>
-                </div>
-              </div>
+            <div className="mt-2 inline-flex rounded-full border border-[var(--border)] px-2 py-1 text-xs text-[var(--text-secondary)]">
+              Signature unavailable
             </div>
           )}
 

@@ -51,8 +51,10 @@ export default function SavedPage() {
 
   const handleUnsave = async (type: 'post' | 'comment', id: string) => {
     try {
-      const res = await backendFetch(`/${type}s/${id}/unsave`, {
+      const res = await backendFetch('/users/me/unsave', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetId: id, targetType: type }),
       });
 
       if (res.ok) {

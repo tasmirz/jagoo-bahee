@@ -267,6 +267,19 @@ export class CommentsService {
     return doc
   }
 
+  async findAll(filter: any = {}, limit = 50, skip = 0) {
+    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100)
+    const safeSkip = Math.max(Number(skip) || 0, 0)
+    return this.model
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .limit(safeLimit)
+      .skip(safeSkip)
+      .populate('authorId', 'username')
+      .lean()
+      .exec()
+  }
+
   async permissionsFor(id: string, user: any) {
     const comment = await this.model.findById(id).lean().exec()
     if (!comment) throw new NotFoundException('Comment not found')

@@ -26,4 +26,3 @@ export class AwardType extends Document {
 }
 
 export const AwardTypeSchema = SchemaFactory.createForClass(AwardType)
-AwardTypeSchema.index({ name: 1 })

@@ -23,7 +23,7 @@ export default function GiveAwardModal({ targetType, targetId, onClose, onSucces
   useEffect(() => {
     async function fetchAwards() {
       try {
-        const res = await backendFetch('/awards');
+        const res = await backendFetch('/awards/types');
         if (res.ok) {
           const data = await res.json();
           setAwards(Array.isArray(data) ? data : data.data || []);
@@ -61,7 +61,7 @@ export default function GiveAwardModal({ targetType, targetId, onClose, onSucces
       const signature = signHash(privateKey, hashBytes);
       const signatureB64 = toB64(signature);
 
-      const res = await backendFetch('/awards/give', {
+      const res = await backendFetch('/awards', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

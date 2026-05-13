@@ -6,6 +6,7 @@
   --primary: #ff4500;
   --secondary: #0079d3;
   --muted: #f6f7f8;
+  --muted-hover: #e9eef1;
   --border: #edeff1;
   --card: #ffffff;
   --text-secondary: #7c7c7c;
@@ -21,6 +22,7 @@
   --primary: #ff4500;
   --secondary: #0079d3;
   --muted: #f6f7f8;
+  --muted-hover: #e9eef1;
   --border: #edeff1;
   --card: #ffffff;
   --text-secondary: #6b7280;
@@ -33,6 +35,7 @@
     --primary: #ff4500;
     --secondary: #d7dadc;
     --muted: #1a1a1b;
+    --muted-hover: #272a2c;
     --border: #343536;
     --card: #1a1a1b;
     --text-secondary: #818384;
@@ -46,6 +49,7 @@
   --primary: #ff4500;
   --secondary: #d7dadc;
   --muted: #1a1a1b;
+  --muted-hover: #272a2c;
   --border: #343536;
   --card: #1a1a1b;
   --text-secondary: #818384;
@@ -57,6 +61,7 @@
   --primary: #2fbf71;
   --secondary: #b8e986;
   --muted: #102019;
+  --muted-hover: #183326;
   --border: #244236;
   --card: #0d1914;
   --text-secondary: #94a89d;
@@ -68,6 +73,7 @@
   --primary: #168a4d;
   --secondary: #356b42;
   --muted: #e6f3eb;
+  --muted-hover: #d9eadf;
   --border: #bad7c7;
   --card: #ffffff;
   --text-secondary: #557063;
@@ -79,6 +85,7 @@
   --primary: #053326;
   --secondary: #03582c;
   --muted: #f5f5f5;
+  --muted-hover: #e8e8e8;
   --border: #e5e5e5;
   --card: #ffffff;
   --text-secondary: #666666;
@@ -93,6 +100,7 @@
   --primary: #086349;
   --secondary: #ffff00;
   --muted: #262626;
+  --muted-hover: #333333;
   --border: #333333;
   --card: #1a1a1a;
   --text-secondary: #999999;
@@ -107,6 +115,7 @@
   --primary: #0b73d9;
   --secondary: #0f9f9a;
   --muted: #e8f2fb;
+  --muted-hover: #d8e9f7;
   --border: #bdd6eb;
   --card: #ffffff;
   --text-secondary: #536b80;
@@ -118,6 +127,7 @@
   --primary: #37a5ff;
   --secondary: #44d5ca;
   --muted: #0e2130;
+  --muted-hover: #17324a;
   --border: #26465c;
   --card: #0a1824;
   --text-secondary: #91a8ba;
@@ -130,6 +140,7 @@
   --primary: #ffcc00;
   --secondary: #66ccff;
   --muted: #141414;
+  --muted-hover: #242424;
   --border: #4d4d4d;
   --card: #0a0a0a;
   --text-secondary: #c7c7c7;
@@ -141,6 +152,7 @@
   --primary: #003cff;
   --secondary: #b00020;
   --muted: #f0f0f0;
+  --muted-hover: #e1e1e1;
   --border: #111111;
   --card: #ffffff;
   --text-secondary: #333333;
@@ -150,4 +162,255 @@ body {
   background-color: var(--background);
   color: var(--foreground);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Compatibility for older pages that used Tailwind's class-based dark mode.
+   The app uses data-theme variables, so these hard-coded utilities need to
+   resolve through the active theme instead of staying white/gray/blue. */
+[data-theme="dark"] .bg-white,
+[data-theme="default-dark"] .bg-white,
+[data-theme="forest-dark"] .bg-white,
+[data-theme="fluent-dark"] .bg-white,
+[data-theme="ocean-dark"] .bg-white,
+[data-theme="contrast-dark"] .bg-white,
+[data-theme="contrast"] .bg-white {
+  background-color: var(--card) !important;
+}
+
+[data-theme="dark"] .text-gray-900,
+[data-theme="default-dark"] .text-gray-900,
+[data-theme="forest-dark"] .text-gray-900,
+[data-theme="fluent-dark"] .text-gray-900,
+[data-theme="ocean-dark"] .text-gray-900,
+[data-theme="contrast-dark"] .text-gray-900,
+[data-theme="contrast"] .text-gray-900 {
+  color: var(--foreground) !important;
+}
+
+[data-theme="dark"] .text-gray-600,
+[data-theme="dark"] .text-gray-700,
+[data-theme="default-dark"] .text-gray-600,
+[data-theme="default-dark"] .text-gray-700,
+[data-theme="forest-dark"] .text-gray-600,
+[data-theme="forest-dark"] .text-gray-700,
+[data-theme="fluent-dark"] .text-gray-600,
+[data-theme="fluent-dark"] .text-gray-700,
+[data-theme="ocean-dark"] .text-gray-600,
+[data-theme="ocean-dark"] .text-gray-700,
+[data-theme="contrast-dark"] .text-gray-600,
+[data-theme="contrast-dark"] .text-gray-700,
+[data-theme="contrast"] .text-gray-600,
+[data-theme="contrast"] .text-gray-700 {
+  color: var(--text-secondary) !important;
+}
+
+[data-theme="dark"] .border-gray-200,
+[data-theme="dark"] .border-gray-300,
+[data-theme="default-dark"] .border-gray-200,
+[data-theme="default-dark"] .border-gray-300,
+[data-theme="forest-dark"] .border-gray-200,
+[data-theme="forest-dark"] .border-gray-300,
+[data-theme="fluent-dark"] .border-gray-200,
+[data-theme="fluent-dark"] .border-gray-300,
+[data-theme="ocean-dark"] .border-gray-200,
+[data-theme="ocean-dark"] .border-gray-300,
+[data-theme="contrast-dark"] .border-gray-200,
+[data-theme="contrast-dark"] .border-gray-300,
+[data-theme="contrast"] .border-gray-200,
+[data-theme="contrast"] .border-gray-300 {
+  border-color: var(--border) !important;
+}
+
+.bg-primary,
+.hover\:bg-primary\/90:hover,
+[data-theme] .bg-blue-600 {
+  background-color: var(--primary) !important;
+}
+
+.border-primary,
+[data-theme] .border-blue-500 {
+  border-color: var(--primary) !important;
+}
+
+.text-primary,
+[data-theme] .text-blue-600,
+[data-theme] .text-blue-500 {
+  color: var(--primary) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .bg-white {
+    background-color: var(--card) !important;
+  }
+
+  :root:not([data-theme]) .text-gray-900 {
+    color: var(--foreground) !important;
+  }
+
+  :root:not([data-theme]) .text-gray-600,
+  :root:not([data-theme]) .text-gray-700 {
+    color: var(--text-secondary) !important;
+  }
+
+  :root:not([data-theme]) .border-gray-200,
+  :root:not([data-theme]) .border-gray-300 {
+    border-color: var(--border) !important;
+  }
+}
+
+.reddit-shell {
+  display: grid;
+  grid-template-columns: 272px minmax(0, 1fr);
+  min-height: calc(100vh - 48px);
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.reddit-left-rail {
+  position: sticky;
+  top: 48px;
+  width: 272px;
+  max-width: 272px;
+  height: calc(100vh - 48px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-right: 1px solid var(--border);
+  background: var(--background);
+  padding: 16px;
+  align-self: start;
+}
+
+.reddit-main {
+  min-width: 0;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.reddit-rail-link {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.reddit-rail-link:hover,
+.reddit-muted-action:hover,
+.reddit-mod-link:hover {
+  background: var(--muted);
+}
+
+.reddit-muted-action {
+  display: block;
+  width: 100%;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.reddit-side-card {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  padding: 16px;
+}
+
+.reddit-side-action,
+.reddit-side-action-strong {
+  display: block;
+  border-radius: 999px;
+  padding: 9px 12px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.reddit-side-action {
+  background: color-mix(in srgb, var(--primary) 16%, transparent);
+}
+
+.reddit-side-action:hover,
+.reddit-side-link:hover {
+  background: color-mix(in srgb, var(--primary) 24%, transparent);
+}
+
+.reddit-side-action-strong {
+  background: var(--primary);
+  color: white;
+}
+
+.reddit-side-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 13px;
+}
+
+.reddit-mod-shell {
+  display: grid;
+  grid-template-columns: 272px minmax(0, 1fr);
+  min-height: calc(100vh - 48px);
+}
+
+.reddit-mod-rail {
+  position: sticky;
+  top: 48px;
+  height: calc(100vh - 48px);
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: var(--background);
+  padding: 32px 12px 16px;
+}
+
+.reddit-mod-main {
+  min-width: 0;
+  padding: 32px 44px;
+}
+
+.reddit-mod-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+}
+
+.reddit-mod-link-active {
+  background: var(--muted);
+  font-weight: 700;
+}
+
+.reddit-community-page {
+  min-height: calc(100vh - 48px);
+}
+
+.reddit-community-inner {
+  width: min(1072px, calc(100vw - 32px));
+  margin: 0 auto;
+}
+
+@media (max-width: 1024px) {
+  .reddit-shell,
+  .reddit-mod-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .reddit-left-rail,
+  .reddit-mod-rail {
+    display: none;
+  }
+
+  .reddit-mod-main {
+    padding: 20px 16px;
+  }
 }

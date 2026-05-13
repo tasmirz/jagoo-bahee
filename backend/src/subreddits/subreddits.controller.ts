@@ -81,6 +81,12 @@ export class SubredditsController {
     return { available: true }
   }
 
+  @Get(':id/stats')
+  @UseGuards(JwtAuthGuard)
+  async stats(@Param('id') id: string) {
+    return this.service.stats(id)
+  }
+
   @Get(':id')
   async get(@Param('id') id: string) {
     return this.service.findOne(id)
@@ -91,6 +97,12 @@ export class SubredditsController {
   @UseGuards(SubredditRbacGuard)
   async update(@Param('id') id: string, @Body() body: any) {
     return this.service.update(id, body)
+  }
+
+  @Post(':id/transfer-ownership')
+  @UseGuards(JwtAuthGuard)
+  async transferOwnership(@Param('id') id: string, @Body('newOwnerId') newOwnerId: string, @Req() req: any) {
+    return this.service.transferOwnership(id, newOwnerId, req.user)
   }
 
   @Post(':id/join')
@@ -129,24 +141,35 @@ export class SubredditsController {
   @UseGuards(JwtAuthGuard)
   async isModerator(@Param('id') id: string, @Req() req: any) {
     const authId = req?.user?.id
-    if (!authId) return { isModerator: false }
-
-    const usersService = (this.service as any).usersService
-    const memberModel = (this.service as any).memberModel
-    if (!usersService || !memberModel) return { isModerator: false }
-
-    let profile = await usersService.findByAuthId(authId).catch(() => null)
-    if (!profile?._id) {
-      profile = await usersService.ensureUserForAuth(authId).catch(() => null)
+    if (!authId) {
+      return { isModerator: false, isCreator: false, isMember: false, isBanned: false, permissions: [] }
     }
-    if (!profile?._id) return { isModerator: false }
 
-    const m = await memberModel
-      .findOne({ subredditId: id, userId: profile._id })
-      .exec()
-      .catch(() => null)
-    const isMod = !!m && (BigInt(m.statusFlags) & BigInt(8)) !== BigInt(0)
-    return { isModerator: isMod }
+    const subreddit = await this.service.findOne(id)
+    if (!subreddit) {
+      return { isModerator: false, isCreator: false, isMember: false, isBanned: false, permissions: [] }
+    }
+
+    let profile = await this.usersService.findByAuthId(authId).catch(() => null)
+    if (!profile?._id) profile = await this.usersService.ensureUserForAuth(authId).catch(() => null)
+    if (!profile?._id) {
+      return { isModerator: false, isCreator: false, isMember: false, isBanned: false, permissions: [] }
+    }
+
+    const summary = await this.membersService.getPermissionSummary(String(subreddit._id), String(profile._id))
+    const isCreator = String(subreddit.createdBy) === String(profile._id)
+
+    return {
+      subredditId: String(subreddit._id),
+      userId: String(profile._id),
+      statusFlags: summary?.statusFlags || '0',
+      roleFlags: summary?.roleFlags || '0',
+      permissions: summary?.permissions || [],
+      isMember: summary?.isMember || isCreator,
+      isModerator: summary?.isModerator || isCreator,
+      isCreator,
+      isBanned: summary?.isBanned || false
+    }
   }
 
   @Get(':id/permissions/me')
@@ -158,7 +181,16 @@ export class SubredditsController {
     if (!profile?._id) profile = await this.usersService.ensureUserForAuth(authId).catch(() => null)
     if (!profile?._id) return { subredditId: id, permissions: [], isMember: false, isModerator: false, isBanned: false }
     const summary = await this.membersService.getPermissionSummary(id, String(profile._id))
-    return summary || { subredditId: id, userId: String(profile._id), permissions: [], isMember: false, isModerator: false, isBanned: false }
+    return (
+      summary || {
+        subredditId: id,
+        userId: String(profile._id),
+        permissions: [],
+        isMember: false,
+        isModerator: false,
+        isBanned: false
+      }
+    )
   }
 
   @Get(':id/moderators')
@@ -200,7 +232,8 @@ export class SubredditsController {
 
     const abac = BigInt(req.user?.abac ?? 0)
     const isAdmin = (abac & (BigInt(1) << BigInt(5))) !== BigInt(0)
-    const isOwner = String(subreddit.createdBy) === String(req.user?.id)
+    const profile = req.user?.id ? await this.usersService.findByAuthId(req.user.id).catch(() => null) : null
+    const isOwner = profile?._id && String(subreddit.createdBy) === String(profile._id)
 
     if (!isAdmin && !isOwner) {
       throw new ForbiddenException('Only the owner or a global admin can delete a community')

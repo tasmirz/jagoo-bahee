@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post as HttpPost, UseGuards, Req, ForbiddenException } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post as HttpPost, Query, UseGuards, Req, ForbiddenException } from '@nestjs/common'
 import { CommentsService } from './comments.service'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
 import { SubredditRbacGuard } from 'src/subreddits/guards/subreddit-rbac.guard'
@@ -24,6 +24,23 @@ export class CommentsController {
     }
     await this.abuseLimiter.hit('comment-create', this.abuseLimiter.tracker(req, String(req.user.id)), Number(process.env.COMMENT_CREATE_LIMIT || 120), Number(process.env.COMMENT_CREATE_WINDOW_MS || 60 * 60 * 1000))
     return this.comments.create({ ...(body as any), authorId: String(req.user.id) })
+  }
+
+  @Get()
+  findAll(
+    @Query('limit') limit = '50',
+    @Query('skip') skip = '0',
+    @Query('postId') postId?: string,
+    @Query('authorId') authorId?: string,
+    @Query('q') q?: string
+  ) {
+    const filter: any = {}
+    if (postId) filter.postId = postId
+    if (authorId) filter.authorId = authorId
+    if (q?.trim()) {
+      filter.content = { $regex: q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' }
+    }
+    return this.comments.findAll(filter, Number(limit), Number(skip))
   }
 
   @Get(':id')

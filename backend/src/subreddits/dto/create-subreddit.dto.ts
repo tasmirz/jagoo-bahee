@@ -46,4 +46,27 @@ export class CreateSubredditDto {
   @IsOptional()
   @IsString()
   rules?: string
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  isPrivate?: boolean
+
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  isNsfw?: boolean
+
+  @ApiPropertyOptional({ example: { allowTextPosts: true, requirePostApproval: false } })
+  @IsOptional()
+  settings?: {
+    allowTextPosts?: boolean
+    allowLinkPosts?: boolean
+    allowImagePosts?: boolean
+    allowVideoPosts?: boolean
+    requirePostApproval?: boolean
+    allowCrossposts?: boolean
+    minimumKarmaToPost?: number
+    minimumAccountAgeDays?: number
+  }
 }

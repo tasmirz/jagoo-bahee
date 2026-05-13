@@ -37,6 +37,17 @@ export interface Subreddit {
     background: string;
     foreground: string;
   };
+  settings?: {
+    allowTextPosts?: boolean;
+    allowLinkPosts?: boolean;
+    allowImagePosts?: boolean;
+    allowVideoPosts?: boolean;
+    allowPolls?: boolean;
+    requirePostApproval?: boolean;
+    allowCrossposts?: boolean;
+    minimumKarmaToPost?: number;
+    minimumAccountAgeDays?: number;
+  };
   isJoined?: boolean;
   createdAt: string;
   updatedAt: string;

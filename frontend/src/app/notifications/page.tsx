@@ -39,8 +39,10 @@ export default function NotificationsPage() {
 
   const markAsRead = async (notificationId: string) => {
     try {
-      const res = await backendFetch(`/notifications/${notificationId}/read`, {
+      const res = await backendFetch('/notifications/read', {
         method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [notificationId] }),
       });
 
       if (res.ok) {
@@ -55,8 +57,10 @@ export default function NotificationsPage() {
 
   const markAllAsRead = async () => {
     try {
-      const res = await backendFetch('/notifications/mark-all-read', {
+      const res = await backendFetch('/notifications/read', {
         method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: 'all' }),
       });
 
       if (res.ok) {

@@ -1,5 +1,21 @@
 import { backendFetch } from "./backend";
 
+interface ProofPost {
+  _id?: string;
+  title?: string;
+  statusFlags?: string;
+}
+
+interface ExportableProof {
+  userId?: string;
+  postId?: string;
+  proofHash?: string;
+  proofSignature?: string;
+  serverPublicKey?: string;
+  postTitle?: string;
+  createdAt?: string;
+}
+
 /**
  * Verify a proof hash with the server and get post status
  *
@@ -23,13 +39,13 @@ export async function verifyProofWithServer(
   proofVerified?: boolean;
   postStatus?: string;
   postExists?: boolean;
-  post?: any;
+  post?: ProofPost;
   error?: string;
   message?: string;
   serverPublicKey?: string;
 }> {
   try {
-    const res = await backendFetch("/posts/verify-proof", {
+    const res = await backendFetch("/posts/proofs/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -163,28 +179,20 @@ even if it has been deleted or removed.
 /**
  * Export proof as JSON for download
  */
-export function exportProofAsJSON(proof: {
-  userId: string;
-  postId: string;
-  proofHash: string;
-  proofSignature: string;
-  serverPublicKey?: string;
-  postTitle?: string;
-  createdAt?: string;
-}): string {
+export function exportProofAsJSON(proof: ExportableProof): string {
   return JSON.stringify(proof, null, 2);
 }
 
 /**
  * Download proof as a file
  */
-export function downloadProof(proof: any, filename?: string): void {
+export function downloadProof(proof: ExportableProof, filename?: string): void {
   const json = exportProofAsJSON(proof);
   const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename || `proof-${proof.postId}.json`;
+  a.download = filename || `proof-${proof.postId || "post"}.json`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

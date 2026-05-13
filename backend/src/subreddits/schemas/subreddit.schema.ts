@@ -31,6 +31,9 @@ export class Subreddit extends Document {
   isPrivate: boolean
 
   @Prop({ type: Boolean, default: false })
+  isNsfw: boolean
+
+  @Prop({ type: Boolean, default: false })
   isArchived: boolean
 
   @Prop({
@@ -81,5 +84,4 @@ export class Subreddit extends Document {
 }
 
 export const SubredditSchema = SchemaFactory.createForClass(Subreddit)
-SubredditSchema.index({ name: 1 })
 SubredditSchema.index({ createdBy: 1 })

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards, NotFoundException } from '@nestjs/common'
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards, NotFoundException } from '@nestjs/common'
 import { UsersService } from './users.service'
 import { AuthService } from 'src/auth/auth.service'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
@@ -70,6 +70,25 @@ export class UsersController {
     } catch (e) {
       return []
     }
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me/saved/:targetType')
+  async savedContent(@Req() req: any, @Param('targetType') targetType: string) {
+    const authId = req.user?.id
+    const me = await this.usersService.findByAuthId(authId)
+    if (!me) return []
+    const normalized = targetType === 'posts' ? 'post' : targetType === 'comments' ? 'comment' : targetType
+    return this.usersService.getSavedContent(me._id as Types.ObjectId, normalized)
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me/is-saved/:targetId')
+  async isSaved(@Req() req: any, @Param('targetId') targetId: string) {
+    const authId = req.user?.id
+    const me = await this.usersService.findByAuthId(authId)
+    if (!me || !Types.ObjectId.isValid(targetId)) return { saved: false }
+    return { saved: await this.usersService.isSaved(me._id as Types.ObjectId, new Types.ObjectId(targetId)) }
   }
 
   @UseGuards(JwtAuthGuard)
@@ -169,6 +188,21 @@ export class UsersController {
     const me = await this.usersService.findByAuthId(authId)
     if (!me) return null
     return this.usersService.upsertFeedPreferences(me._id as Types.ObjectId, body)
+  }
+
+  @Get()
+  async listUsers(@Query('q') q = '', @Query('limit') limit = '50', @Query('skip') skip = '0') {
+    const filter = q
+      ? { username: { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } }
+      : {}
+    return this.usersService.findAll(filter, Number(limit), Number(skip))
+  }
+
+  @Get('username/:username')
+  async getUserByUsername(@Param('username') username: string) {
+    const user = await this.usersService.findByUsername(username)
+    if (!user) throw new NotFoundException('User not found')
+    return user
   }
 
   @Get(':id')

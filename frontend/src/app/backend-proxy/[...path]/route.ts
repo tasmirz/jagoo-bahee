@@ -5,6 +5,7 @@ import https from "https";
 
 const defaultBackendOrigin = (backendConfig.url || "http://localhost:6000").replace("://localhost", "://127.0.0.1");
 export const runtime = "nodejs";
+const retryableMethods = new Set(["GET", "HEAD", "OPTIONS"]);
 
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const { path } = await context.params;
@@ -12,6 +13,9 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   const backendOrigin = resolveHomeserver(requestedHomeserver);
   const upstreamUrl = new URL(`/${path.join("/")}`, backendOrigin);
   upstreamUrl.search = request.nextUrl.search;
+  const fallbackUrl = shouldFallbackToDefault(backendOrigin)
+    ? new URL(`${upstreamUrl.pathname}${upstreamUrl.search}`, defaultBackendOrigin)
+    : null;
 
   const headers = new Headers();
   for (const [key, value] of request.headers.entries()) {
@@ -20,7 +24,11 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   }
 
   try {
-    const upstream = await requestWithNode(upstreamUrl, request.method, headers, ["GET", "HEAD"].includes(request.method) ? undefined : Buffer.from(await request.arrayBuffer()));
+    const body = retryableMethods.has(request.method) ? undefined : Buffer.from(await request.arrayBuffer());
+    const { upstream, usedFallback } = await requestWithFallback(upstreamUrl, fallbackUrl, request.method, headers, body);
+    if (usedFallback) {
+      upstream.headers.set("x-jb-homeserver-fallback", defaultBackendOrigin);
+    }
 
     return new Response(new Uint8Array(upstream.body), {
       status: upstream.status,
@@ -45,6 +53,23 @@ export const PUT = proxy;
 export const PATCH = proxy;
 export const DELETE = proxy;
 
+async function requestWithRetry(url: URL, method: string, headers: Headers, body?: Buffer) {
+  const attempts = retryableMethods.has(method) ? 3 : 1;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await requestWithNode(url, method, headers, body);
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts) break;
+      await delay(75 * attempt);
+    }
+  }
+
+  throw lastError;
+}
+
 function requestWithNode(url: URL, method: string, headers: Headers, body?: Buffer) {
   return new Promise<{ status: number; statusText: string; headers: Headers; body: Buffer }>((resolve, reject) => {
     const transport = url.protocol === "https:" ? https : http;
@@ -68,7 +93,11 @@ function requestWithNode(url: URL, method: string, headers: Headers, body?: Buff
         res.on("end", () => {
           const responseHeaders = new Headers();
           for (const [key, value] of Object.entries(res.headers)) {
-            if (Array.isArray(value)) responseHeaders.set(key, value.join(", "));
+            if (Array.isArray(value)) {
+              for (const item of value) {
+                responseHeaders.append(key, item);
+              }
+            }
             else if (value !== undefined) responseHeaders.set(key, String(value));
           }
           resolve({
@@ -87,6 +116,10 @@ function requestWithNode(url: URL, method: string, headers: Headers, body?: Buff
   });
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function resolveHomeserver(value: string | null) {
   if (!value) return defaultBackendOrigin;
   try {
@@ -95,5 +128,24 @@ function resolveHomeserver(value: string | null) {
     return parsed.origin.replace("://localhost", "://127.0.0.1");
   } catch {
     return defaultBackendOrigin;
+  }
+}
+
+async function requestWithFallback(url: URL, fallbackUrl: URL | null, method: string, headers: Headers, body?: Buffer) {
+  try {
+    return { upstream: await requestWithRetry(url, method, headers, body), usedFallback: false };
+  } catch (error) {
+    if (!fallbackUrl) throw error;
+    return { upstream: await requestWithRetry(fallbackUrl, method, headers, body), usedFallback: true };
+  }
+}
+
+function shouldFallbackToDefault(origin: string) {
+  if (origin === defaultBackendOrigin) return false;
+  try {
+    const { hostname } = new URL(origin);
+    return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
+  } catch {
+    return false;
   }
 }

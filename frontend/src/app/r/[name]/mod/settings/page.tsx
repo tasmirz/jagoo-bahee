@@ -45,11 +45,10 @@ export default function SubredditSettingsPage() {
           setIsPublic(data.isPublic !== false);
           setIconAttachmentId(data.iconAttachmentId || '');
           setBannerAttachmentId(data.bannerAttachmentId || '');
-          // These would come from backend settings
-          setAllowImages(true);
-          setAllowVideos(true);
-          setAllowPolls(true);
-          setRequireApproval(false);
+          setAllowImages(data.settings?.allowImagePosts !== false);
+          setAllowVideos(data.settings?.allowVideoPosts !== false);
+          setAllowPolls(data.settings?.allowPolls !== false);
+          setRequireApproval(data.settings?.requirePostApproval === true);
         }
       } catch (error) {
         console.error('Failed to fetch subreddit:', error);
@@ -67,15 +66,21 @@ export default function SubredditSettingsPage() {
 
     try {
       const res = await backendFetch(`/subreddits/${subreddit?._id}`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           description: description.trim(),
           rules: rules.trim(),
-          isPublic,
+          isPrivate: !isPublic,
           iconAttachmentId: iconAttachmentId || undefined,
           bannerAttachmentId: bannerAttachmentId || undefined,
-          // Additional settings would be sent here
+          settings: {
+            ...subreddit?.settings,
+            allowImagePosts: allowImages,
+            allowVideoPosts: allowVideos,
+            allowPolls,
+            requirePostApproval: requireApproval,
+          },
         }),
       });
 

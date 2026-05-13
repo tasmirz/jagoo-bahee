@@ -12,7 +12,7 @@ export default function AwardsPage() {
   useEffect(() => {
     async function fetchAwards() {
       try {
-        const res = await backendFetch('/awards');
+        const res = await backendFetch('/awards/types');
         if (res.ok) {
           const data = await res.json();
           setAwards(Array.isArray(data) ? data : data.data || []);

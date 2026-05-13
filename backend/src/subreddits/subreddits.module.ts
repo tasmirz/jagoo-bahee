@@ -4,6 +4,8 @@ import { SubredditsController } from './subreddits.controller'
 import { SubredditsService } from './subreddits.service'
 import { Subreddit, SubredditSchema } from './schemas/subreddit.schema'
 import { SubredditMember, SubredditMemberSchema } from './schemas/subreddit-member.schema'
+import { Post, PostSchema } from 'src/posts/schemas/post.schema'
+import { Comment, CommentSchema } from 'src/comments/schemas/comment.schema'
 import { ModerationModule } from 'src/moderation/moderation.module'
 import { NotificationsModule } from 'src/notifications/notifications.module'
 import { UsersModule } from 'src/users/users.module'
@@ -22,6 +24,8 @@ import { SubredditPermissionService } from './subreddit-permission.service'
     MongooseModule.forFeature([
       { name: Subreddit.name, schema: SubredditSchema },
       { name: SubredditMember.name, schema: SubredditMemberSchema },
+      { name: Post.name, schema: PostSchema },
+      { name: Comment.name, schema: CommentSchema },
       // add role and userRole so subreddits service can create them
     ]),
     ModerationModule,

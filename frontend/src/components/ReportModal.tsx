@@ -8,11 +8,12 @@ import { sha256 } from '@/lib/crypto';
 interface ReportModalProps {
   contentType: 'post' | 'comment';
   contentId: string;
+  subredditId?: string;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export default function ReportModal({ contentType, contentId, onClose, onSuccess }: ReportModalProps) {
+export default function ReportModal({ contentType, contentId, subredditId, onClose, onSuccess }: ReportModalProps) {
   const [reason, setReason] = useState('');
   const [customReason, setCustomReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -34,6 +35,11 @@ export default function ReportModal({ contentType, contentId, onClose, onSuccess
     
     if (!reason || (reason === 'Other' && !customReason.trim())) {
       alert('Please select a reason');
+      return;
+    }
+
+    if (!subredditId) {
+      alert('This report needs a community context.');
       return;
     }
 
@@ -59,12 +65,13 @@ export default function ReportModal({ contentType, contentId, onClose, onSuccess
       const signature = signHash(privateKey, hashBytes);
       const signatureB64 = toB64(signature);
 
-      const res = await backendFetch('/moderation/report', {
+      const res = await backendFetch('/moderation/reports', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contentType,
-          contentId,
+          targetType: contentType,
+          targetId: contentId,
+          subredditId,
           reason: finalReason,
           reporterSignature: signatureB64,
         }),

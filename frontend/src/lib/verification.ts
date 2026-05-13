@@ -9,6 +9,7 @@ import {
   getCachedVerification as getCachedVerificationFromDB,
   cacheVerification as cacheVerificationToDB,
 } from "./indexeddb";
+import { backendFetch } from "./backend";
 
 export interface VerificationResult {
   verified: boolean;
@@ -33,14 +34,10 @@ export async function fetchPublicKey(
       return cached;
     }
 
-    // Fetch from API
-    // The auth service exposes a public key endpoint which returns base64
-    const url = `${
-      apiUrl || process.env.NEXT_PUBLIC_API_URL || ""
-    }/auth/public/${userId}`;
+    const url = apiUrl ? `${apiUrl}/auth/public/${userId}` : `/auth/public/${userId}`;
     console.log("[fetchPublicKey] Fetching from URL:", url);
 
-    const response = await fetch(url);
+    const response = apiUrl ? await fetch(url) : await backendFetch(`/auth/public/${userId}`);
     console.log(
       "[fetchPublicKey] Response status:",
       response.status,
@@ -74,10 +71,8 @@ export async function fetchPublicKey(
     // Fetch username from /users/:id endpoint
     let username = `user_${userId.slice(-8)}`; // fallback
     try {
-      const userUrl = `${
-        apiUrl || process.env.NEXT_PUBLIC_API_URL || ""
-      }/users/${userId}`;
-      const userResponse = await fetch(userUrl);
+      const userUrl = apiUrl ? `${apiUrl}/users/${userId}` : `/users/${userId}`;
+      const userResponse = apiUrl ? await fetch(userUrl) : await backendFetch(`/users/${userId}`);
       if (userResponse.ok) {
         const userData = await userResponse.json();
         if (userData.username) {

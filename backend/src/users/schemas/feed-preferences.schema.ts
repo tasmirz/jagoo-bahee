@@ -35,4 +35,3 @@ export class FeedPreferences extends Document {
 }
 
 export const FeedPreferencesSchema = SchemaFactory.createForClass(FeedPreferences)
-FeedPreferencesSchema.index({ userId: 1 })
