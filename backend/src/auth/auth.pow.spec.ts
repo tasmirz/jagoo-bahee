@@ -8,6 +8,7 @@ describe('AuthService Proof of Work logic', () => {
   let mockJwtService: any;
   let mockUsersService: any;
   let mockRedis: any;
+  let mockAbuseLimiter: any;
 
   beforeEach(() => {
     mockJwtService = {
@@ -16,6 +17,10 @@ describe('AuthService Proof of Work logic', () => {
     };
     mockUsersService = { ensureUserForAuth: jest.fn() };
     mockRedis = { setIfAbsent: jest.fn().mockResolvedValue(true) };
+    mockAbuseLimiter = {
+      hit: jest.fn().mockResolvedValue(undefined),
+      tracker: jest.fn().mockReturnValue('test-tracker')
+    };
     
     // We mock auth model
     const mockAuthModel = {
@@ -23,7 +28,7 @@ describe('AuthService Proof of Work logic', () => {
       create: jest.fn().mockResolvedValue({ _id: 'foo', publicKey: Buffer.from([]), abac: 0n }),
     };
 
-    authService = new AuthService(mockJwtService as any, mockAuthModel as any, mockUsersService as any, mockRedis as any);
+    authService = new AuthService(mockJwtService as any, mockAuthModel as any, mockUsersService as any, mockRedis as any, mockAbuseLimiter as any);
     
     // Mock the crypto methods later or bypass auth
     // Wait, testing just PoW failing is enough. We can mock tinysecp or bypass it.

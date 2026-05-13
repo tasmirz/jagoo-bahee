@@ -4,20 +4,25 @@ import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
 import { SubredditRbacGuard } from 'src/subreddits/guards/subreddit-rbac.guard'
 import { CreateCommentDto, UpdateCommentDto, VoteCommentDto } from './dto'
 import { CommentModBaseDto, CommentModRemoveDto } from './dto/moderate-comment.dto'
+import { AbuseRateLimiterService } from 'src/common/abuse-rate-limiter.service'
 
 import { ApiTags } from '@nestjs/swagger'
 
 @ApiTags('comments')
 @Controller('comments')
 export class CommentsController {
-  constructor(private readonly comments: CommentsService) {}
+  constructor(
+    private readonly comments: CommentsService,
+    private readonly abuseLimiter: AbuseRateLimiterService
+  ) {}
 
   @UseGuards(JwtAuthGuard)
   @HttpPost()
-  create(@Req() req: any, @Body() body: CreateCommentDto) {
+  async create(@Req() req: any, @Body() body: CreateCommentDto) {
     if (body.authorId && String(body.authorId) !== String(req.user.id)) {
       throw new ForbiddenException('Cannot impersonate another user');
     }
+    await this.abuseLimiter.hit('comment-create', this.abuseLimiter.tracker(req, String(req.user.id)), Number(process.env.COMMENT_CREATE_LIMIT || 120), Number(process.env.COMMENT_CREATE_WINDOW_MS || 60 * 60 * 1000))
     return this.comments.create({ ...(body as any), authorId: String(req.user.id) })
   }
 

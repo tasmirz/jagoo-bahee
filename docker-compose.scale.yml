@@ -1,4 +1,16 @@
 services:
+  mongo:
+    ports: !reset []
+
+  redis:
+    ports: !reset []
+
+  minio:
+    ports: !reset []
+
+  mcaptcha:
+    ports: !reset []
+
   backend:
     build:
       context: ./backend

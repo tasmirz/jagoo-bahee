@@ -4,19 +4,25 @@ import { CreateMessageDto } from './dto/create-message.dto'
 import { QueryMessagesDto } from './dto/query-messages.dto'
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard'
 import { ReplyMessageDto } from './dto/reply-message.dto'
+import { AbuseRateLimiterService } from 'src/common/abuse-rate-limiter.service'
 
 @UseGuards(JwtAuthGuard)
 @Controller('messages')
 export class MessagesController {
-  constructor(private readonly messagesService: MessagesService) {}
+  constructor(
+    private readonly messagesService: MessagesService,
+    private readonly abuseLimiter: AbuseRateLimiterService
+  ) {}
 
   @Post()
   async send(@Req() req: any, @Body() dto: CreateMessageDto) {
+    await this.abuseLimiter.hit('message-send', this.abuseLimiter.tracker(req, String(req.user.id), dto.recipientId), Number(process.env.MESSAGE_SEND_LIMIT || 60), Number(process.env.MESSAGE_SEND_WINDOW_MS || 60 * 60 * 1000))
     return this.messagesService.send(req.user.id, dto)
   }
 
   @Post('reply')
   async reply(@Req() req: any, @Body() dto: ReplyMessageDto) {
+    await this.abuseLimiter.hit('message-reply', this.abuseLimiter.tracker(req, String(req.user.id), dto.parentMessageId), Number(process.env.MESSAGE_REPLY_LIMIT || 120), Number(process.env.MESSAGE_REPLY_WINDOW_MS || 60 * 60 * 1000))
     return this.messagesService.reply(req.user.id, dto)
   }
 

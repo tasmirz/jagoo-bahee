@@ -10,8 +10,8 @@ export class AuthController {
     private readonly authService: AuthService
   ) {}
   @Post()
-  async authenticate(@Body() auth: AuthenticationDto, @Res({ passthrough: true }) res: Response) {
-    const { accessToken, refreshToken } = await this.authService.authenticate(auth)
+  async authenticate(@Body() auth: AuthenticationDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const { accessToken, refreshToken } = await this.authService.authenticate(auth, req)
 
     // Set token as secure, HttpOnly cookie. For local development (NODE_ENV !== 'production')
     // we still set httpOnly but not secure to allow testing over http.
@@ -59,8 +59,8 @@ export class AuthController {
   }
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Get('challenge')
-  async challenge(): Promise<string> {
-    return this.authService.challenge()
+  async challenge(@Req() req: Request): Promise<string> {
+    return this.authService.challenge(req)
   }
 
   @Get('public/:id')

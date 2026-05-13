@@ -2,8 +2,21 @@
 
 Audit date: 2026-05-12
 Merge re-audit: 2026-05-13
+Hardening pass: 2026-05-13
 
 Scope: local codebase review of the NestJS backend, Next.js frontend, Docker compose, cryptographic flows, moderation flows, file uploads, messaging, planned federation, and scaling posture. This is a defensive report for the project owner.
+
+## Current Security Posture
+
+Resolved or partially mitigated in the current tree:
+
+- Attachment CRUD is behind `JwtAuthGuard` and scoped to owner/admin/moderator.
+- Production startup requires `JWT_SECRET`, `FRONTEND_ORIGIN`, and persistent `SERVER_PRIVATE_KEY_HEX`.
+- Global throttling uses Redis-backed storage, so rate limits are shared across horizontally scaled backend replicas.
+- Additional Redis abuse buckets now cover auth challenge, auth submit, account creation, post creation/update, comment creation, message send/reply, and attachment upload-url creation.
+- Abuse buckets fail closed in production when Redis is unavailable unless `ABUSE_LIMIT_FAIL_OPEN=true` is explicitly set.
+- Scale compose resets host-published Mongo, Redis, MinIO, and mCaptcha ports; only the backend load balancer and frontend are published.
+- Federation server registry rejects local/private/non-HTTP origins before future discovery code can fetch them.
 
 ## Executive Summary
 
@@ -65,8 +78,8 @@ Highest-risk classes:
 - Evidence: challenge is JWT-only, public, and proof-of-work difficulty defaults to `3`; global throttler existed but was not wired before the review pass.
 - Attack: request many challenges, solve low-difficulty PoW cheaply, submit many new public keys.
 - Impact: unbounded `auths` and `users` growth, username collision retries, Mongo write load, JWT signing load.
-- Current mitigation: route-level throttle on challenge, global throttler now wired, mCaptcha optional.
-- Residual risk: throttling is process-local unless replaced with Redis-backed throttling.
+- Current mitigation: route-level throttle, Redis global throttle, and Redis abuse buckets for challenge, submit, and account-create.
+- Residual risk: proof-of-work difficulty is static and mCaptcha is optional unless configured.
 
 `AUTH-002` mCaptcha can be bypassed by configuration omission
 
@@ -95,14 +108,29 @@ Highest-risk classes:
 - Attack: probe known or leaked public keys to determine account existence.
 - Impact: pseudonym correlation.
 
+`AUTH-006` account swarm through distributed IPs
+
+- Surface: `POST /auth`.
+- Attack: attacker rotates IPs/proxies and submits many fresh public keys, each solving low-difficulty PoW.
+- Current mitigation: per-IP/user-agent/public-key account-create bucket.
+- Residual risk: no reputation system, subnet quota, or mandatory CAPTCHA for high-risk deployments.
+
+`AUTH-007` refresh token theft has no server-side kill switch
+
+- Surface: `GET /auth/refresh`, HttpOnly refresh cookie.
+- Attack: malware/browser compromise or same-site weakness steals/uses refresh token until expiry.
+- Impact: session persistence after user loses control.
+- Required defense: persisted session table with refresh token id, rotation, reuse detection, and revocation.
+
 ### 2. Authorization And Access Control
 
-`AUTHZ-001` Attachment base CRUD is public
+`AUTHZ-001` Attachment base CRUD was public
 
 - Surface: `POST /attachments`, `GET /attachments`, `GET /attachments/:id`, `PUT /attachments/:id`, `DELETE /attachments/:id`.
 - Evidence: only upload-url, confirm, download, and by-key delete routes have `JwtAuthGuard`.
 - Attack: create fake attachment records, enumerate attachment metadata, mutate records, delete records by id.
 - Impact: data integrity loss, content reference breakage, privacy leak.
+- Status: fixed for current code paths; keep e2e coverage to prevent regression.
 
 `AUTHZ-002` Subreddit member controller likely permits unsafe status changes
 
@@ -184,6 +212,14 @@ Highest-risk classes:
 - Evidence: default throttler storage is in-process.
 - Attack: distribute requests across replicas to multiply rate limits.
 - Impact: scaling weakens protection.
+- Status: fixed for global throttling and new abuse buckets through Redis-backed state.
+
+`DOS-002B` Redis outage disables abuse controls
+
+- Surface: Redis-backed throttling and abuse buckets.
+- Attack: attacker or outage disrupts Redis; if limiter fails open, expensive write routes become unlimited.
+- Current mitigation: route-specific abuse limiter fails closed in production by default.
+- Residual risk: global throttler behavior during Redis failure should be load-tested before production.
 
 `DOS-003` Unbounded public list queries
 
@@ -217,6 +253,20 @@ Highest-risk classes:
 - Surface: attachment cleanup service.
 - Attack: produce many orphan/unconfirmed records to make scheduled cleanup scan/delete repeatedly.
 - Impact: background load and storage churn.
+
+`DOS-008` expensive regex/search patterns
+
+- Surface: search/list filters.
+- Attack: submit pathological regex-like input where services build Mongo regexes directly.
+- Impact: CPU-heavy Mongo scans and latency spikes.
+- Current mitigation: subreddit/post suggestion escapes user terms; award type search now escapes and truncates input.
+
+`DOS-009` federation registry pollution
+
+- Surface: admin federation server registry.
+- Attack: store thousands of bad/private origins or origins with credentials/path confusion before federation discovery exists.
+- Current mitigation: admin-only access plus base URL validation for scheme, credentials, origin-only shape, localhost, and private IP literals.
+- Residual risk: DNS rebinding defense must be added when outbound discovery is implemented.
 
 ### 5. File Upload And Media Abuse
 
@@ -322,6 +372,20 @@ Highest-risk classes:
 - Attack: broken UX may encourage disabling signature checks later.
 - Impact: pressure toward unsafe backend behavior.
 
+`FE-005` markdown rendering XSS
+
+- Surface: markdown/rich post rendering.
+- Attack: malicious markdown or embedded HTML/script URLs executes in the app origin.
+- Impact: private key theft, JWT theft from localStorage, signed-content forgery.
+- Required defense: strict markdown sanitizer, URL protocol allowlist, CSP, and regression tests with hostile markdown fixtures.
+
+`FE-006` dependency supply-chain key theft
+
+- Surface: browser crypto, markdown editor, UI dependencies.
+- Attack: compromised dependency exfiltrates sessionStorage private key during signing.
+- Impact: permanent pseudonymous identity compromise.
+- Required defense: lockfile review, dependency allowlist, Subresource/CSP restrictions where possible, and key handling migration to non-exportable WebCrypto when feasible.
+
 ### 9. Docker And Deployment
 
 `OPS-001` Mongo and Redis exposed on host ports in default compose
@@ -329,6 +393,7 @@ Highest-risk classes:
 - Surface: `docker-compose.yml`.
 - Attack: local network or misconfigured host exposes DB/cache.
 - Impact: total data compromise.
+- Status: dev compose still publishes ports for local work; scale compose resets internal service ports and publishes only frontend plus backend load balancer.
 
 `OPS-002` default MinIO credentials
 
@@ -348,6 +413,7 @@ Highest-risk classes:
 - Evidence: if `FRONTEND_ORIGIN` is unset, CORS origin is `true`.
 - Attack: malicious sites can call APIs from browsers where tokens are present.
 - Impact: cross-site API abuse.
+- Status: production validation now requires `FRONTEND_ORIGIN`; dev remains permissive.
 
 `OPS-005` health endpoints can leak topology if expanded carelessly
 
@@ -408,27 +474,53 @@ Federation is not implemented yet, but these are the expected abuse cases that m
 - Attack: future-dated or old activities avoid replay windows.
 - Impact: delayed spam, duplicate events, moderation confusion.
 
+`FED-011` DNS rebinding after registry approval
+
+- Attack: remote host resolves to a public IP during approval, then later resolves to loopback/private IP during fetch.
+- Impact: SSRF despite initial URL validation.
+- Required defense: resolve and pin IPs per fetch, reject private ranges after DNS resolution, cap redirects, and recheck every redirect target.
+
+`FED-012` remote fanout amplification
+
+- Attack: one accepted remote event triggers notifications, indexing, websocket pushes, and remote re-delivery to other peers.
+- Impact: small remote request creates large local work.
+- Required defense: per-remote quotas, fanout caps, async queues with backpressure, and quarantine mode.
+
+`FED-013` identity collision across servers
+
+- Attack: remote user/community names collide with local names or trusted remote names.
+- Impact: impersonation and moderation confusion.
+- Required defense: render remote principals with server-qualified identity and store canonical actor ids.
+
+`FED-014` signature downgrade/version confusion
+
+- Attack: remote sends old activity version with weaker canonicalization or missing fields.
+- Impact: bypass of newer verification rules.
+- Required defense: versioned envelope schema, strict minimum accepted version, and test vectors.
+
 ## Prioritized Risk Table
 
 | ID | Severity | Area | Status |
 | --- | --- | --- | --- |
-| AUTHZ-001 | Critical | attachments | open |
+| AUTHZ-001 | Critical | attachments | fixed; keep e2e regression |
 | AUDIT-002 | Critical | moderation/audit | open |
 | AUDIT-003 | Critical | moderation signatures | open |
-| DOS-002 | High | scaling/rate limit | open |
+| DOS-002 | High | scaling/rate limit | fixed for implemented limits |
 | FILE-002 | High | uploads | open |
-| OPS-004 | High | CORS | open |
+| OPS-004 | High | CORS | fixed in production validation |
 | FED-003 | High | federation | design blocker |
 | FED-004 | High | federation | design blocker |
 | FE-001 | High | frontend keys | open |
 | AUTH-002 | Medium | auth config | open |
+| AUTH-006 | Medium | account creation | partially mitigated |
+| FE-005 | High | markdown/XSS | open |
 
 ## Red-Team Conclusion
 
 The platform should not be exposed to hostile users until these are addressed:
 
-- Lock down attachment CRUD.
-- Make rate limiting shared across replicas.
+- Keep attachment CRUD locked down and covered by e2e tests.
+- Keep rate limiting shared across replicas and tune route-specific abuse buckets.
 - Require persistent server signing keys and explicit CORS origins in production.
 - Replace mutable moderation logs with append-only signed moderation events.
 - Add a federation security gate before writing federation code.

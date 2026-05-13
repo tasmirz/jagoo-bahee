@@ -14,11 +14,15 @@ import {
 } from '@nestjs/common'
 import { AttachmentsService } from './attachments.service'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
+import { AbuseRateLimiterService } from 'src/common/abuse-rate-limiter.service'
 
 @Controller('attachments')
 @UseGuards(JwtAuthGuard)
 export class AttachmentsController {
-  constructor(private readonly service: AttachmentsService) {}
+  constructor(
+    private readonly service: AttachmentsService,
+    private readonly abuseLimiter: AbuseRateLimiterService
+  ) {}
 
   @Post()
   async create(@Body() body: any, @Req() req: any) {
@@ -34,6 +38,7 @@ export class AttachmentsController {
   async createUploadUrl(@Body() body: any, @Req() req: any) {
     // enforce owner from JWT, ignore client-supplied ownerId
     body.ownerId = req.user?.id
+    await this.abuseLimiter.hit('attachment-upload-url', this.abuseLimiter.tracker(req, String(req.user?.id)), Number(process.env.ATTACHMENT_UPLOAD_URL_LIMIT || 60), Number(process.env.ATTACHMENT_UPLOAD_URL_WINDOW_MS || 60 * 60 * 1000))
     return this.service.createUploadUrl(body)
   }
 
@@ -41,6 +46,7 @@ export class AttachmentsController {
   @Post('presigned-upload')
   async presignedUpload(@Body() body: any, @Req() req: any) {
     body.ownerId = req.user?.id
+    await this.abuseLimiter.hit('attachment-upload-url', this.abuseLimiter.tracker(req, String(req.user?.id)), Number(process.env.ATTACHMENT_UPLOAD_URL_LIMIT || 60), Number(process.env.ATTACHMENT_UPLOAD_URL_WINDOW_MS || 60 * 60 * 1000))
     return this.service.createUploadUrl(body)
   }
 

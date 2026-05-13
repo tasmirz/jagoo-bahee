@@ -11,6 +11,8 @@ import { InjectModel } from '@nestjs/mongoose'
 import { Model, Types } from 'mongoose'
 import { jwtConfig } from 'src/config/jwt.config'
 import { RedisService } from 'src/redis/redis.service'
+import { AbuseRateLimiterService } from 'src/common/abuse-rate-limiter.service'
+import { Request } from 'express'
 
 @Injectable()
 export class AuthService {
@@ -19,10 +21,17 @@ export class AuthService {
     @InjectModel(Auth.name)
     private authModel: Model<Auth>,
     private usersService: UsersService,
-    private readonly redis: RedisService
+    private readonly redis: RedisService,
+    private readonly abuseLimiter: AbuseRateLimiterService
   ) {}
 
-  challenge(): string {
+  async challenge(req?: Request): Promise<string> {
+    await this.abuseLimiter.hit(
+      'auth-challenge',
+      this.abuseLimiter.tracker(req),
+      Number(process.env.AUTH_CHALLENGE_LIMIT || 20),
+      Number(process.env.AUTH_CHALLENGE_WINDOW_MS || 5 * 60 * 1000)
+    )
     return this.jwtService.sign(
       { 
         jti: randomBytes(16).toString('hex'),
@@ -33,10 +42,17 @@ export class AuthService {
     )
   }
 
-  async authenticate(auth: AuthenticationDto): Promise<{ accessToken: string; refreshToken: string }> {
+  async authenticate(auth: AuthenticationDto, req?: Request): Promise<{ accessToken: string; refreshToken: string }> {
     // DTO transforms produce Uint8Array; convert to Buffer for mongoose and tiny-secp256k1
     const publicKey = Buffer.from(auth.publicKey as any)
     const signedData = Buffer.from(auth.signedData as any)
+    const publicKeyFingerprint = createHash('sha256').update(publicKey).digest('hex')
+    await this.abuseLimiter.hit(
+      'auth-submit',
+      this.abuseLimiter.tracker(req, undefined, publicKeyFingerprint),
+      Number(process.env.AUTH_SUBMIT_LIMIT || 15),
+      Number(process.env.AUTH_SUBMIT_WINDOW_MS || 10 * 60 * 1000)
+    )
     const mcaptchaUrl = (process.env.MCAPTCHA_URL || '').replace(/\/$/, '')
     const mcaptchaSecret = process.env.MCAPTCHA_SECRET
     const mcaptchaSiteKey = process.env.MCAPTCHA_SITEKEY
@@ -96,6 +112,12 @@ export class AuthService {
     // Mongoose stores buffers as Buffer; query by publicKey directly
     let authDoc = await this.authModel.findOne({ publicKey }).exec()
     if (authDoc == null) {
+      await this.abuseLimiter.hit(
+        'account-create',
+        this.abuseLimiter.tracker(req, undefined, publicKeyFingerprint),
+        Number(process.env.ACCOUNT_CREATE_LIMIT || 5),
+        Number(process.env.ACCOUNT_CREATE_WINDOW_MS || 60 * 60 * 1000)
+      )
       authDoc = await this.authModel.create({ publicKey })
     }
 

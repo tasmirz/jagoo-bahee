@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common'
 import { InjectConnection } from '@nestjs/mongoose'
 import { Connection, Types } from 'mongoose'
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard'
@@ -65,9 +65,10 @@ export class AdminController {
   @Post('federation/servers')
   async addFederationServer(@Req() req: any, @Body() body: { name?: string; baseUrl: string; publicKey?: string; status?: string }) {
     await this.assertAdmin(req)
+    const baseUrl = validateFederationBaseUrl(body.baseUrl)
     const doc = {
-      name: body.name || body.baseUrl,
-      baseUrl: body.baseUrl?.replace(/\/$/, ''),
+      name: body.name || baseUrl,
+      baseUrl,
       publicKey: body.publicKey,
       status: body.status || 'pending',
       createdAt: new Date(),
@@ -80,9 +81,11 @@ export class AdminController {
   @Patch('federation/servers/:id')
   async updateFederationServer(@Req() req: any, @Param('id') id: string, @Body() body: any): Promise<any> {
     await this.assertAdmin(req)
+    const update = { ...body }
+    if (update.baseUrl) update.baseUrl = validateFederationBaseUrl(update.baseUrl)
     await this.connection.collection('federationservers').updateOne(
       { _id: new Types.ObjectId(id) },
-      { $set: { ...body, updatedAt: new Date() } }
+      { $set: { ...update, updatedAt: new Date() } }
     )
     return this.connection.collection('federationservers').findOne({ _id: new Types.ObjectId(id) })
   }
@@ -94,4 +97,36 @@ export class AdminController {
     const storedFlags = BigInt(auth?.abac || 0)
     if ((storedFlags & GLOBAL_ADMIN_BIT) === BigInt(0)) throw new ForbiddenException('Global admin required')
   }
+}
+
+function validateFederationBaseUrl(raw: string) {
+  let parsed: URL
+  try {
+    parsed = new URL(String(raw || '').trim())
+  } catch {
+    throw new BadRequestException('Invalid federation baseUrl')
+  }
+  if (!['http:', 'https:'].includes(parsed.protocol)) throw new BadRequestException('Federation baseUrl must use http or https')
+  if (parsed.username || parsed.password) throw new BadRequestException('Federation baseUrl must not contain credentials')
+  if (parsed.pathname !== '/' || parsed.search || parsed.hash) throw new BadRequestException('Federation baseUrl must be an origin only')
+
+  const hostname = parsed.hostname.toLowerCase()
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) throw new BadRequestException('Local federation baseUrl is not allowed')
+  if (isPrivateHost(hostname)) throw new BadRequestException('Private federation baseUrl is not allowed')
+
+  return parsed.origin
+}
+
+function isPrivateHost(hostname: string) {
+  const ipv4 = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+  if (ipv4) {
+    const parts = ipv4.slice(1).map(Number)
+    if (parts.some((part) => part < 0 || part > 255)) return true
+    const [a, b] = parts
+    return a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a === 0
+  }
+
+  if (hostname === '::1' || hostname === '[::1]') return true
+  if (hostname.startsWith('fc') || hostname.startsWith('fd') || hostname.startsWith('fe80')) return true
+  return false
 }

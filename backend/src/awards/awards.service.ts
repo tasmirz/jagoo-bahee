@@ -31,7 +31,7 @@ export class AwardsService {
 
   async listAwardTypes(query: any = {}) {
     const filter: any = {}
-    if (query.name) filter.name = new RegExp(query.name, 'i')
+    if (query.name) filter.name = new RegExp(escapeRegExp(String(query.name).slice(0, 80)), 'i')
     if (typeof query.isActive === 'boolean') filter.isActive = query.isActive
 
     const limit = query.limit && query.limit > 0 && query.limit <= 100 ? query.limit : 20
@@ -127,4 +127,8 @@ export class AwardsService {
       .limit(limit)
       .lean()
   }
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

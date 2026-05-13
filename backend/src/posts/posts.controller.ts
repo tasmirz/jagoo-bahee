@@ -18,6 +18,7 @@ import { SubredditRbacGuard } from 'src/subreddits/guards/subreddit-rbac.guard'
 import { CreatePostDto, UpdatePostDto, VotePostDto } from './dto'
 import { PostModBaseDto, PostModRemoveDto } from './dto/moderate-post.dto'
 import { CommentsService } from 'src/comments/comments.service'
+import { AbuseRateLimiterService } from 'src/common/abuse-rate-limiter.service'
 
 import { ApiTags } from '@nestjs/swagger'
 
@@ -26,15 +27,17 @@ import { ApiTags } from '@nestjs/swagger'
 export class PostsController {
   constructor(
     private readonly posts: PostsService,
-    private readonly commentsService: CommentsService
+    private readonly commentsService: CommentsService,
+    private readonly abuseLimiter: AbuseRateLimiterService
   ) {}
 
   @UseGuards(JwtAuthGuard)
   @HttpPost()
-  create(@Req() req: any, @Body() body: CreatePostDto) {
+  async create(@Req() req: any, @Body() body: CreatePostDto) {
     if (body.authorId && String(body.authorId) !== String(req.user.id)) {
       throw new ForbiddenException('Cannot impersonate another user');
     }
+    await this.abuseLimiter.hit('post-create', this.abuseLimiter.tracker(req, String(req.user.id)), Number(process.env.POST_CREATE_LIMIT || 30), Number(process.env.POST_CREATE_WINDOW_MS || 60 * 60 * 1000))
     return this.posts.create({ ...(body as any), authorId: String(req.user.id) })
   }
 
@@ -68,10 +71,11 @@ export class PostsController {
 
   @UseGuards(JwtAuthGuard)
   @Patch(':id')
-  update(@Req() req: any, @Param('id') id: string, @Body() body: UpdatePostDto) {
+  async update(@Req() req: any, @Param('id') id: string, @Body() body: UpdatePostDto) {
     if (body.authorId && String(body.authorId) !== String(req.user.id)) {
       throw new ForbiddenException('Cannot impersonate another user');
     }
+    await this.abuseLimiter.hit('post-update', this.abuseLimiter.tracker(req, String(req.user.id), id), Number(process.env.POST_UPDATE_LIMIT || 120), Number(process.env.POST_UPDATE_WINDOW_MS || 60 * 60 * 1000))
     return this.posts.updateByAuthor(id, String(req.user.id), body as any)
   }
 

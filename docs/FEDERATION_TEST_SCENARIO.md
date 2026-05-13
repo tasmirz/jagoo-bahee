@@ -11,11 +11,13 @@ This is the security-first scenario to use when federation is implemented. The c
 
 ## Local Topology
 
+For fast local testing you can run both federation nodes against the same MongoDB server with different database names. Do not share Redis, MinIO buckets, JWT secrets, or server signing keys between nodes; those must remain isolated so replay/rate-limit/key tests are meaningful.
+
 Node A:
 
 - API: `http://localhost:6100`
 - frontend: `http://localhost:6101`
-- Mongo: `mongo-a`
+- Mongo: `mongodb://localhost:27018/jagoo-bahee-node-a`
 - Redis: `redis-a`
 - MinIO: `minio-a`
 - `SERVER_PRIVATE_KEY_HEX=A...`
@@ -24,7 +26,7 @@ Node B:
 
 - API: `http://localhost:6200`
 - frontend: `http://localhost:6201`
-- Mongo: `mongo-b`
+- Mongo: `mongodb://localhost:27018/jagoo-bahee-node-b`
 - Redis: `redis-b`
 - MinIO: `minio-b`
 - `SERVER_PRIVATE_KEY_HEX=B...`
@@ -162,7 +164,16 @@ Expected:
 - `/health/ready` succeeds through the load balancer.
 - Server key id is identical regardless of replica.
 - Replayed federation activity is rejected consistently by all replicas.
-- Rate limits are not multiplied by replica count once Redis throttler storage is implemented.
+- Rate limits are not multiplied by replica count.
+- Mongo, Redis, MinIO, and mCaptcha are not published on host ports by the scale override.
+
+Static validation:
+
+```bash
+JWT_SECRET=dev-a-jwt \
+SERVER_PRIVATE_KEY_HEX=<node_a_64_hex_private_key> \
+docker compose -f docker-compose.yml -f docker-compose.scale.yml config
+```
 
 ## Test Data To Keep
 

@@ -29,14 +29,16 @@ Implementation notes:
 ## Phase 1: Shared Rate Limits And Abuse Controls
 
 - [x] Replace in-memory throttling with Redis-backed throttling.
-- [ ] Add route-specific limits:
-  - [ ] `/auth/challenge`: IP + subnet + user-agent bucket.
-  - [ ] `/auth`: public key + IP bucket.
-  - [ ] `/posts`, `/comments`, `/messages`: actor + IP bucket.
-  - [ ] `/attachments/upload-url`: actor + storage quota bucket.
+- [x] Add route-specific limits:
+  - [x] `/auth/challenge`: IP + user-agent bucket.
+  - [x] `/auth`: public key + IP + user-agent bucket.
+  - [x] `/posts`, `/comments`, `/messages`: actor + IP + user-agent bucket.
+  - [x] `/attachments/upload-url`: actor + IP + user-agent bucket.
   - [ ] future `/federation/inbox`: remote server id + IP bucket.
-- [ ] Add account creation quotas per IP/subnet.
+- [x] Add account creation quotas per IP/user-agent/public-key.
+- [ ] Add subnet-aware account creation quotas for deployments behind trusted proxies.
 - [x] Persist used challenge ids until expiry.
+- [x] Fail route-specific abuse buckets closed in production if Redis is unavailable.
 - [ ] Add proof-of-work difficulty controls by abuse level.
 
 Partial implementation notes:
@@ -44,6 +46,8 @@ Partial implementation notes:
 - Global throttling is Redis-backed and horizontally safe.
 - Used challenge IDs are persisted through Redis `setIfAbsent`.
 - Route-specific buckets and account swarm quotas are not implemented yet.
+- Route-specific buckets are implemented by `AbuseRateLimiterService`.
+- Subnet buckets, adaptive difficulty, and federation inbox buckets remain open.
 
 Acceptance:
 
@@ -153,7 +157,8 @@ Before implementing federation:
 
 - [ ] Define canonical JSON specification and test vectors.
 - [ ] Define server identity document under `/.well-known/jagoo-bahee`.
-- [ ] Add remote server registry with explicit allow/block states.
+- [x] Add admin-only remote server registry with explicit status field.
+- [x] Reject local/private/non-HTTP federation registry URLs before future discovery.
 - [ ] Add SSRF protection for discovery:
   - [ ] block private IP ranges,
   - [ ] block link-local ranges,
@@ -168,7 +173,8 @@ Before implementing federation:
 Partial implementation notes:
 
 - Admin-only federation server registry CRUD exists under `/admin/federation/servers`.
-- The public federation protocol, discovery, inbox/outbox, SSRF protections, replay table, and canonical test vectors are not implemented.
+- Admin registry URL validation blocks credentials, paths, localhost, and private IP literals.
+- The public federation protocol, DNS resolution checks, discovery fetcher, inbox/outbox, replay table, and canonical test vectors are not implemented.
 
 Acceptance:
 
@@ -193,12 +199,13 @@ Required before production:
 - [ ] Shared persistent `SERVER_PRIVATE_KEY_HEX` across all replicas.
 - [ ] Shared `JWT_SECRET` across all replicas.
 - [ ] Object storage with quotas/lifecycle policies.
-- [ ] Disable host-published Mongo/Redis/MinIO ports in production.
+- [x] Disable host-published Mongo/Redis/MinIO/mCaptcha ports in the horizontal scale override.
 
 Implementation notes:
 
 - Scaling scaffolding and Redis-backed rate limiting are done.
 - The checked compose command requires shared `JWT_SECRET` and `SERVER_PRIVATE_KEY_HEX`, but production secret management is still an operator requirement, so those remain unchecked.
+- `docker-compose.scale.yml` resets database/cache/object-storage/admin challenge ports and only publishes HAProxy `8080` and frontend `6001`.
 
 Scale test command:
 
@@ -220,11 +227,12 @@ curl http://localhost:8080/health/ready
 - [x] Unit: declared oversized attachment upload is rejected.
 - [x] Unit: confirmed attachment proof metadata cannot be mutated.
 - [x] Unit: Redis throttler storage increments and blocks across shared storage.
+- [x] Unit: route-specific abuse limiter blocks after a shared bucket limit.
 - [x] Unit: production startup validation rejects missing production secrets.
 - [x] Unit: community permission cache/summary behavior is covered.
 - [x] Unit: server proof hash signing rejects tampered proof subjects.
 - [x] Unit: subreddit member status bit positions remain stable across merges.
-- [ ] E2E: anonymous attachment CRUD is forbidden.
+- [x] E2E: anonymous attachment CRUD is forbidden.
 - [ ] E2E: old JWT after ABAC revoke cannot perform admin actions once token revocation exists.
 - [ ] E2E: post/comment edit requires fresh signature.
 - [ ] E2E: mod action without signature is rejected.
@@ -239,5 +247,5 @@ Latest verification:
 
 - `pnpm --dir backend build` passes.
 - `pnpm --dir frontend build` passes.
-- `pnpm --dir backend test` passes: 11 suites, 23 tests.
+- `pnpm --dir backend test` passes: 12 suites, 26 tests.
 - `pnpm --dir backend test:e2e` passes: 2 suites, 4 tests.
