@@ -1,6 +1,6 @@
 # Federation Test Scenario
 
-This is the security-first scenario to use when federation is implemented. The current repository does not yet contain federation endpoints, so this document defines the required local topology, fixtures, and acceptance tests.
+This is the security-first scenario for Jagoo Bahee federation. The current repository includes the initial discovery, inbox, and outbox endpoints; this document defines the broader local topology and acceptance tests that should stay green as federation expands.
 
 ## Goals
 
@@ -41,11 +41,15 @@ Discovery:
 
 Federation:
 
-- `POST /federation/servers`
 - `GET /federation/servers`
-- `PATCH /federation/servers/:id`
 - `POST /federation/inbox`
 - `GET /federation/outbox`
+
+Admin federation registry:
+
+- `POST /admin/federation/servers`
+- `PATCH /admin/federation/servers/:id`
+- `DELETE /admin/federation/servers/:id`
 
 ## Required Activity Envelope
 
@@ -186,7 +190,6 @@ docker compose -f docker-compose.yml -f docker-compose.scale.yml config
 
 ## Blockers Before Running This End-To-End
 
-- Federation module does not exist yet.
-- Shared canonical JSON implementation does not exist yet.
-- Public federation inbox/outbox replay storage is not implemented yet.
+- Discovery fetcher and remote registration handshake are not implemented yet.
+- Remote key rotation policy is not implemented yet.
 - Third-party receipt upload service does not exist yet.

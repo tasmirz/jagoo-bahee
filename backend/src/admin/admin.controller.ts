@@ -231,7 +231,8 @@ function sanitizeRateLimits(input: Record<string, { limit?: number; windowMs?: n
     'comment-create',
     'message-send',
     'message-reply',
-    'attachment-upload-url'
+    'attachment-upload-url',
+    'federation-inbox'
   ])
   return Object.entries(input).reduce((acc: Record<string, { limit: number; windowMs: number }>, [scope, value]) => {
     if (!allowed.has(scope)) return acc

@@ -4,15 +4,18 @@ import { createHash } from 'crypto'
 import { RedisService } from 'src/redis/redis.service'
 import { InjectConnection } from '@nestjs/mongoose'
 import { Connection } from 'mongoose'
+import { ApiCreditsService } from './api-credits.service'
 
 @Injectable()
 export class AbuseRateLimiterService {
   constructor(
     private readonly redis: RedisService,
-    @InjectConnection() private readonly connection: Connection
+    @InjectConnection() private readonly connection: Connection,
+    private readonly apiCredits: ApiCreditsService
   ) {}
 
   async hit(scope: string, subject: string, limit: number, windowMs: number): Promise<void> {
+    await this.apiCredits.consume(subject, Number(process.env.API_CREDIT_REQUEST_COST || 1))
     const override = await this.getScopeOverride(scope)
     if (override) {
       limit = override.limit

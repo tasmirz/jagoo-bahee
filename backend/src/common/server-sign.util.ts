@@ -39,6 +39,17 @@ export function verifyServerSignature(payload: string, signatureB64: string) {
   }
 }
 
+export function verifyServerSignatureWithPublicKey(payload: string, signatureB64: string, publicKeyB64: string) {
+  try {
+    const remotePub = Buffer.from(publicKeyB64, 'base64')
+    const sig = Buffer.from(signatureB64, 'base64')
+    const hash = createHash('sha256').update(payload).digest()
+    return tinysecp.verify(hash, remotePub, sig)
+  } catch (e) {
+    return false
+  }
+}
+
 /**
  * Create a verifiable proof hash that users can store as evidence of post creation.
  * This combines userId + postId + server public key into a hash that can be verified later.

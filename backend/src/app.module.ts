@@ -20,6 +20,7 @@ import { RedisModule } from './redis/redis.module'
 import { RedisThrottlerStorage } from './redis/redis-throttler.storage'
 import { AdminModule } from './admin/admin.module'
 import { RolesModule } from './roles/roles.module'
+import { FederationModule } from './federation/federation.module'
 
 @Module({
   imports: [
@@ -63,7 +64,8 @@ import { RolesModule } from './roles/roles.module'
     MessagesModule,
     RedisModule,
     AdminModule,
-    RolesModule
+    RolesModule,
+    FederationModule
   ],
   controllers: [AppController],
   providers: [

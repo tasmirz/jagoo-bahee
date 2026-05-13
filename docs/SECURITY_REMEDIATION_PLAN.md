@@ -34,23 +34,25 @@ Implementation notes:
   - [x] `/auth`: public key + IP + user-agent bucket.
   - [x] `/posts`, `/comments`, `/messages`: actor + IP + user-agent bucket.
   - [x] `/attachments/upload-url`: actor + IP + user-agent bucket.
-  - [ ] future `/federation/inbox`: remote server id + IP bucket.
+  - [x] `/federation/inbox`: remote server id + IP + user-agent bucket.
 - [x] Add account creation quotas per IP/user-agent/public-key.
 - [ ] Add subnet-aware account creation quotas for deployments behind trusted proxies.
 - [x] Persist used challenge ids until expiry.
 - [x] Fail route-specific abuse buckets closed in production if Redis is unavailable.
-- [ ] Add proof-of-work difficulty controls by abuse level.
+- [x] Add API credit buckets with automatic refill for current deployments.
+- [x] Add computational challenge/redeem interface for future proof-earned API credits.
+- [ ] Add adaptive proof-of-work difficulty controls by abuse level.
 
 Partial implementation notes:
 
 - Global throttling is Redis-backed and horizontally safe.
 - Used challenge IDs are persisted through Redis `setIfAbsent`.
-- Route-specific buckets and account swarm quotas are not implemented yet.
+- Subnet-aware account swarm quotas are not implemented yet.
 - Route-specific buckets are implemented by `AbuseRateLimiterService`.
 - Server admins can tune route-specific limits from `/admin`; settings are persisted in MongoDB and cached in Redis.
 - Server admins can close new registrations during account-creation DoS.
 - Server admins can block individual IPs; runtime checks fall back to MongoDB if Redis has lost the cache entry.
-- Subnet buckets, adaptive difficulty, and federation inbox buckets remain open.
+- Subnet buckets and adaptive proof-of-work difficulty remain open.
 
 Acceptance:
 
@@ -158,8 +160,8 @@ Acceptance:
 
 Before implementing federation:
 
-- [ ] Define canonical JSON specification and test vectors.
-- [ ] Define server identity document under `/.well-known/jagoo-bahee`.
+- [x] Define canonical JSON implementation for federation activity envelopes.
+- [x] Define server identity document under `/.well-known/jagoo-bahee`.
 - [x] Add admin-only remote server registry with explicit status field.
 - [x] Reject local/private/non-HTTP federation registry URLs before future discovery.
 - [ ] Add SSRF protection for discovery:
@@ -168,16 +170,18 @@ Before implementing federation:
   - [ ] block non-HTTP(S),
   - [ ] cap redirects,
   - [ ] cap response size.
-- [ ] Add activity idempotency table.
-- [ ] Add replay window and clock skew rules.
+- [x] Add activity idempotency storage for inbox replay handling.
+- [x] Add replay window and clock skew rules for inbox activities.
 - [ ] Add remote key rotation policy.
-- [ ] Add federation inbox body size and rate limits.
+- [x] Add federation inbox body size and route-specific rate limits.
 
 Partial implementation notes:
 
 - Admin-only federation server registry CRUD exists under `/admin/federation/servers`.
 - Admin registry URL validation blocks credentials, paths, localhost, and private IP literals.
-- The public federation protocol, DNS resolution checks, discovery fetcher, inbox/outbox, replay table, and canonical test vectors are not implemented.
+- Public discovery, nodeinfo, approved-server listing, inbox, and outbox endpoints exist.
+- Inbox verifies registered approved server identity, key id, object hash, signature, timestamp window, and replay idempotency.
+- DNS resolution checks, discovery fetcher, and remote key rotation remain open.
 
 Acceptance:
 
@@ -244,6 +248,7 @@ curl http://localhost:8080/health/ready
 - [x] Unit: confirmed attachment proof metadata cannot be mutated.
 - [x] Unit: Redis throttler storage increments and blocks across shared storage.
 - [x] Unit: route-specific abuse limiter blocks after a shared bucket limit.
+- [x] Unit: API credits auto-refill and computational challenge redemption.
 - [x] Unit: production startup validation rejects missing production secrets.
 - [x] Unit: community permission cache/summary behavior is covered.
 - [x] Unit: server proof hash signing rejects tampered proof subjects.
@@ -257,11 +262,16 @@ curl http://localhost:8080/health/ready
 - [ ] Load: account creation throttle.
 - [ ] Load: attachment upload-url throttle.
 - [ ] Federation: SSRF discovery denylist.
-- [ ] Federation: replayed activity rejected.
+- [x] Federation: discovery endpoints respond.
+- [x] Federation: signed approved activity is accepted.
+- [x] Federation: replayed activity is idempotent.
+- [x] Federation: tampered object hash is rejected.
+- [x] Federation: oversized inbox activity is rejected.
+- [x] Federation: same MongoDB server with separate databases is covered in e2e topology test.
 
 Latest verification:
 
 - `pnpm --dir backend build` passes.
 - `pnpm --dir frontend build` passes.
-- `pnpm --dir backend test` passes: 12 suites, 26 tests.
-- `pnpm --dir backend test:e2e` passes: 2 suites, 4 tests.
+- `pnpm --dir backend test` passes: 13 suites, 28 tests.
+- `pnpm --dir backend test:e2e` passes: 3 suites, 9 tests.

@@ -16,6 +16,8 @@ Resolved or partially mitigated in the current tree:
 - Additional Redis abuse buckets now cover auth challenge, auth submit, account creation, post creation/update, comment creation, message send/reply, and attachment upload-url creation.
 - Abuse buckets fail closed in production when Redis is unavailable unless `ABUSE_LIMIT_FAIL_OPEN=true` is explicitly set.
 - Server-admin controls now expose registration closure, rate-limit tuning, user bans, global role grants, federation peer status, server rules, and IP blocks.
+- Initial federation discovery/inbox/outbox endpoints exist with approved-peer signature verification, replay idempotency, inbox body limits, and a federation-specific abuse bucket.
+- API access can now be governed by auto-refilling credits; proof challenge/redeem endpoints exist for later computational credit earning.
 - Scale compose resets host-published Mongo, Redis, MinIO, and mCaptcha ports; only the backend load balancer and frontend are published.
 - Federation server registry rejects local/private/non-HTTP origins before future discovery code can fetch them.
 
@@ -430,17 +432,19 @@ Highest-risk classes:
 
 ### 10. Federation-Specific Attack Cases
 
-Federation is not implemented yet, but these are the expected abuse cases that must be designed against before adding it.
+Federation is partially implemented; these are the abuse cases that must stay constrained as discovery, delivery, and remote moderation expand.
 
 `FED-001` unsigned or weakly signed activities
 
 - Attack: remote server submits forged post/comment/moderation events.
 - Impact: remote content poisoning.
+- Current mitigation: inbox verifies object hash and server signature against approved server public key.
 
 `FED-002` replayed activities
 
 - Attack: resend old signed activities to duplicate posts, resurrect deleted content, or replay moderation.
 - Required defense: activity ids, nonce/timestamp windows, idempotency table.
+- Current mitigation: inbox stores activity ids and returns duplicate/no-op for replays.
 
 `FED-003` SSRF through remote discovery
 
@@ -451,6 +455,7 @@ Federation is not implemented yet, but these are the expected abuse cases that m
 
 - Attack: remote sends large bodies, many signatures, expensive verification payloads.
 - Impact: CPU and DB exhaustion.
+- Current mitigation: inbox requests use a dedicated remote-server/IP/user-agent abuse bucket, spend API credits, and reject payloads over `FEDERATION_INBOX_MAX_BODY_BYTES`.
 
 `FED-005` trust-on-first-use key rotation abuse
 
