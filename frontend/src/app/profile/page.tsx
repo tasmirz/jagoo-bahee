@@ -4,7 +4,6 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import backend from '@/lib/backend';
-import { getToken } from '@/lib/auth';
 import { Post, Subreddit, User } from '@/lib/types';
 
 export default function MyProfilePage() {
@@ -16,13 +15,11 @@ export default function MyProfilePage() {
   useEffect(() => {
     async function load() {
       try {
-        const token = getToken();
-        if (!token) {
+        const meRes = await backend.backendFetch('/users/me/profile');
+        if (meRes.status === 401) {
           router.push('/auth');
           return;
         }
-
-        const meRes = await backend.backendFetch('/users/me/profile');
         if (!meRes.ok) throw new Error('Failed to load profile');
 
         const me = await meRes.json();
@@ -34,6 +31,7 @@ export default function MyProfilePage() {
           setPosts(Array.isArray(postsData) ? postsData : []);
         }
       } catch (e) {
+        console.error('Failed to load profile:', e);
         setUser(null);
       } finally {
         setLoading(false);

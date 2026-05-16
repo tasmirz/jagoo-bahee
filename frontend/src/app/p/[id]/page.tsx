@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import backend from '@/lib/backend';
+import MarkdownRenderer from '@/components/MarkdownRenderer';
 import { Post, Comment, User, Subreddit } from '@/lib/types';
 import { getAuthIdFromToken, getPrivateKey, signHash, toB64 } from '@/lib/auth';
 import { sha256 } from '@/lib/crypto';
@@ -159,7 +160,7 @@ export default function SinglePostPage() {
         </div>
         <h1 className="text-2xl font-bold mb-4">{post.title}</h1>
         {post.type === 'text' && post.content && (
-          <p className="text-sm whitespace-pre-wrap">{post.content}</p>
+          <MarkdownRenderer content={post.content} />
         )}
         {post.type === 'link' && post.url && (
           <a href={post.url} target="_blank" rel="noopener noreferrer" className="text-sm text-[var(--secondary)] hover:underline block truncate">

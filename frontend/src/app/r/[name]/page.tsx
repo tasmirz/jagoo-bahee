@@ -435,7 +435,9 @@ export default function SubredditPage() {
                 </Link>
               </div>
             ) : (
-              posts.map((post) => <PostCard key={post._id} post={post} />)
+              <div className="space-y-3">
+                {posts.map((post) => <PostCard key={post._id} post={post} />)}
+              </div>
             )}
           </div>
 

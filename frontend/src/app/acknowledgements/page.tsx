@@ -225,10 +225,10 @@ export default function AcknowledgementsPage() {
     <div className="max-w-6xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+        <h1 className="text-3xl font-bold text-[var(--foreground)] mb-2">
           Proofs & Audit Trail
         </h1>
-        <p className="text-gray-600 dark:text-gray-400">
+        <p className="text-[var(--text-secondary)]">
           Your local archive of cryptographic proofs, server acknowledgements, and audit trail data.
           These persist even if content is deleted, providing permanent proof of ownership and
           comprehensive history of all server actions.
@@ -236,13 +236,13 @@ export default function AcknowledgementsPage() {
       </div>
 
       {/* Actions Bar */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-6">
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4 mb-6 shadow-sm">
         <div className="flex flex-wrap gap-4 items-center justify-between">
           <div className="flex gap-2">
             <button
               onClick={handleExport}
               disabled={acknowledgements.length === 0}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center gap-2"
+              className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:opacity-90 disabled:bg-[var(--muted)] disabled:text-[var(--text-secondary)] disabled:cursor-not-allowed transition flex items-center gap-2"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -256,7 +256,7 @@ export default function AcknowledgementsPage() {
             </button>
 
             <label
-              className={`px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition cursor-pointer flex items-center gap-2 ${
+                className={`px-4 py-2 bg-green-600 text-white rounded-lg hover:opacity-90 transition cursor-pointer flex items-center gap-2 ${
                 importing ? "opacity-50 cursor-not-allowed" : ""
               }`}
             >
@@ -282,7 +282,7 @@ export default function AcknowledgementsPage() {
             <button
               onClick={handleClearAll}
               disabled={acknowledgements.length === 0}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition flex items-center gap-2"
+              className="px-4 py-2 bg-[var(--error)] text-white rounded-lg hover:opacity-90 disabled:bg-[var(--muted)] disabled:text-[var(--text-secondary)] disabled:cursor-not-allowed transition flex items-center gap-2"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -302,8 +302,8 @@ export default function AcknowledgementsPage() {
                 onClick={() => setFilter("all")}
                 className={`px-3 py-1 rounded-lg text-sm transition ${
                   filter === "all"
-                    ? "bg-primary text-white"
-                    : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                    ? "bg-[var(--primary)] text-white"
+                    : "bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--muted-hover)]"
                 }`}
               >
                 All ({acknowledgements.length})
@@ -312,8 +312,8 @@ export default function AcknowledgementsPage() {
                 onClick={() => setFilter("post")}
                 className={`px-3 py-1 rounded-lg text-sm transition ${
                   filter === "post"
-                    ? "bg-primary text-white"
-                    : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                    ? "bg-[var(--primary)] text-white"
+                    : "bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--muted-hover)]"
                 }`}
               >
                 Posts ({acknowledgements.filter((a) => a.contentType === "post").length})
@@ -322,8 +322,8 @@ export default function AcknowledgementsPage() {
                 onClick={() => setFilter("comment")}
                 className={`px-3 py-1 rounded-lg text-sm transition ${
                   filter === "comment"
-                    ? "bg-primary text-white"
-                    : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                    ? "bg-[var(--primary)] text-white"
+                    : "bg-[var(--muted)] text-[var(--foreground)] hover:bg-[var(--muted-hover)]"
                 }`}
               >
                 Comments ({acknowledgements.filter((a) => a.contentType === "comment").length})
@@ -333,7 +333,7 @@ export default function AcknowledgementsPage() {
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as "newest" | "oldest")}
-              className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm"
+              className="px-3 py-1 border border-[var(--border)] rounded-lg bg-[var(--background)] text-[var(--foreground)] text-sm"
             >
               <option value="newest">Newest First</option>
               <option value="oldest">Oldest First</option>
@@ -344,19 +344,19 @@ export default function AcknowledgementsPage() {
 
       {/* Error Message */}
       {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg p-4 mb-6">
+        <div className="rounded-lg border border-[var(--error)] bg-[var(--error)]/10 p-4 mb-6">
           <div className="flex items-start gap-3">
-            <svg className="w-6 h-6 text-red-600 dark:text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-6 h-6 text-[var(--error)] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div className="flex-1">
-              <h3 className="text-sm font-semibold text-red-800 dark:text-red-200 mb-1">
+              <h3 className="text-sm font-semibold text-[var(--foreground)] mb-1">
                 Error Loading Acknowledgements
               </h3>
-              <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+              <p className="text-sm text-[var(--error)]">{error}</p>
               <button
                 onClick={loadAcknowledgements}
-                className="mt-2 text-sm text-red-600 dark:text-red-400 hover:underline font-medium"
+                className="mt-2 text-sm text-[var(--error)] hover:underline font-medium"
               >
                 Try Again
               </button>
@@ -368,12 +368,12 @@ export default function AcknowledgementsPage() {
       {/* Content */}
       {loading ? (
         <div className="flex justify-center items-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[var(--primary)]"></div>
         </div>
       ) : filteredAcknowledgements.length === 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-12 text-center">
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center shadow-sm">
           <svg
-            className="w-16 h-16 mx-auto mb-4 text-gray-400"
+            className="w-16 h-16 mx-auto mb-4 text-[var(--text-secondary)]"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -385,16 +385,16 @@ export default function AcknowledgementsPage() {
               d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
             />
           </svg>
-          <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+          <h3 className="text-xl font-semibold text-[var(--foreground)] mb-2">
             No Acknowledgements Yet
           </h3>
-          <p className="text-gray-600 dark:text-gray-400 mb-4">
+          <p className="text-[var(--text-secondary)] mb-4">
             Visit your posts to automatically save server acknowledgements, or import from a backup
             file.
           </p>
           <Link
             href="/"
-            className="inline-block px-6 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition"
+            className="inline-block px-6 py-2 bg-[var(--primary)] text-white rounded-lg hover:opacity-90 transition"
           >
             Go to Home
           </Link>
@@ -404,7 +404,7 @@ export default function AcknowledgementsPage() {
           {filteredAcknowledgements.map((ack) => (
             <div
               key={ack.id}
-              className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6"
+              className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-6 shadow-sm"
             >
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
@@ -418,32 +418,32 @@ export default function AcknowledgementsPage() {
                     >
                       {ack.verified ? "✓ VERIFIED" : "✗ UNVERIFIED"}
                     </span>
-                    <span className="px-2 py-1 text-xs font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                    <span className="px-2 py-1 text-xs font-semibold rounded bg-[var(--primary)]/15 text-[var(--primary)]">
                       {ack.action.toUpperCase()}
                     </span>
-                    <span className="px-2 py-1 text-xs rounded bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200">
+                    <span className="px-2 py-1 text-xs rounded bg-[var(--muted)] text-[var(--foreground)]">
                       {ack.contentType}
                     </span>
                   </div>
 
                   {ack.postTitle && (
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                    <h3 className="text-lg font-semibold text-[var(--foreground)] mb-2">
                       {ack.postTitle}
                     </h3>
                   )}
 
                   {ack.postContent && (
-                    <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-2">
+                    <p className="text-sm text-[var(--text-secondary)] line-clamp-2 mb-2">
                       {ack.postContent}
                     </p>
                   )}
 
-                  <div className="text-sm text-gray-700 dark:text-gray-300 space-y-1">
+                  <div className="text-sm text-[var(--foreground)] space-y-1">
                     <p>
                       <span className="font-medium">Content ID:</span>{" "}
                       <Link
                         href={`/posts/${ack.contentId}`}
-                        className="text-blue-600 dark:text-blue-400 hover:underline"
+                        className="text-[var(--primary)] hover:underline"
                       >
                         {ack.contentId}
                       </Link>
@@ -454,10 +454,10 @@ export default function AcknowledgementsPage() {
                     {ack.proofHash && (
                       <p>
                         <span className="font-medium">Proof Hash:</span>{" "}
-                        <code className="text-xs bg-gray-100 dark:bg-gray-700 px-1 py-0.5 rounded">
+                        <code className="text-xs bg-[var(--muted)] px-1 py-0.5 rounded">
                           {ack.proofHash.substring(0, 16)}...
                         </code>
-                        <span className="ml-2 px-2 py-0.5 text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 rounded">
+                        <span className="ml-2 px-2 py-0.5 text-xs bg-[var(--primary)]/15 text-[var(--primary)] rounded">
                           🛡️ Proof Available
                         </span>
                       </p>
@@ -479,10 +479,10 @@ export default function AcknowledgementsPage() {
                   </div>
 
                   <details className="mt-3">
-                    <summary className="cursor-pointer text-xs text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">
+                    <summary className="cursor-pointer text-xs text-[var(--text-secondary)] hover:text-[var(--foreground)]">
                       View Signatures & Proof Data
                     </summary>
-                    <div className="mt-2 space-y-1 text-xs font-mono bg-gray-50 dark:bg-gray-900 p-3 rounded">
+                    <div className="mt-2 space-y-1 text-xs font-mono bg-[var(--background)] p-3 rounded">
                       {ack.contentHash && (
                         <p className="break-all">
                           <span className="font-semibold">Content Hash:</span> {ack.contentHash}
@@ -555,17 +555,17 @@ export default function AcknowledgementsPage() {
                             </p>
                           )}
                           {verificationResults[ack.id].message && (
-                            <p className="text-sm text-gray-700 dark:text-gray-300">{verificationResults[ack.id].message}</p>
+                            <p className="text-sm text-[var(--text-secondary)]">{verificationResults[ack.id].message}</p>
                           )}
                           {verificationResults[ack.id].error && (
-                            <p className="text-sm text-red-600 dark:text-red-400">{verificationResults[ack.id].error}</p>
+                            <p className="text-sm text-[var(--error)]">{verificationResults[ack.id].error}</p>
                           )}
                           {verificationResults[ack.id].post && (
                             <div className="mt-3 text-sm space-y-1">
                               <p><span className="font-medium">Score:</span> {verificationResults[ack.id].post.score}</p>
                               <p><span className="font-medium">Comments:</span> {verificationResults[ack.id].post.commentCount}</p>
                               {verificationResults[ack.id].post.isRemoved && (
-                                <p className="text-red-600 dark:text-red-400 font-medium">⚠️ Post has been removed</p>
+                                <p className="text-[var(--error)] font-medium">⚠️ Post has been removed</p>
                               )}
                               {verificationResults[ack.id].post.isLocked && (
                                 <p className="text-orange-600 dark:text-orange-400">🔒 Post is locked</p>
@@ -582,14 +582,14 @@ export default function AcknowledgementsPage() {
                   <button
                     onClick={() => handleVerify(ack)}
                     disabled={verifying === ack.id}
-                    className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    className="px-3 py-1 text-sm bg-[var(--primary)] text-white rounded hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition"
                   >
                     {verifying === ack.id ? 'Verifying...' : 'Verify'}
                   </button>
                   {ack.proofHash && ack.proofSignature && (
                     <button
                       onClick={() => handleDownloadProof(ack)}
-                      className="px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700 transition"
+                      className="px-3 py-1 text-sm bg-[var(--muted)] text-[var(--foreground)] rounded hover:bg-[var(--muted-hover)] transition"
                       title="Download proof as JSON"
                     >
                       Download
@@ -597,7 +597,7 @@ export default function AcknowledgementsPage() {
                   )}
                   <button
                     onClick={() => handleDelete(ack.id)}
-                    className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition"
+                    className="px-3 py-1 text-sm bg-[var(--error)] text-white rounded hover:opacity-90 transition"
                   >
                     Delete
                   </button>
@@ -609,11 +609,11 @@ export default function AcknowledgementsPage() {
       )}
 
       {/* Info Box */}
-      <div className="mt-8 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-2">
+      <div className="mt-8 rounded-lg border border-[var(--border)] bg-[var(--card)] p-6">
+        <h3 className="text-lg font-semibold text-[var(--foreground)] mb-2">
           🔒 Unified Proof & Audit System
         </h3>
-        <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-2">
+        <ul className="text-sm text-[var(--text-secondary)] space-y-2">
           <li>
             • <strong>Automatic Archival:</strong> When you create posts, cryptographic proofs and
             acknowledgements are automatically saved to your browser's IndexedDB storage.

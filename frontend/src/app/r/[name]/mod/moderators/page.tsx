@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/context/AuthContext';
 import { backendFetch } from '@/lib/backend';
@@ -24,6 +24,12 @@ interface Role {
   name: string;
 }
 
+interface UserOption {
+  _id: string;
+  username: string;
+  displayName?: string;
+}
+
 export default function ModeratorsPage() {
   const { isAuthenticated } = useAuth();
   const router = useRouter();
@@ -35,25 +41,14 @@ export default function ModeratorsPage() {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState('');
+  const [userQuery, setUserQuery] = useState('');
+  const [userOptions, setUserOptions] = useState<UserOption[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState('');
-  const [subredditId, setSubredditId] = useState('');
 
-  useEffect(() => {
-    if (!isAuthenticated) {
-      router.push('/auth');
-      return;
-    }
-    fetchData();
-  }, [isAuthenticated, router, subredditName]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       // Get subreddit ID
-      const subRes = await backendFetch(`/subreddits/${subredditName}`);
-      if (subRes.ok) {
-        const subData = await subRes.json();
-        setSubredditId(subData._id);
-      }
+      await backendFetch(`/subreddits/${subredditName}`);
 
       // Fetch moderators
       const modRes = await backendFetch(`/roles/subreddit/${subredditName}/moderators`);
@@ -66,14 +61,41 @@ export default function ModeratorsPage() {
       const rolesRes = await backendFetch(`/roles/subreddit/${subredditName}`);
       if (rolesRes.ok) {
         const rolesData = await rolesRes.json();
-        setRoles(rolesData.filter((r: any) => r._id !== 'owner')); // Exclude owner role
+        setRoles((Array.isArray(rolesData) ? rolesData : []).filter((role: Role) => role._id !== 'owner')); // Exclude owner role
       }
     } catch (error) {
       console.error('Failed to fetch data:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [subredditName]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      router.push('/auth');
+      return;
+    }
+    const timer = window.setTimeout(() => void fetchData(), 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchData, isAuthenticated, router]);
+
+  useEffect(() => {
+    if (!showAddModal) return;
+    const timer = window.setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ q: userQuery.trim(), limit: '8' });
+        const res = await backendFetch(`/users?${params}`);
+        if (res.ok) {
+          const users = await res.json();
+          setUserOptions(Array.isArray(users) ? users : []);
+        }
+      } catch (error) {
+        console.error('Failed to search users:', error);
+      }
+    }, 200);
+
+    return () => window.clearTimeout(timer);
+  }, [showAddModal, userQuery]);
 
   const handleAssignRole = async () => {
     if (!selectedUserId || !selectedRoleId) {
@@ -90,6 +112,7 @@ export default function ModeratorsPage() {
         alert('✅ Role assigned successfully');
         setShowAddModal(false);
         setSelectedUserId('');
+        setUserQuery('');
         setSelectedRoleId('');
         fetchData();
       } else {
@@ -226,17 +249,38 @@ export default function ModeratorsPage() {
               
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium mb-2">User ID</label>
+                  <label className="block text-sm font-medium mb-2">User</label>
                   <input
                     type="text"
-                    value={selectedUserId}
-                    onChange={(e) => setSelectedUserId(e.target.value)}
-                    placeholder="Enter user ID"
+                    value={userQuery}
+                    onChange={(e) => {
+                      setUserQuery(e.target.value);
+                      setSelectedUserId('');
+                    }}
+                    placeholder="Search username"
                     className="w-full px-3 py-2 border border-[var(--border)] rounded-md bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
                   />
-                  <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                    You can find user IDs in the Members page
-                  </p>
+                  <div className="mt-2 max-h-44 overflow-auto rounded-md border border-[var(--border)] bg-[var(--background)]">
+                    {userOptions.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-[var(--text-secondary)]">No users found</div>
+                    ) : (
+                      userOptions.map((option) => (
+                        <button
+                          key={option._id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedUserId(option._id);
+                            setUserQuery(option.username);
+                          }}
+                          className={`block w-full px-3 py-2 text-left text-sm hover:bg-[var(--muted)] ${selectedUserId === option._id ? 'bg-[var(--muted)]' : ''}`}
+                        >
+                          <span className="font-medium">u/{option.username}</span>
+                          {option.displayName && <span className="ml-2 text-xs text-[var(--text-secondary)]">{option.displayName}</span>}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  {selectedUserId && <p className="mt-1 text-xs text-[var(--text-secondary)]">Selected user id: {selectedUserId}</p>}
                 </div>
 
                 <div>
@@ -261,6 +305,7 @@ export default function ModeratorsPage() {
                   onClick={() => {
                     setShowAddModal(false);
                     setSelectedUserId('');
+                    setUserQuery('');
                     setSelectedRoleId('');
                   }}
                   className="px-4 py-2 border border-[var(--border)] rounded-md hover:bg-[var(--muted)] transition-colors"

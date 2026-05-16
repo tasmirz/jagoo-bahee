@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronRight, ExternalLink, KeyRound, Server, ShieldCheck } from "lucide-react";
 import backend from "@/lib/backend";
-import { getPublicKey, getToken } from "@/lib/auth";
-import { applyTheme, themes } from "@/components/theme-toggle";
+import { getPublicKey } from "@/lib/auth";
+import { applyTheme, displayModes, readThemePreference, themeFamilies, writeThemePreference, type DisplayMode, type ThemeFamily } from "@/components/theme-toggle";
 
 type SettingsTab = "account" | "profile" | "privacy" | "preferences" | "notifications" | "email";
 
@@ -29,7 +29,8 @@ export default function UserSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [theme, setTheme] = useState("system");
+  const [themeFamily, setThemeFamily] = useState<ThemeFamily>("default");
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("system");
   const [homeserver, setHomeserver] = useState("http://localhost:6000");
   const [toggles, setToggles] = useState({
     matureProfile: false,
@@ -45,20 +46,20 @@ export default function UserSettingsPage() {
   useEffect(() => {
     async function load() {
       try {
-        const token = getToken();
-        if (!token) {
+        const res = await backend.backendFetch("/users/me/profile");
+        if (res.status === 401) {
           router.push("/auth");
           return;
         }
-        const res = await backend.backendFetch("/users/me/profile");
         if (res.ok) {
           const data = await res.json();
           setUsername(data.username || "");
           setBio(data.bio || "");
           setAvatarUrl(data.avatarUrl || "");
         }
-        const storedTheme = window.localStorage.getItem("jb-theme") || "system";
-        setTheme(storedTheme);
+        const storedTheme = readThemePreference();
+        setThemeFamily(storedTheme.family);
+        setDisplayMode(storedTheme.mode);
         setHomeserver(window.localStorage.getItem("jb-homeserver") || "http://localhost:6000");
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Failed to load");
@@ -91,10 +92,10 @@ export default function UserSettingsPage() {
     }
   }
 
-  function saveLocalPreference(nextTheme = theme, nextHomeserver = homeserver) {
-    window.localStorage.setItem("jb-theme", nextTheme);
+  function saveLocalPreference(nextFamily = themeFamily, nextMode = displayMode, nextHomeserver = homeserver) {
+    writeThemePreference(nextFamily, nextMode);
     window.localStorage.setItem("jb-homeserver", nextHomeserver.trim().replace(/\/$/, ""));
-    applyTheme(nextTheme);
+    applyTheme(nextFamily, nextMode);
     setSuccess("Preferences saved.");
   }
 
@@ -190,18 +191,35 @@ export default function UserSettingsPage() {
             <ToggleRow label="Autoplay media" checked={toggles.autoplay} onChange={() => setToggles((v) => ({ ...v, autoplay: !v.autoplay }))} />
             <ToggleRow label="Reduce Motion" checked={toggles.reduceMotion} onChange={() => setToggles((v) => ({ ...v, reduceMotion: !v.reduceMotion }))} />
             <SettingsHeading>Experience</SettingsHeading>
-            <div className="grid gap-3 py-3 sm:grid-cols-2">
+            <div className="grid gap-3 py-3 lg:grid-cols-3">
               <label className="grid gap-1 text-sm">
-                Display Mode
+                Select theme
                 <select
-                  value={theme}
+                  value={themeFamily}
                   onChange={(event) => {
-                    setTheme(event.target.value);
-                    saveLocalPreference(event.target.value, homeserver);
+                    const nextFamily = event.target.value as ThemeFamily;
+                    setThemeFamily(nextFamily);
+                    saveLocalPreference(nextFamily, displayMode, homeserver);
                   }}
                   className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2"
                 >
-                  {themes.map((item) => (
+                  {themeFamilies.map((item) => (
+                    <option key={item.id} value={item.id}>{item.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm">
+                Auto / dark / light
+                <select
+                  value={displayMode}
+                  onChange={(event) => {
+                    const nextMode = event.target.value as DisplayMode;
+                    setDisplayMode(nextMode);
+                    saveLocalPreference(themeFamily, nextMode, homeserver);
+                  }}
+                  className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2"
+                >
+                  {displayModes.map((item) => (
                     <option key={item.id} value={item.id}>{item.label}</option>
                   ))}
                 </select>
@@ -211,7 +229,7 @@ export default function UserSettingsPage() {
                 <input
                   value={homeserver}
                   onChange={(event) => setHomeserver(event.target.value)}
-                  onBlur={() => saveLocalPreference(theme, homeserver)}
+                  onBlur={() => saveLocalPreference(themeFamily, displayMode, homeserver)}
                   className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2"
                 />
               </label>

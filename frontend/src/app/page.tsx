@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronDown, LayoutList, Plus, SlidersHorizontal } from "lucide-react";
 import PostCard from "@/components/PostCard";
@@ -34,33 +34,6 @@ export default function HomePage() {
   const [timeRange] = useState<"day">("day");
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
-  const [joinedSubreddits, setJoinedSubreddits] = useState<string[]>([]);
-
-  useEffect(() => {
-    async function fetchJoinedSubreddits() {
-      if (!isAuthenticated) {
-        setJoinedSubreddits([]);
-        return;
-      }
-
-      try {
-        const response = await backendFetch("/users/me/subreddits");
-        if (response.ok) {
-          const data = await response.json();
-          setJoinedSubreddits(data.map((sub: { _id: string }) => sub._id));
-        }
-      } catch (err) {
-        console.error("Failed to fetch joined subreddits:", err);
-      }
-    }
-
-    fetchJoinedSubreddits();
-  }, [isAuthenticated]);
-
-  const shouldPersonalize = useMemo(
-    () => isAuthenticated && joinedSubreddits.length > 0,
-    [isAuthenticated, joinedSubreddits.length],
-  );
 
   useEffect(() => {
     async function fetchPosts() {
@@ -87,14 +60,7 @@ export default function HomePage() {
         }
 
         const data = await response.json();
-        let nextPosts = Array.isArray(data) ? data : data.data || [];
-
-        if (shouldPersonalize) {
-          nextPosts = nextPosts.filter((post: Post) => {
-            const subredditId = typeof post.subreddit === "object" ? post.subreddit?._id : String(post.subredditId);
-            return joinedSubreddits.includes(subredditId);
-          });
-        }
+        const nextPosts = Array.isArray(data) ? data : data.data || [];
 
         setPosts(nextPosts);
         setHasMore(nextPosts.length === 10);
@@ -106,7 +72,7 @@ export default function HomePage() {
     }
 
     fetchPosts();
-  }, [sortBy, timeRange, shouldPersonalize, joinedSubreddits]);
+  }, [sortBy, timeRange]);
 
   const loadPage = async (pageNum: number) => {
     try {
@@ -124,14 +90,7 @@ export default function HomePage() {
       const response = await backendFetch(`/posts?${params}`);
       if (response.ok) {
         const data = await response.json();
-        let nextPosts = Array.isArray(data) ? data : data.data || [];
-
-        if (shouldPersonalize) {
-          nextPosts = nextPosts.filter((post: Post) => {
-            const subredditId = typeof post.subreddit === "object" ? post.subreddit?._id : String(post.subredditId);
-            return joinedSubreddits.includes(subredditId);
-          });
-        }
+        const nextPosts = Array.isArray(data) ? data : data.data || [];
 
         setPosts((prev) => (pageNum === page + 1 ? [...prev, ...nextPosts] : nextPosts));
         setPage(pageNum);
@@ -235,7 +194,7 @@ export default function HomePage() {
         )}
 
         {!error && posts.length > 0 && (
-          <div className="space-y-0">
+          <div className="space-y-3">
             {posts.map((post) => (
               <PostCard key={post._id} post={post} />
             ))}
@@ -254,7 +213,7 @@ export default function HomePage() {
           <div className="reddit-side-card">
             <div className="mb-3 text-sm font-semibold">Home</div>
             <p className="text-sm text-[var(--text-secondary)]">
-              Your feed shows public posts and posts from communities you joined when you are signed in.
+              Your feed shows all public posts. Sort the feed or explore communities to narrow what you see.
             </p>
             <Link href="/posts/create" className="reddit-side-action-strong mt-4">
               <Plus size={16} />

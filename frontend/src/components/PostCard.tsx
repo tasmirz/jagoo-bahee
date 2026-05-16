@@ -346,7 +346,7 @@ export default function PostCard({ post }: PostCardProps) {
     }
 
     verify();
-  }, [post._id, post.authorId, post.author?._id, post.contentHash, post.userSignature, post.type, post.title, post.content, post.url, post.attachmentIds, post.flairText, post.subreddit, post.subredditId]);
+  }, [post._id, post.authorId, post.author?._id, post.contentHash, post.userSignature, post.type, post.title, post.content, post.url, post.attachmentIds, post.flairText, post.subreddit, post.subredditId, post.poll]);
 
   const timeAgo = (date: string) => {
     const seconds = Math.floor((new Date().getTime() - new Date(date).getTime()) / 1000);
@@ -370,12 +370,12 @@ export default function PostCard({ post }: PostCardProps) {
   };
 
   return (
-    <div className={`bg-[var(--card)] border rounded-md hover:border-[var(--primary)] transition-colors ${
+    <article className={`bg-[var(--card)] border rounded-md hover:border-[var(--primary)] transition-colors ${
       verified === false 
         ? 'border-[var(--border)]' 
         : 'border-[var(--border)]'
     }`}>
-      <div className="flex gap-2 p-3">
+      <div className="flex gap-3 p-4">
         {/* Vote Buttons */}
         <VoteButtons
           targetId={post._id}
@@ -433,7 +433,7 @@ export default function PostCard({ post }: PostCardProps) {
 
           {/* Title */}
           <Link href={`/posts/${post._id}`} className="block group">
-            <h3 className="text-lg font-semibold text-[var(--foreground)] group-hover:text-[var(--primary)] transition-colors line-clamp-2">
+            <h3 className="text-lg font-semibold leading-snug text-[var(--foreground)] group-hover:text-[var(--primary)] transition-colors line-clamp-2">
               {post.title}
             </h3>
           </Link>
@@ -446,8 +446,27 @@ export default function PostCard({ post }: PostCardProps) {
 
           {/* Content Preview */}
           {post.content && (
-            <div className="text-sm text-[var(--text-secondary)] mt-2 line-clamp-3 prose prose-sm">
-              <MarkdownRenderer content={post.content} />
+            <div className="mt-3 text-sm text-[var(--foreground)]">
+              <MarkdownRenderer content={post.content} compact />
+            </div>
+          )}
+
+          {post.type === 'poll' && post.poll && (
+            <div className="mt-3 space-y-2 rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+              <div className="text-sm font-semibold text-[var(--foreground)]">{post.poll.question || post.title}</div>
+              {post.poll.options.map((option, index) => (
+                <button
+                  key={`${option}-${index}`}
+                  type="button"
+                  className="flex w-full items-center justify-between rounded-md border border-[var(--border)] px-3 py-2 text-left text-sm hover:bg-[var(--muted)]"
+                >
+                  <span>{option}</span>
+                  <span className="text-xs text-[var(--text-secondary)]">Vote</span>
+                </button>
+              ))}
+              <div className="text-xs text-[var(--text-secondary)]">
+                {post.poll.multiple ? "Multiple choices allowed" : "Single choice poll"}
+              </div>
             </div>
           )}
 
@@ -489,7 +508,7 @@ export default function PostCard({ post }: PostCardProps) {
           )}
 
           {/* Footer */}
-          <div className="flex items-center gap-2 sm:gap-4 mt-3 text-xs text-[var(--text-secondary)] flex-wrap">
+          <div className="flex items-center gap-2 sm:gap-4 mt-4 text-xs text-[var(--text-secondary)] flex-wrap">
             <Link
               href={`/posts/${post._id}`}
               className="flex items-center gap-1 hover:bg-[var(--muted)] px-2 py-1 rounded transition-colors"
@@ -570,6 +589,6 @@ export default function PostCard({ post }: PostCardProps) {
           }}
         />
       )}
-    </div>
+    </article>
   );
 }

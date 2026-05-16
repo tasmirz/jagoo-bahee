@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import backend from '@/lib/backend';
-import { getToken } from '@/lib/auth';
 import { Subreddit } from '@/lib/types';
 
 export default function CommunitySettingsPage() {
@@ -25,12 +24,11 @@ export default function CommunitySettingsPage() {
   useEffect(() => {
     async function load() {
       try {
-        const token = getToken();
-        if (!token) {
+        const res = await backend.backendFetch(`/subreddits/${name}`);
+        if (res.status === 401) {
           router.push('/auth');
           return;
         }
-        const res = await backend.backendFetch(`/subreddits/${name}`);
         if (!res.ok) throw new Error('Community not found');
         const data = await res.json();
         setSubreddit(data);

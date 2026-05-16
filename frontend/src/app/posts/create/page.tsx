@@ -17,7 +17,7 @@ interface Subreddit {
   flairs?: string[];
 }
 
-type PostType = "text" | "link" | "image" | "video" | "audio" | "crosspost";
+type PostType = "text" | "link" | "image" | "video" | "audio" | "crosspost" | "poll";
 
 export default function CreatePostPage() {
   const router = useRouter();
@@ -34,6 +34,9 @@ export default function CreatePostPage() {
   const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
   const [flair, setFlair] = useState("");
   const [crosspostSourceId, setCrosspostSourceId] = useState("");
+  const [pollQuestion, setPollQuestion] = useState("");
+  const [pollOptions, setPollOptions] = useState(["", ""]);
+  const [pollMultiple, setPollMultiple] = useState(false);
   const [availableFlairs, setAvailableFlairs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -48,12 +51,13 @@ export default function CreatePostPage() {
     if (!isAuthenticated) return;
     const fetchSubreddits = async () => {
       try {
-        const response = await backendFetch("/users/me/subreddits");
+        const response = await backendFetch("/subreddits?limit=100&sort=alphabetical");
         if (response.ok) {
           const data = await response.json();
-          setSubreddits(data);
-          if (subredditId && data.length > 0) {
-            const selected = data.find((sub: Subreddit) => sub._id === subredditId);
+          const communities = Array.isArray(data) ? data : data.subreddits || data.data || [];
+          setSubreddits(communities);
+          if (subredditId && communities.length > 0) {
+            const selected = communities.find((sub: Subreddit) => sub._id === subredditId);
             setAvailableFlairs(selected?.flairs || []);
           }
         }
@@ -96,9 +100,21 @@ export default function CreatePostPage() {
       setMessage("Please select a post to crosspost");
       return;
     }
+    const cleanPollOptions = pollOptions.map((option) => option.trim()).filter(Boolean);
+    if (type === "poll" && cleanPollOptions.length < 2) {
+      setMessage("Polls need at least two options");
+      return;
+    }
 
     setLoading(true);
     try {
+      const poll = type === "poll"
+        ? {
+            question: pollQuestion.trim() || title.trim(),
+            options: cleanPollOptions,
+            multiple: pollMultiple,
+          }
+        : null;
       const canonicalPayload: Record<string, unknown> = {
         title: title.trim(),
         content: type === "link" ? "" : content.trim() || "",
@@ -106,8 +122,8 @@ export default function CreatePostPage() {
         subredditId,
         authorId: user._id,
         url: type === "link" ? url.trim() : "",
-        attachmentIds: type !== "link" && type !== "crosspost" ? attachmentIds : [],
-        poll: null,
+        attachmentIds: type !== "link" && type !== "crosspost" && type !== "poll" ? attachmentIds : [],
+        poll,
       };
 
       const hashBytes = await sha256(JSON.stringify(canonicalPayload));
@@ -221,6 +237,7 @@ export default function CreatePostPage() {
               ["image", "Images & Video"],
               ["link", "Link"],
               ["crosspost", "Crosspost"],
+              ["poll", "Poll"],
             ].map(([value, label]) => (
               <button
                 key={value}
@@ -231,7 +248,6 @@ export default function CreatePostPage() {
                 {label}
               </button>
             ))}
-            <button type="button" disabled className="pb-3 text-sm font-semibold text-[var(--text-secondary)] opacity-50">Poll</button>
           </div>
 
           <div>
@@ -281,7 +297,7 @@ export default function CreatePostPage() {
             />
           )}
 
-          {type !== "link" && type !== "crosspost" && (
+          {type !== "link" && type !== "crosspost" && type !== "poll" && (
             <div className="overflow-hidden rounded-2xl border border-[var(--border)]">
               <div className="flex items-center gap-5 border-b border-[var(--border)] px-4 py-3 text-[var(--text-secondary)]">
                 <Bold size={17} />
@@ -307,7 +323,40 @@ export default function CreatePostPage() {
             </div>
           )}
 
-          {type !== "link" && type !== "crosspost" && (
+          {type === "poll" && (
+            <div className="space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
+              <input
+                value={pollQuestion}
+                onChange={(event) => setPollQuestion(event.target.value)}
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+                placeholder="Poll question"
+              />
+              {pollOptions.map((option, index) => (
+                <input
+                  key={index}
+                  value={option}
+                  onChange={(event) => setPollOptions((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item))}
+                  className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+                  placeholder={`Option ${index + 1}`}
+                />
+              ))}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPollOptions((current) => [...current, ""])}
+                  className="rounded-full border border-[var(--border)] px-3 py-2 text-sm font-semibold hover:bg-[var(--muted)]"
+                >
+                  Add option
+                </button>
+                <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+                  <input type="checkbox" checked={pollMultiple} onChange={(event) => setPollMultiple(event.target.checked)} />
+                  Allow multiple choices
+                </label>
+              </div>
+            </div>
+          )}
+
+          {type !== "link" && type !== "crosspost" && type !== "poll" && (
             <div className="rounded-2xl border border-[var(--border)] p-4">
               <FileUploader
                 acceptedTypes={type === "image" ? "image/*" : type === "video" ? "video/*" : type === "audio" ? "audio/*" : "image/*,video/*,audio/*"}

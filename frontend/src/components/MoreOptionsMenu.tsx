@@ -32,25 +32,6 @@ export default function MoreOptionsMenu({
   const postAuthorId = String(authorId);
   const isOwner = isAuthenticated && !userLoading && userId && userId === postAuthorId;
 
-  // Debug logging - always log to help debug
-  useEffect(() => {
-    console.log('[MoreOptionsMenu] Debug info:', {
-      type,
-      id,
-      rawAuthorId: authorId,
-      isAuthenticated,
-      userLoading,
-      userId,
-      postAuthorId,
-      isOwner,
-      match: userId === postAuthorId,
-      userIdType: typeof userId,
-      authorIdType: typeof postAuthorId,
-      rawAuthorIdType: typeof authorId,
-      userObject: user ? { _id: user._id, username: user.username } : null,
-    });
-  }, [type, id, authorId, isAuthenticated, userLoading, userId, postAuthorId, isOwner, user]);
-
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -127,11 +108,6 @@ export default function MoreOptionsMenu({
     }
   };
 
-  const handleReport = () => {
-    alert(`Report ${type} feature coming soon!`);
-    setIsOpen(false);
-  };
-
   return (
     <div className="relative" ref={menuRef}>
       <button
@@ -170,12 +146,11 @@ export default function MoreOptionsMenu({
               </button>
             </>
           )}
-          <button
-            onClick={handleReport}
-            className="w-full text-left px-4 py-2 text-sm text-orange-600 hover:bg-[var(--muted)] transition-colors rounded-md last:rounded-b-md"
-          >
-            Report {type}
-          </button>
+          {!isOwner && (
+            <div className="px-4 py-2 text-xs text-[var(--text-secondary)]">
+              Use the Report action below the {type}.
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -16,7 +16,7 @@ export const getBackendOrigin = () => {
 const retryableMethods = new Set(["GET", "HEAD", "OPTIONS"]);
 const retryableStatuses = new Set([502, 503, 504]);
 
-export async function backendFetch(path: string, opts: RequestInit = {}) {
+export async function backendFetch(path: string, opts: RequestInit = {}, retryAuth = true): Promise<Response> {
   const origin = getBackendOrigin();
   const url = path.startsWith("http")
     ? path
@@ -34,7 +34,7 @@ export async function backendFetch(path: string, opts: RequestInit = {}) {
     const response = await fetchWithRetry(proxyUrl, { ...opts, headers });
     repairLoopbackHomeserver(response);
     if (response.status !== 502 || selectedOrigin === DEFAULT_BACKEND_ORIGIN) {
-      return response;
+      return retryAuthResponse(response, path, opts, retryAuth);
     }
 
     if (isLoopbackOrigin(selectedOrigin)) {
@@ -42,17 +42,30 @@ export async function backendFetch(path: string, opts: RequestInit = {}) {
     }
     const fallbackHeaders = new Headers(headers);
     fallbackHeaders.set("x-jb-homeserver", DEFAULT_BACKEND_ORIGIN);
-    return fetchWithRetry(proxyUrl, { ...opts, headers: fallbackHeaders });
+    const fallbackResponse = await fetchWithRetry(proxyUrl, { ...opts, headers: fallbackHeaders });
+    return retryAuthResponse(fallbackResponse, path, opts, retryAuth);
   }
 
   try {
-    return await fetchWithRetry(url, { ...opts, headers });
+    const response = await fetchWithRetry(url, { ...opts, headers });
+    return retryAuthResponse(response, path, opts, retryAuth);
   } catch (error) {
     if (typeof window === "undefined" || path.startsWith("http")) throw error;
     const proxyUrl = `/backend-proxy${path.startsWith("/") ? path : "/" + path}`;
     headers.set("x-jb-homeserver", DEFAULT_BACKEND_ORIGIN);
-    return fetchWithRetry(proxyUrl, { ...opts, headers });
+    const response = await fetchWithRetry(proxyUrl, { ...opts, headers });
+    return retryAuthResponse(response, path, opts, retryAuth);
   }
+}
+
+async function retryAuthResponse(response: Response, path: string, opts: RequestInit, retryAuth: boolean): Promise<Response> {
+  if (!retryAuth || response.status !== 401 || path === "/auth/refresh" || path === "/auth/logout") {
+    return response;
+  }
+
+  const refreshed = await refreshAccessToken();
+  if (!refreshed) return response;
+  return backendFetch(path, opts, false);
 }
 
 async function fetchWithRetry(url: string, opts: RequestInit) {
@@ -121,10 +134,14 @@ export async function backendJson(
 
 async function refreshAccessToken() {
   try {
-    const response = await backendFetch("/auth/refresh", {
-      method: "GET",
-      credentials: "include",
-    });
+    const response = await backendFetch(
+      "/auth/refresh",
+      {
+        method: "GET",
+        credentials: "include",
+      },
+      false,
+    );
     if (!response.ok) {
       if (response.status === 401) clearCredentials();
       return false;

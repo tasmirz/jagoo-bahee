@@ -42,16 +42,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (id) {
           setAuthId(id);
           
-          // Try to get public key from localStorage
-          const pubKey = getPublicKey();
-          if (pubKey) {
-            setPublicKey(pubKey);
-            setIsAuthenticated(true);
-            console.log('[Auth] Session restored from refresh token cookie');
-            return true;
-          } else {
-            console.warn('[Auth] Token refreshed but no public key found');
-          }
+          setPublicKey(getPublicKey());
+          setIsAuthenticated(true);
+          console.log('[Auth] Session restored from refresh token cookie');
+          return true;
         }
       }
       return false;
@@ -118,10 +112,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [isAuthenticated]);
 
   const login = (newToken: string) => {
+    saveToken(newToken);
     const id = getAuthIdFromToken();
     const pubKey = getPublicKey();
     
-    if (id && pubKey) {
+    if (id) {
       setToken(newToken);
       setAuthId(id);
       setPublicKey(pubKey);

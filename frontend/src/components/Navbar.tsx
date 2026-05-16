@@ -10,7 +10,6 @@ import { getAllAcknowledgements, refreshDB } from '@/lib/indexeddb';
 import ThemeToggle from './theme-toggle';
 import {
   Bell,
-  CircleDollarSign,
   Crown,
   FileText,
   LogOut,
@@ -20,7 +19,6 @@ import {
   Shield,
   Shirt,
   Sparkles,
-  Trophy,
   UserCircle,
 } from 'lucide-react';
 
@@ -141,25 +139,9 @@ export default function Navbar() {
                           <span className="block text-xs text-[var(--text-secondary)]">u/{user?.username || 'me'}</span>
                         </span>
                       </MenuLink>
-                      <MenuLink href="/settings" icon={<Shirt size={21} />} onClick={() => setShowUserMenu(false)}>Edit Avatar</MenuLink>
-                      <MenuLink href="/posts/create" icon={<FileText size={21} />} onClick={() => setShowUserMenu(false)}>Drafts</MenuLink>
-                      <MenuLink href="/awards" icon={<Trophy size={21} />} onClick={() => setShowUserMenu(false)}>
-                        <span>
-                          <span className="block">Achievements</span>
-                          <span className="block text-xs text-[var(--text-secondary)]">4 unlocked</span>
-                        </span>
-                      </MenuLink>
-                      <MenuLink href="/awards" icon={<CircleDollarSign size={21} />} onClick={() => setShowUserMenu(false)}>
-                        <span>
-                          <span className="block">Earn</span>
-                          <span className="block text-xs text-[var(--text-secondary)]">Earn cash on Jagoo</span>
-                        </span>
-                      </MenuLink>
-                      <MenuLink href="/awards" icon={<Crown size={21} />} onClick={() => setShowUserMenu(false)}>Premium</MenuLink>
-                      <div className="flex items-center justify-between px-4 py-3 text-sm">
-                        <span className="flex items-center gap-4"><Shield size={21} /> Mod Mode</span>
-                        <span className="relative h-8 w-12 rounded-full bg-blue-600"><span className="absolute right-1 top-1 h-6 w-6 rounded-full bg-white" /></span>
-                      </div>
+                      <MenuLink href="/settings/profile" icon={<Shirt size={21} />} onClick={() => setShowUserMenu(false)}>Edit Avatar</MenuLink>
+                      <MenuLink href="/saved" icon={<FileText size={21} />} onClick={() => setShowUserMenu(false)}>Saved</MenuLink>
+                      <MenuLink href="/awards" icon={<Crown size={21} />} onClick={() => setShowUserMenu(false)}>Awards</MenuLink>
                       <div className="flex items-center justify-between px-4 py-3 text-sm">
                         <span className="flex items-center gap-4"><Sparkles size={21} /> Display Mode</span>
                         <ThemeToggle />

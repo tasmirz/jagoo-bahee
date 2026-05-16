@@ -1,19 +1,29 @@
 "use client";
 
-import { ReactNode, useMemo } from "react";
+import React, { ReactNode, useMemo } from "react";
 
 interface MarkdownRendererProps {
   content: string;
+  compact?: boolean;
 }
 
-export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
-  const blocks = useMemo(() => renderMarkdown(content || ""), [content]);
+export default function MarkdownRenderer({ content, compact = false }: MarkdownRendererProps) {
+  const blocks = useMemo(() => renderContent(content || ""), [content]);
 
   return (
-    <div className="prose prose-sm max-w-none text-[var(--foreground)]">
+    <div className={`markdown-body ${compact ? "markdown-body-compact" : ""}`}>
       {blocks}
     </div>
   );
+}
+
+function renderContent(content: string) {
+  const normalized = decodeCommonEntities(content.trim());
+  if (looksLikeHtml(normalized)) {
+    const html = renderHtml(normalized);
+    if (html.length > 0) return html;
+  }
+  return renderMarkdown(normalized);
 }
 
 function renderMarkdown(content: string) {
@@ -55,7 +65,7 @@ function renderMarkdown(content: string) {
     }
 
     return (
-      <p key={index} className="my-2 whitespace-pre-wrap">
+      <p key={index} className="whitespace-pre-wrap">
         {renderInline(block)}
       </p>
     );
@@ -120,5 +130,84 @@ function safeHref(raw: string) {
     return raw;
   } catch {
     return null;
+  }
+}
+
+function looksLikeHtml(content: string) {
+  return /<\/?(p|br|strong|b|em|i|u|s|code|pre|blockquote|ul|ol|li|h[1-6]|a)(\s|>|\/)/i.test(content);
+}
+
+function decodeCommonEntities(content: string) {
+  return content
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function renderHtml(content: string): ReactNode[] {
+  if (typeof DOMParser === "undefined") return [];
+  const doc = new DOMParser().parseFromString(content, "text/html");
+  return Array.from(doc.body.childNodes).flatMap((node, index) => renderHtmlNode(node, `html-${index}`));
+}
+
+function renderHtmlNode(node: Node, key: string): ReactNode[] {
+  if (node.nodeType === Node.TEXT_NODE) return [node.textContent || ""];
+  if (node.nodeType !== Node.ELEMENT_NODE) return [];
+
+  const element = node as Element;
+  const tag = element.tagName.toLowerCase();
+  const children = Array.from(element.childNodes).flatMap((child, index) => renderHtmlNode(child, `${key}-${index}`));
+
+  switch (tag) {
+    case "p":
+      return [<p key={key}>{children}</p>];
+    case "br":
+      return [<br key={key} />];
+    case "strong":
+    case "b":
+      return [<strong key={key}>{children}</strong>];
+    case "em":
+    case "i":
+      return [<em key={key}>{children}</em>];
+    case "u":
+      return [<u key={key}>{children}</u>];
+    case "s":
+      return [<s key={key}>{children}</s>];
+    case "code":
+      return [<code key={key}>{children}</code>];
+    case "pre":
+      return [<pre key={key}>{children}</pre>];
+    case "blockquote":
+      return [<blockquote key={key}>{children}</blockquote>];
+    case "ul":
+      return [<ul key={key}>{children}</ul>];
+    case "ol":
+      return [<ol key={key}>{children}</ol>];
+    case "li":
+      return [<li key={key}>{children}</li>];
+    case "h1":
+      return [<h1 key={key}>{children}</h1>];
+    case "h2":
+      return [<h2 key={key}>{children}</h2>];
+    case "h3":
+      return [<h3 key={key}>{children}</h3>];
+    case "h4":
+    case "h5":
+    case "h6":
+      return [<h4 key={key}>{children}</h4>];
+    case "a": {
+      const href = safeHref(element.getAttribute("href") || "");
+      return href
+        ? [
+            <a key={key} href={href} target="_blank" rel="noopener noreferrer">
+              {children}
+            </a>,
+          ]
+        : children;
+    }
+    default:
+      return children;
   }
 }
