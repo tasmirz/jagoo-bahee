@@ -37,6 +37,8 @@ Rules earned the hard way. Violating one of these has already cost time.
 | L-11 | A lint rule, a gate, or a healthcheck that is only *configured* is not verified. Each one here is now exercised by a test that makes it fail on purpose — that is the only way to notice when it stops working. | P0-G6, ops |
 | L-12 | **A package-boundary change must be probed from every consumer with a real import.** Node, Metro and Vite use three different resolvers. Fixing the backend left the frontend equally broken, and both failed with a message naming the module rather than the mechanism. The legacy `moduleResolution: "Node"`/Expo default ignores `exports` maps entirely; Metro needs `unstable_enablePackageExports`. | sdk interop |
 | L-13 | Never locate a file by counting `../` from `import.meta.url`. It works until the output layout changes depth, then silently reads the wrong path. Walk up to a marker file (`pnpm-workspace.yaml`) instead. | sdk interop |
+| L-14 | Prove a proof system over a SWEEP of sizes, not one example. Both Merkle bugs returned correct answers for the tree shapes a hand-picked case would have used, and failed only at specific ones. Iterate every size in a range for anything recursive. | T1.5 |
+| L-15 | Under vitest, Nest DI cannot rely on `emitDecoratorMetadata` — esbuild does not emit it, so dependencies arrive as `undefined` with no wiring-time error. Inject explicitly with `@Inject(TOKEN)` (ADR-002). | T1.7 |
 
 ---
 
@@ -256,7 +258,64 @@ using `canonicalBytes`/`contentId`.
 
 ## P1 — Core Node & Forum Plane
 
-*(not started)*
+### 2026-07-29 — the pipeline spine: an envelope goes in, a verifiable receipt comes out   [P1]
+
+**Built:** (plan and gate status in `P1-CORE-NODE-PLAN.md` §6)
+- **Deterministic decoder** (`packages/sdk-ts/src/core/decode.ts`) — pipeline step 2. Rather
+  than restating the five canonical rules inside the decoder, where they would drift from
+  the encoder's copy, it decodes and then **re-encodes and compares bytes**. One check
+  covers field order, omitted zeros, minimal varints, unknown fields, NFC and trailing
+  data. 15 tests, each a *different* byte string meaning the same thing — every one of
+  which v1 would have accepted.
+- **Pipeline steps 1–15** as pure functions in `core/domain/pipeline/`. Steps 1, 6, 7 and 13
+  read policy from the generated registry row rather than branching on the domain string,
+  which is what makes P1-G11 hold.
+- **`DomainRegistry` joined to `DOMAIN_SPECS`.** Registering a handler for a domain the
+  contract does not define, or with a plane the contract disagrees with, throws at bootstrap
+  (RG-01, SEP-02).
+- **`IngressPipeline`** — the 19 steps composed, nothing implemented inline.
+- **`LocalMerkleLog`** + RFC 6962 maths in `core/domain/merkle.ts`. Inclusion *and*
+  consistency, with tests that detect an altered historical leaf and a dropped one.
+- **`POST /v1/envelopes`** — the single write route — plus read endpoints with cursor
+  pagination, `provenance` blocks, STH and inclusion proof. Composition root binds all 19
+  ports.
+- Feature handlers: post, comment (threaded by content ID, depth precomputed), vote
+  (re-vote replaces rather than accumulates).
+
+**Verified:** 149 workspace tests (sdk 51, backend 93, frontend 5) · Rust 6 · Python 22 ·
+`pnpm vectors` P0-G1 PASS · lint 4/4 · typecheck 5/5 · build 4/4 · `proto:check` in sync.
+The HTTP suite runs against a **real Nest app on Fastify through the actual composition
+root**, so an unbound port fails the test rather than surfacing in production.
+
+**Broke:**
+1. **My `verifyConsistency` was wrong** — the RFC 6962 generator was right but the verifier
+   was a different algorithm. Then `verifyInclusion` failed too: `inclusionPath` emits the
+   DEEPEST sibling first, and the verifier consumed the path top-down. Both were caught only
+   because the tests sweep *every* (leaf, size) and (old, new) pair up to 33/24 rather than
+   spot-checking one tree.
+2. **DI silently returned `undefined`** for every controller dependency. Root cause: vitest
+   compiles through esbuild, which does not support `emitDecoratorMetadata`, so Nest had no
+   constructor types to infer from. ADR-002 already prescribed the fix — explicit
+   `@Inject(TOKEN)` — so the code was wrong, not the ADR.
+3. **The import-boundary lint caught me violating AR-01.** `test-harness.ts` was placed in
+   `core/app/` and imports adapters. The rule fired, and the file moved to `src/testing/`
+   rather than the rule being relaxed. Exactly the value P0-G6 was fixed to provide.
+
+**Learned:**
+- **L-14** — Prove a proof system over a SWEEP, not an example. Both Merkle bugs produced
+  correct results for the tree sizes a hand-picked case would have used; they only failed at
+  specific shapes. For anything recursive and structural, iterate every size in a range.
+- **L-15** — Under vitest, Nest DI must not rely on `emitDecoratorMetadata`. Inject
+  explicitly, or dependencies arrive as `undefined` with no error at wiring time.
+- A test harness is not core code. If it wires adapters it belongs outside `core/`, and the
+  boundary lint will tell you so.
+
+**Next:** T1.3/T1.4 — the Mongo adapters, behind the ports already in place, then T1.6
+`rebuild-projections` to make P1-G3 real. The in-memory projection double already implements
+true rollback, so the transactional contract the Mongo adapter must honour is already
+pinned by tests.
+
+---
 
 ## P2 — Federation ★ PRIMARY
 

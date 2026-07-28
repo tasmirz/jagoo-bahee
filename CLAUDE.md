@@ -53,10 +53,17 @@ package. The root holds only workspace-level configuration — `package.json`, `
 goes in `backend/`, client code in `frontend/`, shared code in a `packages/*` package. A `.ts`/`.tsx`
 file at the root is a design-pattern violation, not a shortcut.
 
-**State: P0 is complete — all seven exit gates pass.** `Code Implementation/P0-SKELETON-PLAN.md` §10
-holds the gate-by-gate evidence table. One item is carried into P1: **`packages/ui/` is not started.**
-`frontend/src/theme/` re-exports it once it exists; until then screens must still not use raw hex or
-ad-hoc spacing (§6).
+**State: P0 complete (all seven gates pass). P1 spine complete; P1 breadth in progress.**
+`P0-SKELETON-PLAN.md` §10 and `P1-CORE-NODE-PLAN.md` §6 hold the gate-by-gate evidence tables.
+
+What works today: an envelope signed on a client runs all 19 validation steps, projects, is witnessed
+in a Merkle log, returns a signed receipt, and is read back with an inclusion proof that **verifies
+offline**. Post, comment and vote are implemented; `POST /v1/envelopes` is the only write route.
+
+What is NOT built yet, so do not assume it: Mongo/Redis adapters (everything is in-memory —
+swapping them touches `composition/app.module.ts` only), `rebuild-projections`, real PoW and blind
+credentials, moderation and the remaining nine forum features, SSE, `packages/ui`, and the client
+screens. Only **P1-G11** of the eleven P1 gates is green.
 
 ### `@jagoo/sdk` is consumed by three toolchains — do not "simplify" this
 

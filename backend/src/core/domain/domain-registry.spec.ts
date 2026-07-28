@@ -1,14 +1,13 @@
 /**
- * T0.21 — a handler registers and dispatches with NO core change.
+ * T0.21 / T1.2 — registration and dispatch.
  *
- * This is the Open/Closed test. The domain used here (`jb:throwaway:test:v1`) appears
- * nowhere in the core, nowhere in the registry YAML, and nowhere in the pipeline. If this
- * suite passes, adding a real feature is exactly this plus a registry row — which is what
- * P1-G11 asserts at the feature level.
+ * The Open/Closed test. `jb:membership:join:v1` appears nowhere in `core/` — no import, no
+ * case, no mention — yet a handler for it registers and dispatches here. The end-to-end
+ * version of this, pushing a signed envelope through the unmodified pipeline, is in
+ * `features/forum/forum-features.spec.ts` (P1-G11).
  *
- * The negative worth stating: nothing in `core/` may contain `switch (env.domain)`. That
- * is lint-enforced (AR-05). This test is the positive half — proving the alternative
- * actually works, not merely that the bad shape is banned.
+ * The negative half — no `switch (domain)` anywhere in `core/` — is lint-enforced (AR-05)
+ * and probed by `import-boundary.spec.ts`.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -16,32 +15,33 @@ import { DomainRegistry } from './domain-registry.js';
 import { Plane, type ParsedEnvelope } from './envelope.js';
 import { allowed, valid, type DomainHandler, type Tx } from './domain-handler.js';
 
-interface ThrowawayBody {
-  readonly text: string;
+interface JoinBody {
+  readonly community: string;
 }
 
-/** A domain the core has never heard of. */
-class ThrowawayHandler implements DomainHandler<ThrowawayBody> {
-  readonly domain = 'jb:throwaway:test:v1';
+/** A real registry domain, implemented entirely outside the core. */
+class JoinHandler implements DomainHandler<JoinBody> {
+  readonly domain = 'jb:membership:join:v1';
   readonly plane = Plane.FORUM;
   readonly projected: string[] = [];
 
-  decode(body: Uint8Array): ThrowawayBody {
-    return { text: new TextDecoder().decode(body) };
+  decode(body: Uint8Array): JoinBody {
+    return { community: new TextDecoder().decode(body) };
   }
-  validate(body: ThrowawayBody) {
-    return body.text.length > 0 ? valid : { ok: false as const, reason: 'empty' };
+  validate(body: JoinBody) {
+    return body.community.length > 0 ? valid : { ok: false as const, reason: 'empty' };
   }
   async authorize() {
     return allowed;
   }
-  async project(body: ThrowawayBody, _env: ParsedEnvelope, _tx: Tx) {
-    this.projected.push(body.text);
+  async project(body: JoinBody, _env: ParsedEnvelope, _tx: Tx) {
+    this.projected.push(body.community);
   }
 }
 
-class SignalHandler implements DomainHandler<unknown> {
-  readonly domain = 'jb:throwaway:signal:v1';
+/** A SIGNAL-plane domain, to prove the plane is recorded per handler. */
+class BroadcastHandler implements DomainHandler<unknown> {
+  readonly domain = 'jb:broadcast:emit:v1';
   readonly plane = Plane.SIGNAL;
   decode() {
     return null;
@@ -55,49 +55,62 @@ class SignalHandler implements DomainHandler<unknown> {
   async project() {}
 }
 
-describe('DomainRegistry (T0.21)', () => {
+describe('DomainRegistry', () => {
   it('registers and dispatches a domain the core has never heard of', async () => {
     const registry = new DomainRegistry();
-    const handler = new ThrowawayHandler();
+    const handler = new JoinHandler();
     registry.register(handler);
 
-    const found = registry.lookup('jb:throwaway:test:v1');
-    expect(found).toBe(handler);
+    const entry = registry.lookup('jb:membership:join:v1');
+    expect(entry).not.toBeNull();
+    expect(entry!.handler).toBe(handler);
 
-    // Round-trip through the handler exactly as the pipeline would.
-    const body = found!.decode(new TextEncoder().encode('hello'));
-    expect(found!.validate(body, {} as ParsedEnvelope)).toEqual({ ok: true });
-    await found!.project(body, {} as ParsedEnvelope, { id: 'tx-1' });
-    expect(handler.projected).toEqual(['hello']);
+    const body = entry!.handler.decode(new TextEncoder().encode('dhaka-relief@jbs1a4f7m2k'));
+    expect(entry!.handler.validate(body, {} as ParsedEnvelope)).toEqual({ ok: true });
+    await entry!.handler.project(body, {} as ParsedEnvelope, { id: 'tx-1' });
+    expect(handler.projected).toEqual(['dhaka-relief@jbs1a4f7m2k']);
+  });
+
+  it('joins the handler to its GENERATED policy row', async () => {
+    // Steps 6, 7 and 13 read policy from here instead of branching on the domain string,
+    // which is only safe because registration guarantees the row exists.
+    const registry = new DomainRegistry();
+    registry.register(new JoinHandler());
+
+    const spec = registry.specFor('jb:membership:join:v1');
+    expect(spec).not.toBeNull();
+    expect(spec!.plane).toBe('FORUM');
+    expect(spec!.permission).toBeTypeOf('string');
+    expect(spec!.keyAlgs).toContain('ED25519');
   });
 
   it('returns null for an unregistered domain rather than throwing', () => {
-    // Unknown domain is an ordinary rejection at pipeline step 4, not an exception. An
-    // exception here would make an invalid-envelope flood expensive to reject.
-    expect(new DomainRegistry().lookup('jb:nope:v1')).toBeNull();
+    // Unknown domain is an ordinary rejection at pipeline step 4, not an exception — an
+    // exception would make an invalid-envelope flood expensive to reject.
+    expect(new DomainRegistry().lookup('jb:post:create:v1')).toBeNull();
   });
 
   it('rejects a duplicate domain at registration rather than last-one-wins', () => {
     const registry = new DomainRegistry();
-    registry.register(new ThrowawayHandler());
-    expect(() => registry.register(new ThrowawayHandler())).toThrow(/duplicate handler/);
+    registry.register(new JoinHandler());
+    expect(() => registry.register(new JoinHandler())).toThrow(/duplicate handler/);
   });
 
   it('records each handler’s plane so step 5 can compare against the signed value', () => {
     const registry = new DomainRegistry();
-    registry.register(new ThrowawayHandler());
-    registry.register(new SignalHandler());
+    registry.register(new JoinHandler());
+    registry.register(new BroadcastHandler());
 
-    expect(registry.planeFor('jb:throwaway:test:v1')).toBe(Plane.FORUM);
-    expect(registry.planeFor('jb:throwaway:signal:v1')).toBe(Plane.SIGNAL);
-    expect(registry.planeFor('jb:absent:v1')).toBeNull();
+    expect(registry.planeFor('jb:membership:join:v1')).toBe(Plane.FORUM);
+    expect(registry.planeFor('jb:broadcast:emit:v1')).toBe(Plane.SIGNAL);
+    expect(registry.planeFor('jb:post:create:v1')).toBeNull();
   });
 
   it('lists domains in a stable order', () => {
     const registry = new DomainRegistry();
-    registry.register(new SignalHandler());
-    registry.register(new ThrowawayHandler());
-    expect(registry.domains()).toEqual(['jb:throwaway:signal:v1', 'jb:throwaway:test:v1']);
+    registry.register(new BroadcastHandler());
+    registry.register(new JoinHandler());
+    expect(registry.domains()).toEqual(['jb:broadcast:emit:v1', 'jb:membership:join:v1']);
     expect(registry.size).toBe(2);
   });
 });

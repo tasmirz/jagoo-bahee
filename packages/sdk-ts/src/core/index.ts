@@ -1,4 +1,5 @@
 export { canonicalBytes, encodeSignedEnvelope } from './canonical.js';
+export { decodeSignedEnvelope, canonicalBytesOf, DecodeError } from './decode.js';
 export {
   contentId,
   contentIdFromCanonical,

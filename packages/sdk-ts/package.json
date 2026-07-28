@@ -8,32 +8,73 @@
   "module": "./dist/esm/index.js",
   "types": "./dist/esm/index.d.ts",
   "react-native": "./dist/esm/index.js",
-  "//": "Three consumers, three module formats. NestJS is CommonJS and takes `require` -> dist/cjs. The vector gate runs `dist/esm` under plain node. Metro takes `react-native`, which must be listed FIRST because condition order is priority order — otherwise Metro would match `require` and bundle CommonJS. All three point at BUILT output: Metro cannot resolve the TypeScript-ESM `./canonical.js` specifiers in src/, because it does not remap .js to .ts the way tsc and Vite do. Consequence: an sdk edit needs a rebuild before the app sees it, so `dev` depends on `^build` and `tsc -w` is the loop for active sdk work.",
+  "//": "Three consumers, three module formats. NestJS is CommonJS and takes `require` -> dist/cjs. The vector gate runs `dist/esm` under plain node. Metro takes `react-native`, which must be listed FIRST because condition order is priority order \u2014 otherwise Metro would match `require` and bundle CommonJS. All three point at BUILT output: Metro cannot resolve the TypeScript-ESM `./canonical.js` specifiers in src/, because it does not remap .js to .ts the way tsc and Vite do. Consequence: an sdk edit needs a rebuild before the app sees it, so `dev` depends on `^build` and `tsc -w` is the loop for active sdk work.",
   "exports": {
     ".": {
       "react-native": "./dist/esm/index.js",
-      "import": { "types": "./dist/esm/index.d.ts", "default": "./dist/esm/index.js" },
-      "require": { "types": "./dist/cjs/index.d.ts", "default": "./dist/cjs/index.js" }
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
     },
     "./core": {
       "react-native": "./dist/esm/core/index.js",
-      "import": { "types": "./dist/esm/core/index.d.ts", "default": "./dist/esm/core/index.js" },
-      "require": { "types": "./dist/cjs/core/index.d.ts", "default": "./dist/cjs/core/index.js" }
+      "import": {
+        "types": "./dist/esm/core/index.d.ts",
+        "default": "./dist/esm/core/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/core/index.d.ts",
+        "default": "./dist/cjs/core/index.js"
+      }
     },
     "./crypto": {
       "react-native": "./dist/esm/crypto/index.js",
-      "import": { "types": "./dist/esm/crypto/index.d.ts", "default": "./dist/esm/crypto/index.js" },
-      "require": { "types": "./dist/cjs/crypto/index.d.ts", "default": "./dist/cjs/crypto/index.js" }
+      "import": {
+        "types": "./dist/esm/crypto/index.d.ts",
+        "default": "./dist/esm/crypto/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/crypto/index.d.ts",
+        "default": "./dist/cjs/crypto/index.js"
+      }
     },
     "./signer": {
       "react-native": "./dist/esm/signer/index.js",
-      "import": { "types": "./dist/esm/signer/index.d.ts", "default": "./dist/esm/signer/index.js" },
-      "require": { "types": "./dist/cjs/signer/index.d.ts", "default": "./dist/cjs/signer/index.js" }
+      "import": {
+        "types": "./dist/esm/signer/index.d.ts",
+        "default": "./dist/esm/signer/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/signer/index.d.ts",
+        "default": "./dist/cjs/signer/index.js"
+      }
     },
     "./gen": {
       "react-native": "./dist/esm/gen/index.js",
-      "import": { "types": "./dist/esm/gen/index.d.ts", "default": "./dist/esm/gen/index.js" },
-      "require": { "types": "./dist/cjs/gen/index.d.ts", "default": "./dist/cjs/gen/index.js" }
+      "import": {
+        "types": "./dist/esm/gen/index.d.ts",
+        "default": "./dist/esm/gen/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/gen/index.d.ts",
+        "default": "./dist/cjs/gen/index.js"
+      }
+    },
+    "./proto": {
+      "react-native": "./dist/esm/gen/index.jagoo.v1.js",
+      "import": {
+        "types": "./dist/esm/gen/index.jagoo.v1.d.ts",
+        "default": "./dist/esm/gen/index.jagoo.v1.js"
+      },
+      "require": {
+        "types": "./dist/cjs/gen/index.jagoo.v1.d.ts",
+        "default": "./dist/cjs/gen/index.jagoo.v1.js"
+      }
     }
   },
   "scripts": {
