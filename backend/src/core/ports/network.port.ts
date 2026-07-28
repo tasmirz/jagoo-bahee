@@ -31,10 +31,10 @@ export type ReachabilityScope = (typeof ReachabilityScope)[keyof typeof Reachabi
 /** Narrowest first — the preference order G-04 mandates. */
 export const SCOPE_PREFERENCE: readonly ReachabilityScope[] = [
   ReachabilityScope.LAN,
-  ReachabilityScope.MESH,
   ReachabilityScope.ISP_LOCAL,
   ReachabilityScope.NATIONAL,
   ReachabilityScope.GLOBAL,
+  ReachabilityScope.MESH,
   ReachabilityScope.RETICULUM,
 ];
 

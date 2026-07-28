@@ -8,15 +8,30 @@
 import { Test } from '@nestjs/testing';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PostCreate, CommentCreate, VoteCast } from '@jagoo/sdk/proto';
+import {
+  AttachmentClaim,
+  Envelope,
+  PostCreate,
+  CommentCreate,
+  ProfileUpdate,
+  VoteCast,
+} from '@jagoo/sdk/proto';
 import { AppModule } from '../../../composition/app.module.js';
-import { CertificateStore } from '../../../core/ports/identity.port.js';
 import { CredentialIssuer } from '../../../core/ports/anti-abuse.port.js';
-import type { InMemoryCertificateStore } from '../../outbound/in-memory/in-memory-services.js';
-import { signEnvelope, AUTHOR_KEY } from '../../../testing/harness.js';
+import {
+  AUTHOR_KEY,
+  AUTHOR_SEED,
+  certifyEnvelope,
+  signEnvelope,
+} from '../../../testing/harness.js';
 import { verifyInclusion, hashLeaf } from '../../../core/domain/merkle.js';
+import { ed25519 } from '@jagoo/sdk/crypto';
+import { authSigningBytes } from '../../outbound/redis/session-auth.js';
 
 let app: NestFastifyApplication;
+let accessToken = '';
+let refreshToken = '';
+let refreshCookieHeader = '';
 
 const CREDENTIAL_SEED = new Uint8Array([1, 2, 3, 4]);
 const VALID_CREDENTIAL = Uint8Array.from(CREDENTIAL_SEED, (b) => b ^ 0xff);
@@ -41,9 +56,52 @@ beforeAll(async () => {
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
 
-  // Step 10 needs a certificate; step 13 needs an issued credential.
-  (app.get(CertificateStore) as InMemoryCertificateStore).add({ key: AUTHOR_KEY, issuedAtMs: 0 });
+  // Step 13 needs an issued credential.
   await app.get(CredentialIssuer).issue(CREDENTIAL_SEED);
+
+  // Step 10 needs a certificate — published as a real envelope through the real pipeline,
+  // which is also the ADR-004 bootstrap path. If this 200s, certification genuinely works;
+  // seeding a store would have proved only that the store has a setter.
+  const certified = await submit(certifyEnvelope({ createdAtMs: now() }));
+  expect(certified.statusCode, `certificate publish failed: ${certified.body}`).toBe(200);
+  const profiled = await submit(
+    signEnvelope({
+      domain: 'jb:profile:update:v1',
+      credential: VALID_CREDENTIAL,
+      nullifier: nextNullifier(),
+      epoch: 1,
+      createdAtMs: now(),
+      body: ProfileUpdate.encode(
+        ProfileUpdate.fromPartial({ display_name: 'Test coordinator' }),
+      ).finish(),
+    }),
+  );
+  expect(profiled.statusCode, profiled.body).toBe(200);
+
+  const challenged = await app.inject({
+    method: 'GET',
+    url: `/v1/auth/challenge?public_key=${encodeURIComponent(
+      Buffer.from(AUTHOR_KEY).toString('base64'),
+    )}`,
+  });
+  const challenge = challenged.json();
+  const challengeBytes = new Uint8Array(Buffer.from(challenge.challenge, 'base64'));
+  const authenticated = await app.inject({
+    method: 'POST',
+    url: '/v1/auth',
+    payload: {
+      public_key: Buffer.from(AUTHOR_KEY).toString('base64'),
+      challenge: challenge.challenge,
+      claim: challenge.claim,
+      signature: Buffer.from(
+        ed25519.sign(authSigningBytes(AUTHOR_KEY, challengeBytes, 'login'), AUTHOR_SEED),
+      ).toString('base64'),
+    },
+  });
+  expect(authenticated.statusCode, authenticated.body).toBe(201);
+  accessToken = authenticated.json().accessToken;
+  refreshToken = authenticated.json().refreshToken;
+  refreshCookieHeader = String(authenticated.headers['set-cookie']);
 });
 
 afterAll(async () => {
@@ -115,7 +173,9 @@ describe('POST /v1/envelopes — the only write route (WE-01)', () => {
         nullifier: nextNullifier(),
         epoch: 1,
         createdAtMs: now(),
-        body: PostCreate.encode(PostCreate.fromPartial({ title: 'x'.repeat(400), kind: 1 })).finish(),
+        body: PostCreate.encode(
+          PostCreate.fromPartial({ title: 'x'.repeat(400), kind: 1 }),
+        ).finish(),
       }),
     );
 
@@ -137,6 +197,64 @@ describe('POST /v1/envelopes — the only write route (WE-01)', () => {
     // be a second door that skips the 19 steps.
     const res = await app.inject({ method: 'POST', url: '/v1/posts', payload: {} });
     expect(res.statusCode).toBe(404);
+  });
+
+  it('P1-G7 rejects a refresh token presented as bearer auth on the write route', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/envelopes',
+      headers: { authorization: `Bearer ${refreshToken}` },
+      payload: {
+        envelope: Buffer.from(certifyEnvelope({ createdAtMs: now() })).toString('base64'),
+      },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('AUTH-09 keeps the refresh token in an HttpOnly, SameSite cookie', () => {
+    expect(refreshCookieHeader).toContain('jb_refresh=');
+    expect(refreshCookieHeader).toContain('HttpOnly');
+    expect(refreshCookieHeader).toContain('SameSite=Strict');
+  });
+
+  it('WE-03 accepts a homogeneous batch and rejects mixed planes before ingestion', async () => {
+    const forum = signEnvelope({
+      domain: 'jb:post:create:v1',
+      credential: VALID_CREDENTIAL,
+      nullifier: nextNullifier(),
+      epoch: 1,
+      createdAtMs: now(),
+      body: PostCreate.encode(PostCreate.fromPartial({ title: 'Batch one', kind: 1 })).finish(),
+    });
+    const secondForum = signEnvelope({
+      domain: 'jb:post:create:v1',
+      credential: VALID_CREDENTIAL,
+      nullifier: nextNullifier(),
+      epoch: 1,
+      createdAtMs: now(),
+      body: PostCreate.encode(PostCreate.fromPartial({ title: 'Batch two', kind: 1 })).finish(),
+    });
+    const accepted = await app.inject({
+      method: 'POST',
+      url: '/v1/envelopes',
+      payload: {
+        envelopes: [forum, secondForum].map((raw) => Buffer.from(raw).toString('base64')),
+      },
+    });
+    expect(accepted.statusCode, accepted.body).toBe(200);
+    expect(accepted.json().receipts).toHaveLength(2);
+
+    const decoded = Envelope.decode(secondForum);
+    const signalShaped = Envelope.encode({ ...decoded, plane: 2 }).finish();
+    const rejected = await app.inject({
+      method: 'POST',
+      url: '/v1/envelopes',
+      payload: {
+        envelopes: [forum, signalShaped].map((raw) => Buffer.from(raw).toString('base64')),
+      },
+    });
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.json().code).toBe('PLANE_MISMATCH');
   });
 });
 
@@ -260,5 +378,100 @@ describe('read API (T1.31)', () => {
     const found = posts.json().items.find((p: { content_id: string }) => p.content_id === postId);
     expect(found.score).toBe(1);
     expect(found.comment_count).toBe(1);
+  });
+
+  it('serves the Forum read table with complete offline provenance', async () => {
+    const feed = await app.inject({ method: 'GET', url: '/v1/feed?limit=1' });
+    expect(feed.statusCode).toBe(200);
+    const provenance = feed.json().items[0].provenance;
+    expect(provenance).toMatchObject({ plane: 'FORUM', keyAlg: 'ED25519' });
+    expect(provenance.canonicalBytes).toBeTruthy();
+    expect(provenance.signature).toBeTruthy();
+    expect(provenance.receipt.leafIndex).toBeTypeOf('number');
+
+    const authenticatedRoutes = [
+      '/v1/me/profile',
+      '/v1/me/communities',
+      '/v1/me/preferences',
+      '/v1/me/saved',
+      '/v1/me/notifications',
+      '/v1/me/messages',
+    ];
+    for (const url of authenticatedRoutes) {
+      const response = await app.inject({
+        method: 'GET',
+        url,
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      expect(response.statusCode, `${url}: ${response.body}`).not.toBe(404);
+    }
+
+    const publicRoutes = [
+      '/v1/communities',
+      '/v1/communities/name-available/unused',
+      '/v1/awards/types',
+      '/v1/search?q=shelter',
+      '/v1/labels/jb1missing',
+      '/v1/server/identity',
+      '/v1/log/consistency?from=0&to=1',
+    ];
+    for (const url of publicRoutes) {
+      const response = await app.inject({ method: 'GET', url });
+      expect(response.statusCode, `${url}: ${response.body}`).not.toBe(404);
+    }
+  });
+
+  it('presigns and confirms an attachment whose hash, MIME, and size match', async () => {
+    const digest = Buffer.alloc(32, 9).toString('base64');
+    const ticket = await app.inject({
+      method: 'POST',
+      url: '/v1/attachments/upload-url',
+      headers: { authorization: `Bearer ${accessToken}` },
+      payload: { mime: 'image/jpeg', size: 123, sha256: digest },
+    });
+    expect(ticket.statusCode).toBe(201);
+    const confirmed = await app.inject({
+      method: 'POST',
+      url: '/v1/attachments/confirm',
+      headers: { authorization: `Bearer ${accessToken}` },
+      payload: { key: ticket.json().key, mime: 'image/jpeg', size: 123, sha256: digest },
+    });
+    expect(confirmed.statusCode).toBe(201);
+    expect(confirmed.json()).toMatchObject({ confirmed: true, size: 123 });
+
+    const claim = await submit(
+      signEnvelope({
+        domain: 'jb:attachment:claim:v1',
+        credential: VALID_CREDENTIAL,
+        createdAtMs: now(),
+        body: AttachmentClaim.encode(
+          AttachmentClaim.fromPartial({
+            storage_key: ticket.json().key,
+            content_sha256: new Uint8Array(Buffer.from(digest, 'base64')),
+            mime: 'image/jpeg',
+            size_bytes: 123n,
+            alt_text: 'Flooded road',
+          }),
+        ).finish(),
+      }),
+    );
+    expect(claim.statusCode, claim.body).toBe(200);
+
+    const substituted = await submit(
+      signEnvelope({
+        domain: 'jb:attachment:claim:v1',
+        credential: VALID_CREDENTIAL,
+        createdAtMs: now(),
+        body: AttachmentClaim.encode(
+          AttachmentClaim.fromPartial({
+            storage_key: ticket.json().key,
+            content_sha256: new Uint8Array(32).fill(8),
+            mime: 'image/jpeg',
+            size_bytes: 123n,
+          }),
+        ).finish(),
+      }),
+    );
+    expect(substituted.statusCode).toBe(403);
   });
 });

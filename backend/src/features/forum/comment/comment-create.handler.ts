@@ -14,6 +14,7 @@ import { CommentCreate } from '@jagoo/sdk/proto';
 import type { Tx } from '../../../core/domain/domain-handler.js';
 import {
   allowed,
+  denied,
   invalid,
   valid,
   type AuthDecision,
@@ -23,6 +24,9 @@ import {
 import { Plane, type ParsedEnvelope } from '../../../core/domain/envelope.js';
 import type { ProjectionStore } from '../../../core/ports/storage.port.js';
 import { POSTS_COLLECTION, type PostDoc } from '../post/post.projection.js';
+import { addMentionNotifications, addNotification } from '../shared/notification.projection.js';
+import { canPost, hexKey, loadAuthContext } from '../shared/permissions.js';
+import { ATTACHMENTS_COLLECTION, type AttachmentDoc } from '../attachment/attachment.handler.js';
 
 export const COMMENTS_COLLECTION = 'forum_comments';
 export const MAX_COMMENT_CHARS = 10000;
@@ -40,7 +44,12 @@ export interface CommentDoc {
   readonly createdAtMs: number;
   readonly removed: boolean;
   readonly removedReason: string | null;
+  readonly collapsed: boolean;
+  readonly flagged: boolean;
+  readonly approved: boolean;
   readonly score: number;
+  readonly replyCount: number;
+  readonly awardCount: number;
 }
 
 export class CommentCreateHandler implements DomainHandler<CommentCreate> {
@@ -68,13 +77,32 @@ export class CommentCreateHandler implements DomainHandler<CommentCreate> {
     return valid;
   }
 
-  async authorize(body: CommentCreate, _env: ParsedEnvelope): Promise<AuthDecision> {
+  async authorize(body: CommentCreate, env: ParsedEnvelope): Promise<AuthDecision> {
     // The post must exist here. This is NOT an approval gate — it is referential integrity,
     // and it is why federation backfills parents before children.
     const post = await this.projections
       .collection<PostDoc>(POSTS_COLLECTION)
       .findOne({ id: body.post });
     if (!post) return { allowed: false, reason: 'the post being commented on is not known here' };
+    const authorKey = hexKey(env.authorKey);
+    const attachments = this.projections.collection<AttachmentDoc>(ATTACHMENTS_COLLECTION);
+    for (const id of body.attachments) {
+      if (!id.startsWith('jb1')) continue;
+      const attachment = await attachments.findOne({ id });
+      if (!attachment) return denied(`attachment ${id} is not known here`);
+      if (attachment.ownerKey !== authorKey) {
+        return denied(`attachment ${id} belongs to another identity`);
+      }
+    }
+    const ctx = await loadAuthContext(
+      this.projections,
+      authorKey,
+      post.community,
+      Number(env.createdAtMs),
+    );
+    if (ctx.communityDoc?.archived) return denied('the community is archived');
+    if (ctx.communityDoc && !canPost(ctx)) return denied('post.create permission required');
+    if (post.locked) return denied('the post is locked');
     return allowed;
   }
 
@@ -98,7 +126,12 @@ export class CommentCreateHandler implements DomainHandler<CommentCreate> {
       createdAtMs: Number(env.createdAtMs),
       removed: false,
       removedReason: null,
+      collapsed: false,
+      flagged: false,
+      approved: false,
       score: 0,
+      replyCount: 0,
+      awardCount: 0,
     };
     await comments.put(env.contentId, doc, tx);
 
@@ -109,6 +142,32 @@ export class CommentCreateHandler implements DomainHandler<CommentCreate> {
       await this.projections
         .collection<PostDoc>(POSTS_COLLECTION)
         .put(body.post, { ...post, commentCount: post.commentCount + 1 }, tx);
+
+      const parent = body.parent_comment
+        ? await comments.findOne({ id: body.parent_comment })
+        : null;
+      if (parent) {
+        await comments.put(parent.contentId, { ...parent, replyCount: parent.replyCount + 1 }, tx);
+      }
+      await addNotification(
+        this.projections,
+        {
+          recipientKey: parent?.authorKey ?? post.authorKey,
+          kind: 'reply',
+          contentId: env.contentId,
+          actorKey: doc.authorKey,
+          createdAtMs: doc.createdAtMs,
+        },
+        tx,
+      );
     }
+    await addMentionNotifications(
+      this.projections,
+      body.body_markdown,
+      env.contentId,
+      doc.authorKey,
+      doc.createdAtMs,
+      tx,
+    );
   }
 }

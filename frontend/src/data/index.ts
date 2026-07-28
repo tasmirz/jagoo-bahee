@@ -1,3 +1,67 @@
-// Local cache + query layer. Every screen renders from cache first and shows staleness honestly
-// (CLAUDE.md §6, "Offline is the default assumption"). Populated in P1.
-export {};
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
+import { QueryClient, onlineManager } from '@tanstack/react-query';
+export { LocalNotificationState } from './notifications';
+export type { ForumNotification, NotificationStorage } from './notifications';
+
+const CACHE_PREFIX = 'jb.api.v1:';
+const FORUM_DATA_PREFIXES = [CACHE_PREFIX, 'jb.notifications.forum.v1:'] as const;
+
+export interface CachedValue<T> {
+  readonly value: T;
+  readonly storedAtMs: number;
+}
+
+export class OfflineApi {
+  constructor(private readonly baseUrl: string) {}
+
+  async get<T>(path: string): Promise<CachedValue<T>> {
+    const requestUrl = new URL(path, this.baseUrl).toString();
+    const key = `${CACHE_PREFIX}${encodeURIComponent(requestUrl)}`;
+    try {
+      const response = await fetch(requestUrl, {
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const cached = { value: (await response.json()) as T, storedAtMs: Date.now() };
+      await AsyncStorage.setItem(key, JSON.stringify(cached));
+      return cached;
+    } catch (error) {
+      const stored = await AsyncStorage.getItem(key);
+      if (stored) return JSON.parse(stored) as CachedValue<T>;
+      throw error;
+    }
+  }
+
+  async clear(): Promise<void> {
+    const keys = (await AsyncStorage.getAllKeys()).filter((key) => key.startsWith(CACHE_PREFIX));
+    if (keys.length > 0) await AsyncStorage.multiRemove(keys);
+  }
+}
+
+/** AUTH-22: erase cached Forum material without touching a future Signal-plane store. */
+export async function clearForumLocalData(): Promise<void> {
+  const keys = (await AsyncStorage.getAllKeys()).filter((key) =>
+    FORUM_DATA_PREFIXES.some((prefix) => key.startsWith(prefix)),
+  );
+  if (keys.length > 0) await AsyncStorage.multiRemove(keys);
+  queryClient.clear();
+}
+
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      networkMode: 'offlineFirst',
+      staleTime: 30_000,
+      gcTime: 7 * 24 * 60 * 60 * 1000,
+      retry: 1,
+    },
+    mutations: { networkMode: 'offlineFirst', retry: 2 },
+  },
+});
+
+onlineManager.setEventListener((setOnline) =>
+  NetInfo.addEventListener((state) =>
+    setOnline(Boolean(state.isConnected && state.isInternetReachable)),
+  ),
+);

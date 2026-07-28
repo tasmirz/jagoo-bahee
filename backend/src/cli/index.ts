@@ -1,3 +1,3 @@
-// Operational scripts run against a live node, e.g. rebuild-projections.ts (byte-identical
-// rebuild of all projections from the envelope log alone). Populated once ProjectionStore lands in P1.
+// Operational scripts run against a live node. `rebuild-projections.ts` reconstructs every
+// derived Forum collection byte-identically from the authoritative envelope log.
 export {};

@@ -12,6 +12,14 @@ export {
 export { base32Encode, base32Decode } from './base32.js';
 export { ByteWriter, bytesEqual, encodeUtf8Nfc } from './wire.js';
 export {
+  verifyInclusion,
+  verifyReceipt,
+  receiptSigningBytes,
+  sthSigningBytes,
+  type OfflineReceipt,
+  type OfflineTreeHead,
+} from './evidence.js';
+export {
   ENVELOPE_VERSION,
   FIELD,
   ANTI_ABUSE_FIELD,

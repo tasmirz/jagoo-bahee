@@ -51,6 +51,21 @@ export function denied(reason: string): AuthDecision {
  */
 export interface Tx {
   readonly id: string;
+  /** Adapter-owned session/transaction context. The core never interprets it. */
+  readonly context?: unknown;
+}
+
+/**
+ * Lets an in-memory double honour rollback semantics without leaking a database driver
+ * into the core. Mongo adapters ignore this and use the session in `Tx.context`.
+ */
+export interface RollbackHooks {
+  onRollback(action: () => void): void;
+}
+
+export function registerRollback(tx: Tx, action: () => void): void {
+  const hooks = tx.context as Partial<RollbackHooks> | undefined;
+  hooks?.onRollback?.(action);
 }
 
 export interface DomainHandler<TBody = unknown> {

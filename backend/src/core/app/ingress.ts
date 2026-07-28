@@ -24,6 +24,7 @@
  */
 
 import type { ParsedEnvelope } from '../domain/envelope.js';
+import type { Tx } from '../domain/domain-handler.js';
 import { EnvelopeRejected, RejectionCode } from '../domain/errors.js';
 import type { DomainRegistry } from '../domain/domain-registry.js';
 import { acceptDomain, acceptPlane, acceptVersion } from '../domain/accept.js';
@@ -34,21 +35,32 @@ import {
   acceptPriority,
   acceptSize,
 } from '../domain/pipeline/policy.js';
-import { acceptClock, type ClockWindow, DEFAULT_CLOCK_WINDOW } from '../domain/pipeline/clock-window.js';
+import {
+  acceptClock,
+  type ClockWindow,
+  DEFAULT_CLOCK_WINDOW,
+} from '../domain/pipeline/clock-window.js';
 import { acceptCertificate, acceptSignature } from '../domain/pipeline/signature.js';
 import { acceptDedupe, acceptReplay } from '../domain/pipeline/dedupe.js';
 import { acceptAntiAbuse, type AntiAbuseDeps } from '../domain/pipeline/anti-abuse.js';
 import { receiptSigningBytes, type Receipt } from '../domain/receipt.js';
-import type { EnvelopeReader, EnvelopeWriter, ProjectionStore } from '../ports/storage.port.js';
+import {
+  DuplicateContentError,
+  type EnvelopeReader,
+  type EnvelopeWriter,
+  type ProjectionStore,
+} from '../ports/storage.port.js';
 import type { CertificateStore, SignatureVerifier } from '../ports/identity.port.js';
 import type { WitnessLog } from '../ports/transparency.port.js';
 import type { FederationOut } from '../ports/network.port.js';
 import type { NodeSigner } from '../ports/node-signer.port.js';
 import type { Clock } from '../ports/system.port.js';
+import type { EventBus } from '../ports/events.port.js';
+import type { TaggedCache } from '../ports/cache.port.js';
 
 export interface NonceStore {
   seen(authorKey: Uint8Array, nonce: Uint8Array): Promise<boolean>;
-  remember(authorKey: Uint8Array, nonce: Uint8Array): Promise<void>;
+  reserve(authorKey: Uint8Array, nonce: Uint8Array, tx: Tx): Promise<boolean>;
 }
 
 export interface IngressDeps {
@@ -64,6 +76,8 @@ export interface IngressDeps {
   readonly nodeSigner: NodeSigner;
   readonly clock: Clock;
   readonly federation?: FederationOut;
+  readonly events?: EventBus;
+  readonly cache?: TaggedCache;
   readonly clockWindow?: ClockWindow;
 }
 
@@ -110,7 +124,7 @@ export class IngressPipeline {
     acceptSignature(envelope, canonical, d.verifier);
 
     // ── 10. CERTIFICATE ───────────────────────────────────────────────────────────────
-    await acceptCertificate(envelope, d.certificates);
+    await acceptCertificate(envelope, d.certificates, spec.requiresCertificate);
 
     // ── 11. DEDUPE — returns the original receipt instead of failing (ER-01) ──────────
     try {
@@ -146,21 +160,56 @@ export class IngressPipeline {
 
     // ── 16-17. APPLY + WITNESS — one transaction, atomic together (VP-02) ────────────
     const acceptedAtMs = d.clock.nowMs();
-    const logIndex = await d.projections.transaction(async (tx) => {
-      await d.writer.put(envelope, raw, tx);
-      await handler.project(body, envelope, tx);
-      return await d.witness.append(envelope.contentId, tx);
-    });
-
-    await d.nonces.remember(envelope.authorKey, envelope.nonce);
+    let receipt: Receipt;
+    try {
+      receipt = await d.projections.transaction(async (tx) => {
+        if (!spec.idempotent && !(await d.nonces.reserve(envelope.authorKey, envelope.nonce, tx))) {
+          throw new EnvelopeRejected(RejectionCode.REPLAY, 'nonce has already been used');
+        }
+        const stored = await d.writer.put(envelope, raw, tx);
+        await handler.project(body, envelope, tx);
+        const leafIndex = await d.witness.append(envelope.contentId, tx);
+        const createdReceipt = await this.signReceipt(
+          envelope.contentId,
+          stored.logIndex,
+          leafIndex,
+          acceptedAtMs,
+          tx,
+        );
+        await d.writer.recordReceipt(envelope.contentId, createdReceipt, leafIndex, tx);
+        return createdReceipt;
+      });
+    } catch (error) {
+      if (error instanceof DuplicateContentError) {
+        return this.receiptForExisting(error.contentId);
+      }
+      throw error;
+    }
 
     // ── 18. RECEIPT ───────────────────────────────────────────────────────────────────
-    const receipt = await this.signReceipt(envelope.contentId, logIndex, acceptedAtMs);
-
     // ── 19. FANOUT — after commit, and never able to roll it back ────────────────────
     // A notification failure must not undo an accepted envelope.
-    await handler.afterCommit?.(body, envelope);
-    await d.federation?.enqueue(envelope);
+    // These are post-commit delivery attempts. A transient notification or federation
+    // error must not turn an already witnessed write into an HTTP failure; the durable
+    // outbox adapter retries delivery independently.
+    try {
+      await handler.afterCommit?.(body, envelope);
+    } catch {
+      // The acceptance receipt is authoritative; observers are best-effort here.
+    }
+    try {
+      await d.federation?.enqueue(envelope);
+    } catch {
+      // See the durable outbox note above.
+    }
+    d.events?.publish({ type: 'accepted', envelope, receipt });
+    try {
+      await d.cache?.invalidate('forum');
+      if (envelope.scope) await d.cache?.invalidate(`scope:${envelope.scope}`);
+      await d.cache?.invalidate(`content:${envelope.contentId}`);
+    } catch {
+      // Cache state is disposable; an invalidation failure cannot undo acceptance.
+    }
 
     return receipt;
   }
@@ -182,20 +231,36 @@ export class IngressPipeline {
   private async signReceipt(
     contentId: string,
     logIndex: number,
+    leafIndex: number,
     acceptedAtMs: number,
+    tx: Tx,
   ): Promise<Receipt> {
     const d = this.deps;
     const serverId = d.nodeSigner.serverId;
+    const sth = await d.witness.currentSth(tx);
+    const inclusionProof = (await d.witness.inclusionProof(contentId, tx)).path;
     const signature = d.nodeSigner.sign(
-      receiptSigningBytes(contentId, logIndex, acceptedAtMs, serverId),
+      receiptSigningBytes(
+        contentId,
+        logIndex,
+        leafIndex,
+        acceptedAtMs,
+        serverId,
+        d.nodeSigner.publicKey,
+        sth,
+        inclusionProof,
+      ),
     );
     return {
       contentId,
       logIndex,
+      leafIndex,
       acceptedAtMs,
       serverId,
+      serverKey: d.nodeSigner.publicKey,
       signature,
-      sth: await d.witness.currentSth(),
+      sth,
+      inclusionProof,
     };
   }
 
@@ -211,6 +276,7 @@ export class IngressPipeline {
       // Only reachable if the record vanished between `has` and `get`.
       throw new EnvelopeRejected(RejectionCode.DUPLICATE, 'content already accepted');
     }
-    return await this.signReceipt(contentId, stored.logIndex, stored.receivedAtMs);
+    if (stored.receipt) return stored.receipt;
+    throw new Error(`accepted envelope ${contentId} has no persisted receipt`);
   }
 }

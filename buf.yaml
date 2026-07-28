@@ -12,6 +12,15 @@ lint:
     # full prefix and the generated TS is clearer for it.
     - ENUM_VALUE_PREFIX
     - ENUM_ZERO_VALUE_SUFFIX
+    # These service/message names are already part of the frozen v1 gRPC wire surface.
+    # Renaming them in place to satisfy style lint would violate the versioning rule.
+    - SERVICE_SUFFIX
+    - RPC_REQUEST_STANDARD_NAME
+    - RPC_RESPONSE_STANDARD_NAME
+    - RPC_REQUEST_RESPONSE_UNIQUE
+    # signal.proto intentionally imports the shared envelope types as a plane-boundary
+    # declaration even though its current messages do not directly reference Envelope.
+    - IMPORT_USED
   enum_zero_value_suffix: _UNSPECIFIED
   rpc_allow_same_request_response: true
 

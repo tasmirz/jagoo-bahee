@@ -11,6 +11,7 @@ import { ed25519 } from '@jagoo/sdk/crypto';
 import { identityId } from '@jagoo/sdk/core';
 import { NodeSigner } from '../../../core/ports/node-signer.port.js';
 import type { NonceStore } from '../../../core/app/ingress.js';
+import { registerRollback, type Tx } from '../../../core/domain/domain-handler.js';
 
 export class InMemoryNodeSigner extends NodeSigner {
   readonly publicKey: Uint8Array;
@@ -39,9 +40,13 @@ export class InMemoryNonceStore implements NonceStore {
     return this.seenNonces.has(InMemoryNonceStore.key(authorKey, nonce));
   }
 
-  async remember(authorKey: Uint8Array, nonce: Uint8Array): Promise<void> {
-    if (nonce.length === 0) return;
-    this.seenNonces.add(InMemoryNonceStore.key(authorKey, nonce));
+  async reserve(authorKey: Uint8Array, nonce: Uint8Array, tx: Tx): Promise<boolean> {
+    if (nonce.length === 0) return true;
+    const key = InMemoryNonceStore.key(authorKey, nonce);
+    if (this.seenNonces.has(key)) return false;
+    this.seenNonces.add(key);
+    registerRollback(tx, () => this.seenNonces.delete(key));
+    return true;
   }
 
   get size(): number {

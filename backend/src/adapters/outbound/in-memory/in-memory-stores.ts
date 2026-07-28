@@ -9,10 +9,12 @@
  * The transaction double is intentionally strict — see `InMemoryProjectionStore`.
  */
 
-import type { Tx } from '../../../core/domain/domain-handler.js';
+import { registerRollback, type Tx } from '../../../core/domain/domain-handler.js';
 import type { ParsedEnvelope, Priority, StoredEnvelope } from '../../../core/domain/envelope.js';
+import type { Receipt } from '../../../core/domain/receipt.js';
 import {
   EnvelopeWriter,
+  DuplicateContentError,
   ProjectionStore,
   type Collection,
   type EnvelopeReader,
@@ -28,10 +30,11 @@ export class InMemoryEnvelopeStore extends EnvelopeWriter implements EnvelopeRea
     super();
   }
 
-  async put(envelope: ParsedEnvelope, raw: Uint8Array, _tx: Tx): Promise<void> {
+  async put(envelope: ParsedEnvelope, raw: Uint8Array, tx: Tx): Promise<StoredEnvelope> {
     // DUPLICATE is a pipeline-step-11 concern, but the store enforces the invariant too:
     // a unique index on content_id is what makes dedupe correct under concurrency.
-    if (this.byContentId.has(envelope.contentId)) return;
+    const existing = this.byContentId.get(envelope.contentId);
+    if (existing) throw new DuplicateContentError(envelope.contentId);
 
     const stored: StoredEnvelope = {
       envelope,
@@ -41,6 +44,29 @@ export class InMemoryEnvelopeStore extends EnvelopeWriter implements EnvelopeRea
     };
     this.byContentId.set(envelope.contentId, stored);
     this.log.push(stored);
+    registerRollback(tx, () => {
+      this.byContentId.delete(envelope.contentId);
+      if (this.log[this.log.length - 1] === stored) this.log.pop();
+    });
+    return stored;
+  }
+
+  async recordReceipt(
+    contentId: string,
+    receipt: Receipt,
+    merkleLeafIndex: number,
+    tx: Tx,
+  ): Promise<void> {
+    const previous = this.byContentId.get(contentId);
+    if (!previous) throw new Error(`cannot receipt missing envelope ${contentId}`);
+    const next: StoredEnvelope = { ...previous, receipt, merkleLeafIndex };
+    this.byContentId.set(contentId, next);
+    const index = this.log.indexOf(previous);
+    if (index >= 0) this.log[index] = next;
+    registerRollback(tx, () => {
+      this.byContentId.set(contentId, previous);
+      if (index >= 0) this.log[index] = previous;
+    });
   }
 
   async get(contentId: string): Promise<StoredEnvelope | null> {
@@ -99,15 +125,23 @@ export class InMemoryProjectionStore extends ProjectionStore {
   }
 
   collection<T>(name: string): Collection<T> {
+    const matches = (doc: unknown, filter: Record<string, unknown>): boolean => {
+      if (!doc || typeof doc !== 'object') return false;
+      return Object.entries(filter).every(
+        ([key, value]) => (doc as Record<string, unknown>)[key] === value,
+      );
+    };
     return {
       findOne: async (filter) => {
         const id = filter['id'];
         if (typeof id === 'string') return (this.collectionMap(name).get(id) as T) ?? null;
-        const first = [...this.collectionMap(name).values()][0];
+        const first = [...this.collectionMap(name).values()].find((doc) => matches(doc, filter));
         return (first as T) ?? null;
       },
-      find: async (_filter, limit) => {
-        return [...this.collectionMap(name).values()].slice(0, limit) as T[];
+      find: async (filter, limit) => {
+        return [...this.collectionMap(name).values()]
+          .filter((doc) => matches(doc, filter))
+          .slice(0, limit) as T[];
       },
       put: async (id, doc) => {
         this.collectionMap(name).set(id, doc);
@@ -122,7 +156,11 @@ export class InMemoryProjectionStore extends ProjectionStore {
     if (this.staged) throw new Error('nested transactions are not supported');
 
     this.txCounter += 1;
-    const tx: Tx = { id: `tx-${this.txCounter}` };
+    const rollbacks: (() => void)[] = [];
+    const tx: Tx = {
+      id: `tx-${this.txCounter}`,
+      context: { onRollback: (action: () => void) => rollbacks.push(action) },
+    };
 
     // Deep-enough copy: one level of collections, each a fresh Map.
     this.staged = new Map([...this.data].map(([k, v]) => [k, new Map(v)]));
@@ -130,9 +168,29 @@ export class InMemoryProjectionStore extends ProjectionStore {
       const result = await fn(tx);
       for (const [name, docs] of this.staged) this.data.set(name, docs);
       return result;
+    } catch (error) {
+      for (const rollback of rollbacks.reverse()) rollback();
+      throw error;
     } finally {
       this.staged = null;
     }
+  }
+
+  async reset(): Promise<void> {
+    if (this.staged) throw new Error('cannot reset projections during a transaction');
+    this.data.clear();
+  }
+
+  /** Stable test/admin representation used by the byte-identical rebuild gate. */
+  snapshot(): string {
+    const collections = [...this.data.entries()]
+      .filter(([, docs]) => docs.size > 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, docs]) => [
+        name,
+        [...docs.entries()].sort(([a], [b]) => a.localeCompare(b)),
+      ]);
+    return JSON.stringify(collections);
   }
 }
 

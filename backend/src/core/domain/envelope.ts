@@ -12,6 +12,8 @@
  * Specification: Plans/02-CONTRACTS-CORE.md §2-3
  */
 
+import type { Receipt } from './receipt.js';
+
 export const Plane = {
   UNSPECIFIED: 0,
   FORUM: 1,
@@ -81,4 +83,8 @@ export interface StoredEnvelope {
   readonly raw: Uint8Array;
   readonly logIndex: number;
   readonly receivedAtMs: number;
+  /** Dense RFC 6962 leaf position; deliberately distinct from the sparse log index. */
+  readonly merkleLeafIndex?: number;
+  /** Persisted verbatim so an idempotent retry returns the original evidence. */
+  readonly receipt?: Receipt;
 }

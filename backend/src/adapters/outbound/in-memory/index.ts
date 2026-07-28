@@ -17,6 +17,7 @@ export {
   InMemoryCreditLedger,
   InMemoryNullifierRegistry,
   InMemoryCredentialIssuer,
+  InMemoryPowVerifier,
   InMemoryWitnessLog,
   InMemoryPeerDirectory,
   NarrowestScopePathSelector,

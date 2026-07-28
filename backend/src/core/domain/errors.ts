@@ -52,12 +52,23 @@ export interface RejectionDetail {
   /** Offending field path, when applicable. */
   readonly field?: string;
   readonly retryAfterMs?: number;
+  readonly challenge?: {
+    readonly challenge: Uint8Array;
+    readonly difficulty: number;
+    readonly expiresAtMs: number;
+    readonly algorithm?: 'argon2id';
+    readonly memoryKiB?: number;
+    readonly iterations?: number;
+    readonly parallelism?: number;
+    readonly boundTo?: Uint8Array;
+  };
 }
 
 export class EnvelopeRejected extends Error {
   readonly code: RejectionCode;
   readonly field: string | undefined;
   readonly retryAfterMs: number | undefined;
+  readonly challenge: RejectionDetail['challenge'];
 
   constructor(code: RejectionCode, detail: string, extra: RejectionDetail = {}) {
     super(detail);
@@ -65,6 +76,7 @@ export class EnvelopeRejected extends Error {
     this.code = code;
     this.field = extra.field;
     this.retryAfterMs = extra.retryAfterMs;
+    this.challenge = extra.challenge;
   }
 
   get retryable(): boolean {

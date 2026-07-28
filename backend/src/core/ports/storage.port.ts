@@ -12,6 +12,14 @@
 
 import type { ParsedEnvelope, Priority, StoredEnvelope } from '../domain/envelope.js';
 import type { Tx } from '../domain/domain-handler.js';
+import type { Receipt } from '../domain/receipt.js';
+
+export class DuplicateContentError extends Error {
+  constructor(readonly contentId: string) {
+    super(`content already exists: ${contentId}`);
+    this.name = 'DuplicateContentError';
+  }
+}
 
 export abstract class EnvelopeWriter {
   /**
@@ -19,7 +27,14 @@ export abstract class EnvelopeWriter {
    * be atomic with respect to each other, because a projected envelope missing from the
    * Merkle log is a transparency failure (pipeline steps 16/17).
    */
-  abstract put(envelope: ParsedEnvelope, raw: Uint8Array, tx: Tx): Promise<void>;
+  abstract put(envelope: ParsedEnvelope, raw: Uint8Array, tx: Tx): Promise<StoredEnvelope>;
+  /** Persist the signed receipt in the same transaction as the projection and witness leaf. */
+  abstract recordReceipt(
+    contentId: string,
+    receipt: Receipt,
+    merkleLeafIndex: number,
+    tx: Tx,
+  ): Promise<void>;
 }
 
 export abstract class EnvelopeReader {
@@ -47,4 +62,6 @@ export abstract class ProjectionStore {
   abstract collection<T>(name: string): Collection<T>;
   /** Mongo requires a replica set for this, even single-node (ADR-001, build log L-03). */
   abstract transaction<R>(fn: (tx: Tx) => Promise<R>): Promise<R>;
+  /** Drop derived state before replaying the authoritative envelope log (ADM-42). */
+  abstract reset(): Promise<void>;
 }

@@ -20,13 +20,13 @@ person-to-person messaging, where knowing exactly who is speaking is the entire 
 
 A later goal must never be built at the cost of an earlier one, and must never become a dependency of one.
 
-| # | Goal | Rank | Phase |
-|---|---|---|---|
-| 1 | **Federation works** — independent instances exchange, verify, and project content | ★ **PRIMARY** | P2 |
-| 2 | **ISP-level availability and ISP bridging** | ★ **SECONDARY** | P3 |
-| 3 | Broadcast + identified messaging over IP | tertiary | P4 |
-| 4 | Offline store-and-forward | low | P5 |
-| 5 | Reticulum / LoRa | **lowest** | P6 |
+| #   | Goal                                                                               | Rank            | Phase |
+| --- | ---------------------------------------------------------------------------------- | --------------- | ----- |
+| 1   | **Federation works** — independent instances exchange, verify, and project content | ★ **PRIMARY**   | P2    |
+| 2   | **ISP-level availability and ISP bridging**                                        | ★ **SECONDARY** | P3    |
+| 3   | Broadcast + identified messaging over IP                                           | tertiary        | P4    |
+| 4   | Offline store-and-forward                                                          | low             | P5    |
+| 5   | Reticulum / LoRa                                                                   | **lowest**      | P6    |
 
 When a trade-off appears, resolve it in this order. Reticulum is an optional adapter behind a port and
 must never be a dependency — the system ships complete with it absent from the build.
@@ -53,17 +53,21 @@ package. The root holds only workspace-level configuration — `package.json`, `
 goes in `backend/`, client code in `frontend/`, shared code in a `packages/*` package. A `.ts`/`.tsx`
 file at the root is a design-pattern violation, not a shortcut.
 
-**State: P0 complete (all seven gates pass). P1 spine complete; P1 breadth in progress.**
+**State: P0 complete. P1 node and nonvisual client foundations complete; visual client breadth remains.**
 `P0-SKELETON-PLAN.md` §10 and `P1-CORE-NODE-PLAN.md` §6 hold the gate-by-gate evidence tables.
 
-What works today: an envelope signed on a client runs all 19 validation steps, projects, is witnessed
-in a Merkle log, returns a signed receipt, and is read back with an inclusion proof that **verifies
-offline**. Post, comment and vote are implemented; `POST /v1/envelopes` is the only write route.
+What works today: all 30 Forum domains use the 19-step ingress pipeline; Mongo, Redis, MinIO,
+projection rebuild, Merkle receipts, auth, certificates/revocation, anti-abuse, the frozen read API,
+SSE, tagged caching, notifications, and offline provenance verification are implemented. The Expo
+client has a passphrase-wrapped SecureStore signer, native Argon2, offline query cache, Bangla/English
+strings, and hybrid Forum-message crypto.
 
-What is NOT built yet, so do not assume it: Mongo/Redis adapters (everything is in-memory —
-swapping them touches `composition/app.module.ts` only), `rebuild-projections`, real PoW and blind
-credentials, moderation and the remaining nine forum features, SSE, `packages/ui`, and the client
-screens. Only **P1-G11** of the eleven P1 gates is green.
+What is NOT complete: the full frozen P1 catalogue. The RN feature screens and audit UI remain the
+largest gap, so P1-G1 and ADR-003's replacement for P1-G2/P1-G10 are not green. Administration,
+attachment management, observability/platform gates, appeals, and runtime network limiting also
+remain; use `Code Implementation/P1-REQUIREMENTS-AUDIT.md` as the gap matrix. Real Mongo/Redis
+integration tests are present but skip unless `MONGO_URL`/`REDIS_URL` point at running services; do
+not report them as executed when Docker is down.
 
 ### `@jagoo/sdk` is consumed by three toolchains — do not "simplify" this
 
@@ -71,11 +75,11 @@ The sdk ships a **dual build** and every consumer resolves it differently. All t
 by tests (`backend/src/sdk-interop.spec.ts`, `frontend/src/verify/verify.test.ts`) against the shared
 `tools/vectors/expected.json`, so a client that drifts from the canonical form fails loudly.
 
-| Consumer | Resolves via | Gets | Requires |
-|---|---|---|---|
-| `backend/` (NestJS, CommonJS) | `require` condition | `dist/cjs` | `module`/`moduleResolution: "node16"` — the legacy `Node` resolver ignores `exports` maps entirely |
-| `frontend/` (Expo, Metro) | `react-native` condition | `dist/esm` | `moduleResolution: "bundler"` + `unstable_enablePackageExports` in `metro.config.js` |
-| `pnpm vectors` (plain node) | `import` condition | `dist/esm` | — |
+| Consumer                      | Resolves via             | Gets       | Requires                                                                                           |
+| ----------------------------- | ------------------------ | ---------- | -------------------------------------------------------------------------------------------------- |
+| `backend/` (NestJS, CommonJS) | `require` condition      | `dist/cjs` | `module`/`moduleResolution: "node16"` — the legacy `Node` resolver ignores `exports` maps entirely |
+| `frontend/` (Expo, Metro)     | `react-native` condition | `dist/esm` | `moduleResolution: "bundler"` + `unstable_enablePackageExports` in `metro.config.js`               |
+| `pnpm vectors` (plain node)   | `import` condition       | `dist/esm` | —                                                                                                  |
 
 Three things that look like cleanups and are not:
 
@@ -125,22 +129,23 @@ pnpm dev:frontend                 # Expo dev client  (NOT Expo Go — native mod
 pnpm --filter @jagoo/backend exec nest start --debug
 
 # Operational
-pnpm --filter @jagoo/backend exec ts-node src/cli/rebuild-projections.ts
+pnpm --filter @jagoo/backend rebuild-projections
 pnpm ops:two-node                 # node-a + node-b federation harness (P2)
 ```
 
 Rust and Python are invoked through `pnpm vectors`; run them directly with `cargo test -p jb-core`
 and `python -m pytest tools/vectors`.
 
-**All of the above run green as of P0 completion.** Current counts, so a regression is obvious:
-`pnpm vectors` → 3 implementations agree on 16 vectors · `pnpm test` → 67 (sdk 36, backend 30,
-frontend 1) · `cargo test -p jb-core` → 6 · `pytest tools/vectors` → 22.
+**Current verified baseline (2026-07-29):** `pnpm vectors` → 3 implementations agree on 16
+vectors; `pnpm test` → 203 passing (sdk 54, backend 142, frontend 7) plus 3 infrastructure
+tests skipped without Mongo/Redis; lint, typecheck, build, proto lint, and proto check pass.
+CI starts a Mongo replica set and Redis and runs those three adapter tests as mandatory gates.
 
 Two environment notes that will otherwise cost you an hour:
 
 - **Rust is required** for `pnpm vectors`. If `cargo` is missing, install it — do not "temporarily" cut
   the gate to two languages. `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-  --profile minimal --no-modify-path`, then add `~/.cargo/bin` to PATH.
+--profile minimal --no-modify-path`, then add `~/.cargo/bin` to PATH.
 - **`frontend` exports native platforms only** (`expo export --platform ios --platform android`). Web is
   not a P0–P2 target and `react-native-web` is deliberately absent, so a bare `expo export` fails.
 
@@ -197,22 +202,22 @@ TS, Rust, and Python. Adding a feature adds a **row plus a handler**, never a br
 interface DomainHandler<TBody> {
   readonly domain: string;
   readonly plane: Plane;
-  validate(body, env): ValidationResult;              // pure, no I/O
-  authorize(body, env, ctx): Promise<AuthDecision>;   // against projections
-  project(body, env, tx): Promise<void>;              // same transaction as the log append
-  afterCommit?(body, env): Promise<void>;             // notifications, fanout hints
+  validate(body, env): ValidationResult; // pure, no I/O
+  authorize(body, env, ctx): Promise<AuthDecision>; // against projections
+  project(body, env, tx): Promise<void>; // same transaction as the log append
+  afterCommit?(body, env): Promise<void>; // notifications, fanout hints
 }
 ```
 
 ### 4.4 Two identity planes, unlinkable by construction
 
-| | **FORUM** (Plane A) | **SIGNAL** (Plane B) |
-|---|---|---|
-| Identity | Pseudonymous — a key with no real-world binding | Identified — a key bound to a verifiable claim |
-| Root secret | `M_forum` mnemonic | **Separate** `M_signal` mnemonic |
-| Unlinkability | Per-community derived keys, blind credentials, epoch nullifiers | None wanted — recognisability is the point |
-| Contents | Posts, comments, votes, communities, moderation, pseudonymous DMs | Channels, broadcasts, subscriptions, identified messaging |
-| Transport class | Bulk | Priority — small, floods first |
+|                 | **FORUM** (Plane A)                                               | **SIGNAL** (Plane B)                                      |
+| --------------- | ----------------------------------------------------------------- | --------------------------------------------------------- |
+| Identity        | Pseudonymous — a key with no real-world binding                   | Identified — a key bound to a verifiable claim            |
+| Root secret     | `M_forum` mnemonic                                                | **Separate** `M_signal` mnemonic                          |
+| Unlinkability   | Per-community derived keys, blind credentials, epoch nullifiers   | None wanted — recognisability is the point                |
+| Contents        | Posts, comments, votes, communities, moderation, pseudonymous DMs | Channels, broadcasts, subscriptions, identified messaging |
+| Transport class | Bulk                                                              | Priority — small, floods first                            |
 
 This separation is a **security requirement**. If a person's known broadcast identity were linkable to
 their forum identity, publishing under their real name as a relief coordinator would retroactively
@@ -238,9 +243,9 @@ These are checked in review and, where marked, by lint. A PR that violates one d
 
 - `backend/src/core/domain/**` is **pure**: deterministic given its inputs, no clock reads, no random,
   no I/O, and **no NestJS decorators**. `Clock` and `RandomSource` are injected ports. This is what makes
-  the validation pipeline and the path selector unit-testable with no infrastructure. *(lint-enforced)*
+  the validation pipeline and the path selector unit-testable with no infrastructure. _(lint-enforced)_
 - `core/**` may import only from `core/**`. Adapters depend on the core; the core never depends on an
-  adapter, a driver, or a framework. *(lint-enforced)*
+  adapter, a driver, or a framework. _(lint-enforced)_
 - Every port gets a production adapter **and** an in-memory double. Unit tests use doubles; integration
   tests use real adapters via testcontainers.
 - Nothing constructs an adapter outside `backend/src/composition/`. No service-locator lookups at call
@@ -248,22 +253,22 @@ These are checked in review and, where marked, by lint. A PR that violates one d
 
 ### 5.2 The four bans
 
-| Banned | Why |
-|---|---|
-| `switch` / `if` on `domain` anywhere in the core | The registry dispatches. A domain switch means the Open/Closed abstraction failed. |
-| Branching on transport ID outside the transport layer | Every `Transport` is substitutable. `if (t.id === "reticulum")` in app code is a Liskov violation. |
-| A database row ID inside any signed structure or federated payload | Row IDs are meaningless off-instance. **This is the specific defect that made v1 federation impossible.** |
-| A private key in a variable outside the signer boundary | *(lint-enforced)* Only `packages/sdk-ts/src/signer/**` and `frontend/src/signer/**` may touch raw key material. |
+| Banned                                                             | Why                                                                                                             |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `switch` / `if` on `domain` anywhere in the core                   | The registry dispatches. A domain switch means the Open/Closed abstraction failed.                              |
+| Branching on transport ID outside the transport layer              | Every `Transport` is substitutable. `if (t.id === "reticulum")` in app code is a Liskov violation.              |
+| A database row ID inside any signed structure or federated payload | Row IDs are meaningless off-instance. **This is the specific defect that made v1 federation impossible.**       |
+| A private key in a variable outside the signer boundary            | _(lint-enforced)_ Only `packages/sdk-ts/src/signer/**` and `frontend/src/signer/**` may touch raw key material. |
 
 ### 5.3 SOLID, concretely
 
-| Principle | Here | A violation looks like |
-|---|---|---|
-| **S** | Ingress validates. Projector projects. Transport moves bytes. Witness logs. | A `PostService` that validates, saves, notifies, and federates — v1's shape |
-| **O** | New content type = new `DomainHandler` + registry row, pipeline untouched | Adding a `case` to a domain switch |
-| **L** | The outbox drains through HTTP, mesh, or Reticulum with identical calling code | `if (transport.id === …)` in application code |
-| **I** | `EnvelopeReader` and `EnvelopeWriter` are separate ports | One fat `Store` interface everyone depends on |
-| **D** | Core declares `WitnessLog`; the Merkle adapter depends on the core | Core importing the Mongo driver |
+| Principle | Here                                                                           | A violation looks like                                                      |
+| --------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| **S**     | Ingress validates. Projector projects. Transport moves bytes. Witness logs.    | A `PostService` that validates, saves, notifies, and federates — v1's shape |
+| **O**     | New content type = new `DomainHandler` + registry row, pipeline untouched      | Adding a `case` to a domain switch                                          |
+| **L**     | The outbox drains through HTTP, mesh, or Reticulum with identical calling code | `if (transport.id === …)` in application code                               |
+| **I**     | `EnvelopeReader` and `EnvelopeWriter` are separate ports                       | One fat `Store` interface everyone depends on                               |
+| **D**     | Core declares `WitnessLog`; the Merkle adapter depends on the core             | Core importing the Mongo driver                                             |
 
 ### 5.4 A feature is one directory
 
@@ -332,32 +337,32 @@ write the concern down and keep building against the frozen shape.
 
 ### 7.3 Definition of done
 
-| Work type | Done means |
-|---|---|
-| Contract (proto, registry row) | Compiles in three languages, codegen diff clean, a fixture exercises it |
-| Pipeline step | Pure function, unit-tested in isolation, every error path reachable by a test |
-| Domain handler | validate + authorize + project implemented and registered, **zero core changes required** |
-| Read endpoint | Cursor pagination, `provenance` block, integration test against a real database |
-| Adapter | Implements its port, production impl **plus** in-memory double, integration test |
-| Transport | Satisfies the `Transport` port, class filter enforced, no app-layer branch on its ID |
-| Client screen | Renders offline from cache, signature status visible, a11y-labelled, Bangla strings present |
-| Requirement | At least one automated test cites its ID (`NFR-M08`) |
-| Phase | Every gate criterion in `Plans/08-PHASES.md` passes **in CI**, not by hand |
+| Work type                      | Done means                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------- |
+| Contract (proto, registry row) | Compiles in three languages, codegen diff clean, a fixture exercises it                     |
+| Pipeline step                  | Pure function, unit-tested in isolation, every error path reachable by a test               |
+| Domain handler                 | validate + authorize + project implemented and registered, **zero core changes required**   |
+| Read endpoint                  | Cursor pagination, `provenance` block, integration test against a real database             |
+| Adapter                        | Implements its port, production impl **plus** in-memory double, integration test            |
+| Transport                      | Satisfies the `Transport` port, class filter enforced, no app-layer branch on its ID        |
+| Client screen                  | Renders offline from cache, signature status visible, a11y-labelled, Bangla strings present |
+| Requirement                    | At least one automated test cites its ID (`NFR-M08`)                                        |
+| Phase                          | Every gate criterion in `Plans/08-PHASES.md` passes **in CI**, not by hand                  |
 
 ### 7.4 Blocking CI gates
 
 Never disable these to get a build green. They exist because each one caught a real, expensive v1 bug.
 
-| Gate | From |
-|---|---|
+| Gate                                                                      | From                                              |
+| ------------------------------------------------------------------------- | ------------------------------------------------- |
 | **Cross-language canonical vectors** — TS ≡ Rust ≡ Python, byte-identical | P0 · the single highest-value gate in the project |
-| Import-boundary lint (`core/domain` purity, signer boundary) | P0 |
-| Regenerate-and-diff on generated code | P0 |
-| Two-node federation suite | P2 |
-| Network-namespace ISP suite | P3 |
-| Build-without-Reticulum suite | P6 |
+| Import-boundary lint (`core/domain` purity, signer boundary)              | P0                                                |
+| Regenerate-and-diff on generated code                                     | P0                                                |
+| Two-node federation suite                                                 | P2                                                |
+| Network-namespace ISP suite                                               | P3                                                |
+| Build-without-Reticulum suite                                             | P6                                                |
 
-**A gate that is only *configured* is not a gate.** P0-G6 was silently false for its entire existence:
+**A gate that is only _configured_ is not a gate.** P0-G6 was silently false for its entire existence:
 the import-boundary lint was correctly written, but a later ESLint flat-config block matching
 `backend/src/**` **replaced** the rule's options instead of merging them, erasing every AR-01 pattern.
 Nothing failed, because the codebase happened to be clean. It was caught only by
@@ -366,7 +371,7 @@ ESLint over it, and asserts a non-zero exit — plus a clean control file that m
 
 Two rules follow, and they apply to every gate added from here:
 
-- **Every gate needs a test that makes it fail on purpose.** Assert the failure *and* assert that a
+- **Every gate needs a test that makes it fail on purpose.** Assert the failure _and_ assert that a
   compliant input still passes, or you have only proved the tool dislikes the directory.
 - **In ESLint flat config, the last matching block wins outright for a given rule.** Declare shared
   pattern sets once, spread them into each block that applies, and order blocks most-specific-LAST.
@@ -376,21 +381,21 @@ Two rules follow, and they apply to every gate added from here:
 
 ## 8. Where to look
 
-| Question | Document |
-|---|---|
-| Goals, planes, resilience ladder | `Plans/00-OVERVIEW.md` |
-| Plane separation invariants, key hierarchy, revocation | `Plans/01-IDENTITY-PLANES.md` |
-| Envelope, canonical encoding, pipeline, errors, anti-abuse | `Plans/02-CONTRACTS-CORE.md` |
-| Forum bodies, domain registry rows, read API | `Plans/03-CONTRACTS-FORUM.md` |
-| Channels, broadcast, identified messaging, crisis bodies | `Plans/04-CONTRACTS-SIGNAL.md` |
-| Federation gRPC, TOFU trust, STH gossip | `Plans/05-CONTRACTS-FEDERATION.md` |
-| Scopes, uplinks, path selection, ISP bridging, Reticulum | `Plans/06-CONTRACTS-TRANSPORT.md` |
-| Ports catalogue, plugin registry, composition root | `Plans/07-ARCHITECTURE.md` |
-| Phase scope and exit gates | `Plans/08-PHASES.md` |
-| Task IDs and acceptance lines | `Plans/09-TASKS.md` |
-| Build order, parallel lanes, descope ladder | `Plans/10-IMPLEMENTATION-SEQUENCE.md` |
-| Feature requirement IDs by module | `Plans/requirements/R0`–`R14` |
-| What we actually built and why | `Code Implementation/BUILD-LOG.md` |
+| Question                                                   | Document                              |
+| ---------------------------------------------------------- | ------------------------------------- |
+| Goals, planes, resilience ladder                           | `Plans/00-OVERVIEW.md`                |
+| Plane separation invariants, key hierarchy, revocation     | `Plans/01-IDENTITY-PLANES.md`         |
+| Envelope, canonical encoding, pipeline, errors, anti-abuse | `Plans/02-CONTRACTS-CORE.md`          |
+| Forum bodies, domain registry rows, read API               | `Plans/03-CONTRACTS-FORUM.md`         |
+| Channels, broadcast, identified messaging, crisis bodies   | `Plans/04-CONTRACTS-SIGNAL.md`        |
+| Federation gRPC, TOFU trust, STH gossip                    | `Plans/05-CONTRACTS-FEDERATION.md`    |
+| Scopes, uplinks, path selection, ISP bridging, Reticulum   | `Plans/06-CONTRACTS-TRANSPORT.md`     |
+| Ports catalogue, plugin registry, composition root         | `Plans/07-ARCHITECTURE.md`            |
+| Phase scope and exit gates                                 | `Plans/08-PHASES.md`                  |
+| Task IDs and acceptance lines                              | `Plans/09-TASKS.md`                   |
+| Build order, parallel lanes, descope ladder                | `Plans/10-IMPLEMENTATION-SEQUENCE.md` |
+| Feature requirement IDs by module                          | `Plans/requirements/R0`–`R14`         |
+| What we actually built and why                             | `Code Implementation/BUILD-LOG.md`    |
 
 Cite requirement IDs (`FD-05`, `VP-02`, `SEP-04`, `TP-11`) in code comments and test names. They are the
 link between the specification and the implementation, and `NFR-M08` requires every MUST to have one.
@@ -414,9 +419,9 @@ Things that look like reasonable engineering choices but are wrong **in this spe
   credits, blind credentials, epoch nullifiers — is the anti-abuse primitive, and it must work against a
   fully anonymous user.
 - **Rate-limiting a check-in.** Telling people you are alive costs zero credits and needs no credential.
-- **Only exercising the fallback path during a fallback.** Path selection prefers the *narrowest* working
+- **Only exercising the fallback path during a fallback.** Path selection prefers the _narrowest_ working
   scope (`LAN` > `ISP_LOCAL` > `NATIONAL` > `GLOBAL`) continuously, so the resilience path is warm and
   tested at the moment it becomes the only path. Code that only runs during a blackout fails during a blackout.
 - **Post-quantum signatures everywhere.** One ML-DSA signature is eleven LoRa transmissions before any
-  content. The PQ budget goes to *confidentiality* (hybrid X25519 + ML-KEM-768 key agreement, because
+  content. The PQ budget goes to _confidentiality_ (hybrid X25519 + ML-KEM-768 key agreement, because
   traffic captured today is decrypted later) and not to per-message signatures, which stay Ed25519 at 64 B.

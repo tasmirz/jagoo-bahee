@@ -24,6 +24,8 @@ export interface DomainSpec {
   readonly creditCost: number;
   readonly creditCostPerMb?: number;
   readonly requires: readonly RegistryGate[];
+  /** Step 10 policy. Only a self-validating KeyCertificate may set this false. */
+  readonly requiresCertificate: boolean;
   readonly permission: string;
 }
 
@@ -39,6 +41,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 65536,
     creditCost: 10,
     requires: ['CREDENTIAL', 'NULLIFIER'],
+    requiresCertificate: true,
     permission: 'post.create',
   },
   {
@@ -52,6 +55,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 65536,
     creditCost: 2,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'owner',
   },
   {
@@ -65,6 +69,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 4096,
     creditCost: 0,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'owner',
   },
   {
@@ -78,6 +83,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 16384,
     creditCost: 3,
     requires: ['CREDENTIAL', 'NULLIFIER'],
+    requiresCertificate: true,
     permission: 'post.create',
   },
   {
@@ -91,6 +97,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 16384,
     creditCost: 1,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'owner',
   },
   {
@@ -104,6 +111,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 4096,
     creditCost: 0,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'owner',
   },
   {
@@ -117,6 +125,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 1024,
     creditCost: 1,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'member',
   },
   {
@@ -130,6 +139,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 32768,
     creditCost: 200,
     requires: ['CREDENTIAL', 'NULLIFIER', 'POW'],
+    requiresCertificate: true,
     permission: 'authenticated',
   },
   {
@@ -143,6 +153,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 32768,
     creditCost: 5,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'community.update',
   },
   {
@@ -156,6 +167,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 1024,
     creditCost: 5,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'owner',
   },
   {
@@ -169,6 +181,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 1024,
     creditCost: 1,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: '',
   },
   {
@@ -182,6 +195,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 1024,
     creditCost: 0,
     requires: [],
+    requiresCertificate: true,
     permission: '',
   },
   {
@@ -195,6 +209,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 4096,
     creditCost: 0,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'per_verb',
   },
   {
@@ -208,6 +223,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 8192,
     creditCost: 2,
     requires: ['CREDENTIAL', 'NULLIFIER'],
+    requiresCertificate: true,
     permission: 'member',
   },
   {
@@ -221,6 +237,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 4096,
     creditCost: 0,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'report.review',
   },
   {
@@ -234,6 +251,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 2048,
     creditCost: 5,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'member.role.update',
   },
   {
@@ -247,6 +265,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 1024,
     creditCost: 1,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'member.role.update',
   },
   {
@@ -260,6 +279,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 1024,
     creditCost: 1,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'member.role.update',
   },
   {
@@ -273,6 +293,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 8192,
     creditCost: 2,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'self',
   },
   {
@@ -286,6 +307,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 1024,
     creditCost: 1,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'self',
   },
   {
@@ -299,6 +321,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 2048,
     creditCost: 0,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'self',
   },
   {
@@ -312,6 +335,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 1024,
     creditCost: 0,
     requires: [],
+    requiresCertificate: true,
     permission: 'self',
   },
   {
@@ -325,6 +349,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 8192,
     creditCost: 0,
     requires: [],
+    requiresCertificate: true,
     permission: 'self',
   },
   {
@@ -338,6 +363,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 2048,
     creditCost: 5,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'member',
   },
   {
@@ -351,6 +377,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 2048,
     creditCost: 0,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'admin',
   },
   {
@@ -365,6 +392,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 5,
     creditCostPerMb: 1,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'authenticated',
   },
   {
@@ -378,6 +406,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 1024,
     creditCost: 2,
     requires: ['CREDENTIAL'],
+    requiresCertificate: true,
     permission: 'authenticated',
   },
   {
@@ -391,19 +420,21 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 8192,
     creditCost: 0,
     requires: [],
+    requiresCertificate: true,
     permission: 'label.trust',
   },
   {
     domain: 'jb:key:certify:forum:v1',
     plane: 'FORUM',
     body: 'jagoo.v1.KeyCertificate',
-    priority: 'BROADCAST',
+    priority: 'BULK',
     idempotent: true,
     scopeKind: 'NONE',
     keyAlgs: ['ED25519'],
-    maxBytes: 512,
+    maxBytes: 8192,
     creditCost: 0,
     requires: ['POW'],
+    requiresCertificate: false,
     permission: 'self',
   },
   {
@@ -417,6 +448,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 512,
     creditCost: 0,
     requires: [],
+    requiresCertificate: true,
     permission: 'self',
   },
   {
@@ -430,6 +462,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 16384,
     creditCost: 100,
     requires: ['POW'],
+    requiresCertificate: true,
     permission: 'authenticated',
   },
   {
@@ -443,6 +476,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 16384,
     creditCost: 5,
     requires: [],
+    requiresCertificate: true,
     permission: 'channel.owner',
   },
   {
@@ -456,6 +490,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 512,
     creditCost: 0,
     requires: [],
+    requiresCertificate: true,
     permission: 'channel.owner',
   },
   {
@@ -469,6 +504,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 512,
     creditCost: 0,
     requires: [],
+    requiresCertificate: true,
     permission: 'channel.owner',
   },
   {
@@ -482,6 +518,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 2048,
     creditCost: 1,
     requires: [],
+    requiresCertificate: true,
     permission: 'authenticated',
   },
   {
@@ -495,6 +532,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 512,
     creditCost: 0,
     requires: [],
+    requiresCertificate: true,
     permission: 'broadcast.emit',
   },
   {
@@ -508,6 +546,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 512,
     creditCost: 0,
     requires: [],
+    requiresCertificate: true,
     permission: 'broadcast.emit',
   },
   {
@@ -521,6 +560,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 512,
     creditCost: 0,
     requires: [],
+    requiresCertificate: true,
     permission: '',
   },
   {
@@ -534,6 +574,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 512,
     creditCost: 0,
     requires: [],
+    requiresCertificate: true,
     permission: 'authenticated',
   },
   {
@@ -547,6 +588,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 512,
     creditCost: 0,
     requires: [],
+    requiresCertificate: true,
     permission: 'authenticated',
   },
   {
@@ -560,6 +602,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 1024,
     creditCost: 1,
     requires: [],
+    requiresCertificate: true,
     permission: 'authenticated',
   },
   {
@@ -573,6 +616,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 1024,
     creditCost: 1,
     requires: [],
+    requiresCertificate: true,
     permission: 'authenticated',
   },
   {
@@ -586,6 +630,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 512,
     creditCost: 0,
     requires: [],
+    requiresCertificate: true,
     permission: 'authenticated',
   },
   {
@@ -599,6 +644,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 8192,
     creditCost: 0,
     requires: [],
+    requiresCertificate: true,
     permission: 'self',
   },
   {
@@ -612,6 +658,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 1024,
     creditCost: 2,
     requires: [],
+    requiresCertificate: true,
     permission: 'authenticated',
   },
   {
@@ -625,19 +672,21 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 1024,
     creditCost: 1,
     requires: [],
+    requiresCertificate: true,
     permission: 'group.admin',
   },
   {
     domain: 'jb:key:certify:signal:v1',
     plane: 'SIGNAL',
     body: 'jagoo.v1.KeyCertificate',
-    priority: 'BROADCAST',
+    priority: 'BULK',
     idempotent: true,
     scopeKind: 'NONE',
     keyAlgs: ['ED25519'],
-    maxBytes: 512,
+    maxBytes: 8192,
     creditCost: 0,
     requires: ['POW'],
+    requiresCertificate: false,
     permission: 'self',
   },
   {
@@ -651,6 +700,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     maxBytes: 512,
     creditCost: 0,
     requires: [],
+    requiresCertificate: true,
     permission: 'self',
   },
 ] as const;

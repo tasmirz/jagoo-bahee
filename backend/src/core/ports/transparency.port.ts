@@ -13,6 +13,7 @@
 import type { Tx } from '../domain/domain-handler.js';
 
 export interface SignedTreeHead {
+  readonly serverKey: Uint8Array;
   readonly treeSize: number;
   readonly rootHash: Uint8Array;
   readonly timestampMs: number;
@@ -36,8 +37,8 @@ export type PeerLogStatus = (typeof PeerLogStatus)[keyof typeof PeerLogStatus];
 export abstract class WitnessLog {
   /** Atomic with the projection write — same `tx` (pipeline steps 16/17). */
   abstract append(contentId: string, tx: Tx): Promise<number>;
-  abstract currentSth(): Promise<SignedTreeHead>;
-  abstract inclusionProof(contentId: string): Promise<InclusionProof>;
+  abstract currentSth(tx?: Tx): Promise<SignedTreeHead>;
+  abstract inclusionProof(contentId: string, tx?: Tx): Promise<InclusionProof>;
   abstract consistencyProof(from: number, to: number): Promise<readonly Uint8Array[]>;
   abstract verifyPeerSth(peerKey: Uint8Array, sth: SignedTreeHead): Promise<PeerLogStatus>;
 }

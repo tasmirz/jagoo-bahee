@@ -94,6 +94,7 @@ services:
     environment:
       MINIO_ROOT_USER: jagoo
       MINIO_ROOT_PASSWORD: jagoo-dev-only
+      MC_HOST_local: http://jagoo:jagoo-dev-only@localhost:9000
     ports:
       - '9000:9000'
       - '9001:9001'
@@ -104,6 +105,18 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: jb-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: 'no'
+    entrypoint:
+      - /bin/sh
+      - -c
+      - mc alias set local http://minio:9000 jagoo jagoo-dev-only && mc mb --ignore-existing local/jagoo
 
   # ── P2 federation harness ───────────────────────────────────────────────────────────
   # Two independent nodes with SEPARATE databases. Sharing a database would let a test
@@ -125,6 +138,14 @@ services:
       MONGO_URL: 'mongodb://mongo:27017/jagoo_a?replicaSet=rs0'
       REDIS_URL: 'redis://redis:6379/0'
       NODE_NAME: 'node-a'
+      NODE_SIGNING_SEED: 'ERERERERERERERERERERERERERERERERERERERERERE='
+      POW_SECRET: 'MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM='
+      AUTH_ACCESS_SECRET: 'ERERERERERERERERERERERERERERERERERERERERERE='
+      AUTH_REFRESH_SECRET: 'IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI='
+      S3_ENDPOINT: 'http://minio:9000'
+      S3_BUCKET: 'jagoo'
+      S3_ACCESS_KEY: 'jagoo'
+      S3_SECRET_KEY: 'jagoo-dev-only'
     ports:
       - '3001:3000'
 
@@ -144,6 +165,14 @@ services:
       MONGO_URL: 'mongodb://mongo:27017/jagoo_b?replicaSet=rs0'
       REDIS_URL: 'redis://redis:6379/1'
       NODE_NAME: 'node-b'
+      NODE_SIGNING_SEED: 'IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI='
+      POW_SECRET: 'REREREREREREREREREREREREREREREREREREREREREQ='
+      AUTH_ACCESS_SECRET: 'MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM='
+      AUTH_REFRESH_SECRET: 'REREREREREREREREREREREREREREREREREREREREREQ='
+      S3_ENDPOINT: 'http://minio:9000'
+      S3_BUCKET: 'jagoo'
+      S3_ACCESS_KEY: 'jagoo'
+      S3_SECRET_KEY: 'jagoo-dev-only'
     ports:
       - '3002:3000'
 

@@ -414,6 +414,8 @@ export interface Receipt {
   sth?: SignedTreeHead | undefined;
   inclusion_proof: Uint8Array[];
   server_signature: Uint8Array;
+  /** Dense RFC 6962 position. This is not log_index: block allocation permits log holes. */
+  leaf_index: bigint;
 }
 
 /**
@@ -497,6 +499,11 @@ export interface KeyRevocation {
   kind: RevocationKind;
   effective_from_ms: bigint;
   replacement_key: Uint8Array;
+  /**
+   * Required for DURESS. Signed in advance by revoked_key so an untrusted courier may
+   * publish the revocation without gaining the power to revoke arbitrary identities.
+   */
+  authorization_signature: Uint8Array;
 }
 
 function createBaseEnvelope(): Envelope {
@@ -906,6 +913,7 @@ function createBaseReceipt(): Receipt {
     sth: undefined,
     inclusion_proof: [],
     server_signature: new Uint8Array(0),
+    leaf_index: 0n,
   };
 }
 
@@ -940,6 +948,12 @@ export const Receipt: MessageFns<Receipt> = {
     }
     if (message.server_signature.length !== 0) {
       writer.uint32(66).bytes(message.server_signature);
+    }
+    if (message.leaf_index !== 0n) {
+      if (BigInt.asUintN(64, message.leaf_index) !== message.leaf_index) {
+        throw new globalThis.Error("value provided for field message.leaf_index of type uint64 too large");
+      }
+      writer.uint32(72).uint64(message.leaf_index);
     }
     return writer;
   },
@@ -1015,6 +1029,14 @@ export const Receipt: MessageFns<Receipt> = {
           message.server_signature = reader.bytes();
           continue;
         }
+        case 9: {
+          if (tag !== 72) {
+            break;
+          }
+
+          message.leaf_index = reader.uint64() as bigint;
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1062,6 +1084,11 @@ export const Receipt: MessageFns<Receipt> = {
         : isSet(object.server_signature)
         ? bytesFromBase64(object.server_signature)
         : new Uint8Array(0),
+      leaf_index: isSet(object.leafIndex)
+        ? BigInt(object.leafIndex)
+        : isSet(object.leaf_index)
+        ? BigInt(object.leaf_index)
+        : 0n,
     };
   },
 
@@ -1091,6 +1118,9 @@ export const Receipt: MessageFns<Receipt> = {
     if (message.server_signature.length !== 0) {
       obj.serverSignature = base64FromBytes(message.server_signature);
     }
+    if (message.leaf_index !== 0n) {
+      obj.leafIndex = message.leaf_index.toString();
+    }
     return obj;
   },
 
@@ -1111,6 +1141,9 @@ export const Receipt: MessageFns<Receipt> = {
       : undefined;
     message.inclusion_proof = object.inclusion_proof?.map((e) => e) || [];
     message.server_signature = object.server_signature ?? new Uint8Array(0);
+    message.leaf_index = (object.leaf_index !== undefined && object.leaf_index !== null)
+      ? BigInt(object.leaf_index)
+      : 0n;
     return message;
   },
 };
@@ -1886,6 +1919,7 @@ function createBaseKeyRevocation(): KeyRevocation {
     kind: 0,
     effective_from_ms: 0n,
     replacement_key: new Uint8Array(0),
+    authorization_signature: new Uint8Array(0),
   };
 }
 
@@ -1908,6 +1942,9 @@ export const KeyRevocation: MessageFns<KeyRevocation> = {
     }
     if (message.replacement_key.length !== 0) {
       writer.uint32(42).bytes(message.replacement_key);
+    }
+    if (message.authorization_signature.length !== 0) {
+      writer.uint32(50).bytes(message.authorization_signature);
     }
     return writer;
   },
@@ -1959,6 +1996,14 @@ export const KeyRevocation: MessageFns<KeyRevocation> = {
           message.replacement_key = reader.bytes();
           continue;
         }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.authorization_signature = reader.bytes();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1987,6 +2032,11 @@ export const KeyRevocation: MessageFns<KeyRevocation> = {
         : isSet(object.replacement_key)
         ? bytesFromBase64(object.replacement_key)
         : new Uint8Array(0),
+      authorization_signature: isSet(object.authorizationSignature)
+        ? bytesFromBase64(object.authorizationSignature)
+        : isSet(object.authorization_signature)
+        ? bytesFromBase64(object.authorization_signature)
+        : new Uint8Array(0),
     };
   },
 
@@ -2007,6 +2057,9 @@ export const KeyRevocation: MessageFns<KeyRevocation> = {
     if (message.replacement_key.length !== 0) {
       obj.replacementKey = base64FromBytes(message.replacement_key);
     }
+    if (message.authorization_signature.length !== 0) {
+      obj.authorizationSignature = base64FromBytes(message.authorization_signature);
+    }
     return obj;
   },
 
@@ -2022,6 +2075,7 @@ export const KeyRevocation: MessageFns<KeyRevocation> = {
       ? BigInt(object.effective_from_ms)
       : 0n;
     message.replacement_key = object.replacement_key ?? new Uint8Array(0);
+    message.authorization_signature = object.authorization_signature ?? new Uint8Array(0);
     return message;
   },
 };

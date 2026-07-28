@@ -21,8 +21,8 @@ import { EnvelopeRejected, RejectionCode } from '../errors.js';
 /** Seven days. An envelope carried by sneakernet across a week-long shutdown is valid. */
 export const DEFAULT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Five minutes. Enough for ordinary clock drift, not enough to pin a post to the top. */
-export const DEFAULT_MAX_SKEW_MS = 5 * 60 * 1000;
+/** Ten minutes, matching the frozen envelope contract. */
+export const DEFAULT_MAX_SKEW_MS = 10 * 60 * 1000;
 
 export interface ClockWindow {
   readonly maxAgeMs: number;

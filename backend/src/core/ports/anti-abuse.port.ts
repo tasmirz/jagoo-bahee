@@ -28,11 +28,28 @@ export interface PowChallenge {
   readonly challenge: Uint8Array;
   readonly difficulty: number;
   readonly expiresAtMs: number;
+  readonly algorithm?: 'argon2id';
+  readonly memoryKiB?: number;
+  readonly iterations?: number;
+  readonly parallelism?: number;
+  readonly boundTo?: Uint8Array;
 }
 
 export interface PowSolution {
   readonly challenge: Uint8Array;
   readonly solution: Uint8Array;
+}
+
+/**
+ * Verifies an opaque proof carried in `Envelope.anti_abuse.pow`.
+ *
+ * The envelope deliberately carries a byte string rather than a server session ID: a
+ * stateless HMAC challenge can be verified by any node after store-and-forward, without
+ * allocating memory per request (AB-04 / P1-G9).
+ */
+export abstract class PowVerifier {
+  abstract issue(authorKey: Uint8Array): Promise<PowChallenge>;
+  abstract verify(authorKey: Uint8Array, proof: Uint8Array): Promise<boolean>;
 }
 
 export abstract class CreditLedger {
@@ -55,4 +72,5 @@ export abstract class CredentialIssuer {
   /** Blind signature: the issued credential must be unlinkable to the issuing session. */
   abstract issue(blinded: Uint8Array): Promise<Uint8Array>;
   abstract verify(credential: Uint8Array): Promise<boolean>;
+  abstract parameters(): Promise<{ readonly n: string; readonly e: string; readonly width: number }>;
 }

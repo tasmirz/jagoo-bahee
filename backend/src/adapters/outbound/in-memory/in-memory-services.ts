@@ -19,6 +19,7 @@ import {
   CreditLedger,
   CredentialIssuer,
   NullifierRegistry,
+  PowVerifier,
   type CreditStatus,
   type CreditSubject,
   type PowChallenge,
@@ -50,6 +51,7 @@ import {
   type Notification,
   type ResolvedContent,
   type UploadTicket,
+  type BlobMetadata,
 } from '../../../core/ports/content.port.js';
 
 /** Accepts a signature iff it equals the message reversed — deterministic, no crypto. */
@@ -153,9 +155,33 @@ export class InMemoryCredentialIssuer extends CredentialIssuer {
   async verify(credential: Uint8Array): Promise<boolean> {
     return this.issued.has(Buffer.from(credential).toString('hex'));
   }
+
+  async parameters(): Promise<{ readonly n: string; readonly e: string; readonly width: number }> {
+    return { n: '', e: '', width: 0 };
+  }
 }
 
-/** Append-only list with a hash-free stand-in root. Real Merkle maths lands in T1.5. */
+/** Deterministic test double for the production stateless Argon2id verifier. */
+export class InMemoryPowVerifier extends PowVerifier {
+  async issue(authorKey: Uint8Array): Promise<PowChallenge> {
+    return {
+      challenge: new Uint8Array([1, 2, 3, 4]),
+      difficulty: 1,
+      expiresAtMs: 0,
+      algorithm: 'argon2id',
+      memoryKiB: 8,
+      iterations: 1,
+      parallelism: 1,
+      boundTo: authorKey,
+    };
+  }
+
+  async verify(_authorKey: Uint8Array, proof: Uint8Array): Promise<boolean> {
+    return proof.length > 0;
+  }
+}
+
+/** Minimal witness double for tests that do not need the real LocalMerkleLog. */
 export class InMemoryWitnessLog extends WitnessLog {
   private readonly leaves: string[] = [];
 
@@ -166,6 +192,7 @@ export class InMemoryWitnessLog extends WitnessLog {
 
   async currentSth(): Promise<SignedTreeHead> {
     return {
+      serverKey: new Uint8Array(32),
       treeSize: this.leaves.length,
       rootHash: new Uint8Array([this.leaves.length & 0xff]),
       timestampMs: 0,
@@ -247,11 +274,24 @@ export class NullLabelProvider extends LabelProvider {
 }
 
 export class InMemoryBlobStore extends BlobStore {
-  async presignUpload(key: string, _mime: string, _size: number): Promise<UploadTicket> {
+  private readonly metadata = new Map<string, BlobMetadata>();
+
+  async presignUpload(
+    key: string,
+    mime: string,
+    size: number,
+    sha256: Uint8Array,
+  ): Promise<UploadTicket> {
+    this.metadata.set(key, { key, mime, size, sha256 });
     return { url: `memory://${key}`, key, expiresAtMs: 0 };
   }
   async presignDownload(key: string): Promise<string> {
     return `memory://${key}`;
+  }
+  async confirm(key: string): Promise<BlobMetadata> {
+    const metadata = this.metadata.get(key);
+    if (!metadata) throw new Error('blob not found');
+    return metadata;
   }
 }
 

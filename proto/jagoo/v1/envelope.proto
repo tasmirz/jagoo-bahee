@@ -88,6 +88,8 @@ message Receipt {
   SignedTreeHead sth = 6;
   repeated bytes inclusion_proof = 7;
   bytes server_signature = 8;
+  // Dense RFC 6962 position. This is not log_index: block allocation permits log holes.
+  uint64 leaf_index = 9;
 }
 
 // TL-02: published at least every 60 seconds and on demand.
@@ -185,6 +187,9 @@ message KeyRevocation {
   RevocationKind kind = 3;
   int64 effective_from_ms = 4;
   bytes replacement_key = 5;
+  // Required for DURESS. Signed in advance by revoked_key so an untrusted courier may
+  // publish the revocation without gaining the power to revoke arbitrary identities.
+  bytes authorization_signature = 6;
 }
 
 enum RevocationKind {

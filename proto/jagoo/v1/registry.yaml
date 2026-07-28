@@ -22,6 +22,7 @@
 #   max_bytes    int           hard size ceiling for the whole envelope (step 1)
 #   credit_cost  int           charged at step 13; 0 = free
 #   requires     list          CREDENTIAL | NULLIFIER | POW — anti-abuse gates
+#   requires_certificate bool  defaults true; false only for self-validating key certificates
 #   permission   string        checked at step 14 against current projections
 #
 # Size budgets (PC-01) are enforced AT CONSTRUCTION with a typed error, not discovered at
@@ -399,13 +400,18 @@ domains:
   - domain: 'jb:key:certify:forum:v1'
     plane: FORUM
     body: jagoo.v1.KeyCertificate
-    priority: BROADCAST
+    # A complete ML-DSA-44 attestation is roughly 3.9 KiB before envelope framing. It is
+    # cacheable identity material, not emergency traffic; revocations remain BROADCAST.
+    priority: BULK
     idempotent: true
     scope_kind: NONE
     key_algs: [ED25519]
-    max_bytes: 512
+    max_bytes: 8192
     credit_cost: 0
     requires: [POW]
+    # The certificate validates and certifies its own device key. Requiring a prior
+    # certificate here would make the first certificate impossible to publish.
+    requires_certificate: false
     permission: self
 
   # KY-03: revocations reach subscribers at BROADCAST priority so they propagate on
@@ -631,13 +637,14 @@ domains:
   - domain: 'jb:key:certify:signal:v1'
     plane: SIGNAL
     body: jagoo.v1.KeyCertificate
-    priority: BROADCAST
+    priority: BULK
     idempotent: true
     scope_kind: NONE
     key_algs: [ED25519]
-    max_bytes: 512
+    max_bytes: 8192
     credit_cost: 0
     requires: [POW]
+    requires_certificate: false
     permission: self
 
   - domain: 'jb:key:revoke:signal:v1'

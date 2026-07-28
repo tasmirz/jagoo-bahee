@@ -43,7 +43,13 @@ export function acceptSignature(
 export async function acceptCertificate(
   env: ParsedEnvelope,
   store: CertificateStore,
+  requiresCertificate = true,
 ): Promise<void> {
+  // Certificate publication is the one bootstrap exception. The generated registry, not
+  // a domain string branch, declares it; its handler validates the self-signature and PQ
+  // attestation before the certificate is persisted (ADR-004).
+  if (!requiresCertificate) return;
+
   const createdAt = Number(env.createdAtMs);
 
   const certificate = await store.certificateAt(env.authorKey, createdAt);

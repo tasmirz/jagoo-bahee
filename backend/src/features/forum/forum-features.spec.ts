@@ -20,7 +20,11 @@ import type { ParsedEnvelope } from '../../core/domain/envelope.js';
 import { buildHarness, signEnvelope, NOW_MS } from '../../testing/harness.js';
 import { PostCreateHandler } from './post/post-create.handler.js';
 import { POSTS_COLLECTION, type PostDoc } from './post/post.projection.js';
-import { CommentCreateHandler, COMMENTS_COLLECTION, type CommentDoc } from './comment/comment-create.handler.js';
+import {
+  CommentCreateHandler,
+  COMMENTS_COLLECTION,
+  type CommentDoc,
+} from './comment/comment-create.handler.js';
 import { VoteCastHandler } from './vote/vote-cast.handler.js';
 
 const CREDENTIAL_SEED = new Uint8Array([1, 2, 3, 4]);
@@ -55,7 +59,9 @@ describe('post → comment → vote', () => {
       signEnvelope(
         gated({
           domain: 'jb:post:create:v1',
-          body: PostCreate.encode(PostCreate.fromPartial({ title: 'Shelter open in Mirpur', kind: 1 })).finish(),
+          body: PostCreate.encode(
+            PostCreate.fromPartial({ title: 'Shelter open in Mirpur', kind: 1 }),
+          ).finish(),
         }),
       ),
     );
@@ -89,6 +95,7 @@ describe('post → comment → vote', () => {
     const comments = h.projections.collection<CommentDoc>(COMMENTS_COLLECTION);
     expect((await comments.findOne({ id: comment.contentId }))!.depth).toBe(0);
     expect((await comments.findOne({ id: reply.contentId }))!.depth).toBe(1);
+    expect((await comments.findOne({ id: comment.contentId }))!.replyCount).toBe(1);
 
     const posts = h.projections.collection<PostDoc>(POSTS_COLLECTION);
     expect((await posts.findOne({ id: post.contentId }))!.commentCount).toBe(2);
@@ -99,7 +106,9 @@ describe('post → comment → vote', () => {
         gated({
           domain: 'jb:vote:cast:v1',
           nonce: new Uint8Array(16).fill(31),
-          body: VoteCast.encode(VoteCast.fromPartial({ target: post.contentId, value: 1 })).finish(),
+          body: VoteCast.encode(
+            VoteCast.fromPartial({ target: post.contentId, value: 1 }),
+          ).finish(),
         }),
       ),
     );
@@ -111,7 +120,9 @@ describe('post → comment → vote', () => {
         gated({
           domain: 'jb:vote:cast:v1',
           nonce: new Uint8Array(16).fill(32),
-          body: VoteCast.encode(VoteCast.fromPartial({ target: post.contentId, value: -1 })).finish(),
+          body: VoteCast.encode(
+            VoteCast.fromPartial({ target: post.contentId, value: -1 }),
+          ).finish(),
         }),
       ),
     );

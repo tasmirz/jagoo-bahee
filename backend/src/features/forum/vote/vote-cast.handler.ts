@@ -24,6 +24,9 @@ import { Plane, type ParsedEnvelope } from '../../../core/domain/envelope.js';
 import type { ProjectionStore } from '../../../core/ports/storage.port.js';
 import { POSTS_COLLECTION, type PostDoc } from '../post/post.projection.js';
 import { COMMENTS_COLLECTION, type CommentDoc } from '../comment/comment-create.handler.js';
+import { IDENTITIES_COLLECTION, type IdentityDoc } from '../shared/membership.projection.js';
+import { IdentityFlag } from '../shared/flags.js';
+import { hexKey, isCommunityMember, loadAuthContext } from '../shared/permissions.js';
 
 export const VOTES_COLLECTION = 'forum_votes';
 
@@ -57,7 +60,32 @@ export class VoteCastHandler implements DomainHandler<VoteCast> {
     return valid;
   }
 
-  async authorize(_body: VoteCast, _env: ParsedEnvelope): Promise<AuthDecision> {
+  async authorize(body: VoteCast, env: ParsedEnvelope): Promise<AuthDecision> {
+    const post = await this.projections
+      .collection<PostDoc>(POSTS_COLLECTION)
+      .findOne({ id: body.target });
+    const comment = post
+      ? null
+      : await this.projections
+          .collection<CommentDoc>(COMMENTS_COLLECTION)
+          .findOne({ id: body.target });
+    if (!post && !comment) return { allowed: false, reason: 'vote target is not known here' };
+    const parent = comment
+      ? await this.projections.collection<PostDoc>(POSTS_COLLECTION).findOne({ id: comment.post })
+      : post;
+    if (!parent) return { allowed: false, reason: 'vote target parent is not known here' };
+    if (env.scope && env.scope !== parent.community) {
+      return { allowed: false, reason: 'scope does not match the target community' };
+    }
+    const ctx = await loadAuthContext(
+      this.projections,
+      hexKey(env.authorKey),
+      parent.community,
+      Number(env.createdAtMs),
+    );
+    if (ctx.communityDoc && !isCommunityMember(ctx)) {
+      return { allowed: false, reason: 'community membership required' };
+    }
     return allowed;
   }
 
@@ -89,6 +117,7 @@ export class VoteCastHandler implements DomainHandler<VoteCast> {
     const post = await posts.findOne({ id: body.target });
     if (post) {
       await posts.put(body.target, { ...post, score: post.score + delta }, tx);
+      await this.applyKarma(post.authorKey, 'postKarma', delta, post.createdAtMs, tx);
       return;
     }
 
@@ -96,6 +125,30 @@ export class VoteCastHandler implements DomainHandler<VoteCast> {
     const comment = await comments.findOne({ id: body.target });
     if (comment) {
       await comments.put(body.target, { ...comment, score: comment.score + delta }, tx);
+      await this.applyKarma(comment.authorKey, 'commentKarma', delta, comment.createdAtMs, tx);
     }
+  }
+
+  private async applyKarma(
+    authorKey: string,
+    field: 'postKarma' | 'commentKarma',
+    delta: number,
+    firstSeenAtMs: number,
+    tx: Tx,
+  ): Promise<void> {
+    const identities = this.projections.collection<IdentityDoc>(IDENTITIES_COLLECTION);
+    const existing = await identities.findOne({ id: authorKey });
+    const identity: IdentityDoc = existing ?? {
+      id: authorKey,
+      displayName: '',
+      bio: '',
+      avatar: '',
+      banner: '',
+      flags: IdentityFlag.ACTIVE.toString(),
+      postKarma: 0,
+      commentKarma: 0,
+      firstSeenAtMs,
+    };
+    await identities.put(authorKey, { ...identity, [field]: identity[field] + delta }, tx);
   }
 }

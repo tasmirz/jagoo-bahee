@@ -23,11 +23,13 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..');
+const WINDOWS = process.platform === 'win32';
 const EXPECTED = join(HERE, 'expected.json');
 // The ESM half of the sdk's dual build: `src/vectors/` uses `import.meta.url` to locate
 // the fixture file and so has no CommonJS counterpart by design.
@@ -55,12 +57,80 @@ function run(label, cmd, args, opts = {}) {
 }
 
 /**
+ * Locate an executable without relying on a shell.
+ *
+ * Node >= 20.19 refuses to execFile a Windows `.cmd`/`.bat` without `shell: true` (the
+ * fix for CVE-2024-27980), and a bare `cargo`/`python3` is simply absent on a default
+ * Windows PATH. Resolving explicitly keeps the gate spawning real binaries on both
+ * platforms rather than failing with ENOENT and looking like a tooling problem.
+ */
+function which(candidates, extraDirs = []) {
+  const pathDirs = (process.env.PATH ?? '').split(delimiter).filter(Boolean);
+  const exts = WINDOWS ? ['.exe', '.cmd', '.bat', ''] : [''];
+
+  for (const dir of [...extraDirs, ...pathDirs]) {
+    for (const name of candidates) {
+      for (const ext of exts) {
+        const candidate = join(dir, name + ext);
+        if (existsSync(candidate)) return candidate;
+      }
+    }
+  }
+  return null;
+}
+
+function requireTool(label, candidates, extraDirs, hint) {
+  const found = which(candidates, extraDirs);
+  if (!found) {
+    throw new Error(
+      `${label} not found (looked for ${candidates.join(', ')}).\n` +
+        `  This gate needs all three implementations — it cannot be satisfied by skipping one.\n` +
+        `  ${hint}`,
+    );
+  }
+  return found;
+}
+
+const CARGO = () =>
+  requireTool(
+    'cargo',
+    ['cargo'],
+    [join(homedir(), '.cargo', 'bin')],
+    'Install Rust from https://rustup.rs and ensure ~/.cargo/bin is on PATH.',
+  );
+
+const PYTHON = () =>
+  requireTool(
+    'python',
+    WINDOWS ? ['python', 'python3'] : ['python3', 'python'],
+    [],
+    'Install Python 3.10+ and ensure it is on PATH.',
+  );
+
+/**
  * The TypeScript dump runs from `dist/`, so the build must be current. Building here
  * rather than assuming keeps `pnpm vectors` runnable from a clean checkout.
+ *
+ * `npm_execpath` is the package manager's own JS entry, set whenever this script is run
+ * through `pnpm vectors`. Running it under the current Node binary avoids spawning the
+ * `pnpm.cmd` shim, which Node would refuse without a shell.
  */
 function ensureTsBuilt() {
   process.stderr.write(dim('  building @jagoo/sdk …\n'));
-  run('sdk build', 'pnpm', ['--filter', '@jagoo/sdk', 'build']);
+
+  const execPath = process.env.npm_execpath;
+  if (execPath && execPath.endsWith('.cjs')) {
+    run('sdk build', process.execPath, [execPath, '--filter', '@jagoo/sdk', 'build']);
+  } else {
+    const pnpm = requireTool(
+      'pnpm',
+      ['pnpm'],
+      [],
+      'Run this through `pnpm vectors`, or install pnpm 9 via `corepack enable pnpm`.',
+    );
+    run('sdk build', pnpm, ['--filter', '@jagoo/sdk', 'build'], { shell: WINDOWS });
+  }
+
   if (!existsSync(TS_DUMP)) {
     throw new Error(`TypeScript dump missing after build: ${TS_DUMP}`);
   }
@@ -74,11 +144,11 @@ function collect() {
 
   process.stderr.write(dim('  running rust …\n'));
   const rust = JSON.parse(
-    run('rust', 'cargo', ['run', '--quiet', '-p', 'jb-core', '--bin', 'jb-dump']),
+    run('rust', CARGO(), ['run', '--quiet', '-p', 'jb-core', '--bin', 'jb-dump']),
   );
 
   process.stderr.write(dim('  running python …\n'));
-  const python = JSON.parse(run('python', 'python3', [join(HERE, 'dump.py')]));
+  const python = JSON.parse(run('python', PYTHON(), [join(HERE, 'dump.py')]));
 
   return { typescript: ts, rust, python };
 }
@@ -151,8 +221,11 @@ function main() {
     process.exit(1);
   }
 
-  if (readFileSync(EXPECTED, 'utf8') !== canonical) {
-    const stored = JSON.parse(readFileSync(EXPECTED, 'utf8'));
+  // Git may check text files out as CRLF on Windows. JSON semantics and canonical bytes
+  // are unchanged, so line-ending policy must not make the cross-language gate fail.
+  const expectedText = readFileSync(EXPECTED, 'utf8').replaceAll('\r\n', '\n');
+  if (expectedText !== canonical) {
+    const stored = JSON.parse(expectedText);
     process.stderr.write(red('\n✗ expected.json disagrees with all three implementations\n\n'));
     process.stderr.write(`${diff('expected', stored, 'actual', dumps.typescript).join('\n')}\n\n`);
     process.stderr.write(

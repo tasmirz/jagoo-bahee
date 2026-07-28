@@ -4,7 +4,7 @@
 > phase section. Its purpose is that the same mistake is never made twice.
 >
 > **Entry format.** Every work block gets one entry. Be specific about failures — a vague "fixed a bug"
-> teaches nothing next session. Record the *symptom*, the *root cause*, and the *rule learned*, because
+> teaches nothing next session. Record the _symptom_, the _root cause_, and the _rule learned_, because
 > the rule is the only part that transfers.
 
 ```
@@ -22,31 +22,32 @@
 
 Rules earned the hard way. Violating one of these has already cost time.
 
-| # | Rule | Earned from |
-|---|---|---|
-| L-01 | Never hand-edit generated code. Fix the generator or the `.proto` and regenerate. | AR-10 — CI regenerates and diffs, so a hand edit fails the build later, not sooner |
-| L-02 | A test that asserts against a hardcoded expected hash must have that hash produced by a *different* implementation than the one under test. Otherwise it tests that the code agrees with itself. | The entire point of the cross-language vector gate |
-| L-03 | Mongo multi-document transactions require a replica set, even single-node. A standalone `mongod` fails at pipeline step 16/17 with a confusing "Transaction numbers are only allowed on a replica set member" error. | ADR-001 |
-| L-04 | `pnpm` + React Native needs `node-linker=hoisted` in `.npmrc`, or Metro fails to resolve symlinked workspace packages. | Monorepo scaffold |
-| L-05 | Before adding *any* branch, check whether the registry, a port, or a handler should carry that decision instead. Every domain switch and transport-ID check in this codebase is a defect by definition. | AR-05, NFR-M02, NFR-M03 |
-| L-06 | Nest's `createNestApplication()` defaults to Express no matter what `main.ts` uses. On this Fastify-only node that surfaces as a confusing missing-module error — pass `new FastifyAdapter()` explicitly in every spec. | backend skeleton |
-| L-07 | `expo export` builds every platform in the project's list by default and will demand `react-native-web`. Constrain it to `--platform ios --platform android`; web is a P5 target (ADR-003 §6), not a missing dependency. | frontend skeleton |
-| L-08 | Never exclude specs from the tsconfig the IDE and `typecheck` use — test code then goes unchecked and everything still looks green. Exclude them only in `tsconfig.build.json`. Verify with `tsc --listFiles`. | backend skeleton |
-| L-09 | **ESLint flat config does not merge a rule's options across blocks — the last matching block wins outright.** A later, broader block silently erased the AR-01 import restrictions on `core/domain`, so P0-G6 was false while the config looked right. Declare pattern sets once, spread them into every block that applies, most specific LAST. Verify with `eslint --print-config <file>`. | P0-G6 |
-| L-10 | A healthcheck must not depend on something that depends on the healthcheck. Gating Mongo's health on `isWritablePrimary` deadlocked against `rs.initiate()`. Health = "is it listening"; readiness guarantees belong on a one-shot init job plus `service_completed_successfully`. | ops stack |
-| L-11 | A lint rule, a gate, or a healthcheck that is only *configured* is not verified. Each one here is now exercised by a test that makes it fail on purpose — that is the only way to notice when it stops working. | P0-G6, ops |
-| L-12 | **A package-boundary change must be probed from every consumer with a real import.** Node, Metro and Vite use three different resolvers. Fixing the backend left the frontend equally broken, and both failed with a message naming the module rather than the mechanism. The legacy `moduleResolution: "Node"`/Expo default ignores `exports` maps entirely; Metro needs `unstable_enablePackageExports`. | sdk interop |
-| L-13 | Never locate a file by counting `../` from `import.meta.url`. It works until the output layout changes depth, then silently reads the wrong path. Walk up to a marker file (`pnpm-workspace.yaml`) instead. | sdk interop |
-| L-14 | Prove a proof system over a SWEEP of sizes, not one example. Both Merkle bugs returned correct answers for the tree shapes a hand-picked case would have used, and failed only at specific ones. Iterate every size in a range for anything recursive. | T1.5 |
-| L-15 | Under vitest, Nest DI cannot rely on `emitDecoratorMetadata` — esbuild does not emit it, so dependencies arrive as `undefined` with no wiring-time error. Inject explicitly with `@Inject(TOKEN)` (ADR-002). | T1.7 |
+| #    | Rule                                                                                                                                                                                                                                                                                                                                                                                                       | Earned from                                                                        |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| L-01 | Never hand-edit generated code. Fix the generator or the `.proto` and regenerate.                                                                                                                                                                                                                                                                                                                          | AR-10 — CI regenerates and diffs, so a hand edit fails the build later, not sooner |
+| L-02 | A test that asserts against a hardcoded expected hash must have that hash produced by a _different_ implementation than the one under test. Otherwise it tests that the code agrees with itself.                                                                                                                                                                                                           | The entire point of the cross-language vector gate                                 |
+| L-03 | Mongo multi-document transactions require a replica set, even single-node. A standalone `mongod` fails at pipeline step 16/17 with a confusing "Transaction numbers are only allowed on a replica set member" error.                                                                                                                                                                                       | ADR-001                                                                            |
+| L-04 | `pnpm` + React Native needs `node-linker=hoisted` in `.npmrc`, or Metro fails to resolve symlinked workspace packages.                                                                                                                                                                                                                                                                                     | Monorepo scaffold                                                                  |
+| L-05 | Before adding _any_ branch, check whether the registry, a port, or a handler should carry that decision instead. Every domain switch and transport-ID check in this codebase is a defect by definition.                                                                                                                                                                                                    | AR-05, NFR-M02, NFR-M03                                                            |
+| L-06 | Nest's `createNestApplication()` defaults to Express no matter what `main.ts` uses. On this Fastify-only node that surfaces as a confusing missing-module error — pass `new FastifyAdapter()` explicitly in every spec.                                                                                                                                                                                    | backend skeleton                                                                   |
+| L-07 | `expo export` builds every platform in the project's list by default and will demand `react-native-web`. Constrain it to `--platform ios --platform android`; web is a P5 target (ADR-003 §6), not a missing dependency.                                                                                                                                                                                   | frontend skeleton                                                                  |
+| L-08 | Never exclude specs from the tsconfig the IDE and `typecheck` use — test code then goes unchecked and everything still looks green. Exclude them only in `tsconfig.build.json`. Verify with `tsc --listFiles`.                                                                                                                                                                                             | backend skeleton                                                                   |
+| L-09 | **ESLint flat config does not merge a rule's options across blocks — the last matching block wins outright.** A later, broader block silently erased the AR-01 import restrictions on `core/domain`, so P0-G6 was false while the config looked right. Declare pattern sets once, spread them into every block that applies, most specific LAST. Verify with `eslint --print-config <file>`.               | P0-G6                                                                              |
+| L-10 | A healthcheck must not depend on something that depends on the healthcheck. Gating Mongo's health on `isWritablePrimary` deadlocked against `rs.initiate()`. Health = "is it listening"; readiness guarantees belong on a one-shot init job plus `service_completed_successfully`.                                                                                                                         | ops stack                                                                          |
+| L-11 | A lint rule, a gate, or a healthcheck that is only _configured_ is not verified. Each one here is now exercised by a test that makes it fail on purpose — that is the only way to notice when it stops working.                                                                                                                                                                                            | P0-G6, ops                                                                         |
+| L-12 | **A package-boundary change must be probed from every consumer with a real import.** Node, Metro and Vite use three different resolvers. Fixing the backend left the frontend equally broken, and both failed with a message naming the module rather than the mechanism. The legacy `moduleResolution: "Node"`/Expo default ignores `exports` maps entirely; Metro needs `unstable_enablePackageExports`. | sdk interop                                                                        |
+| L-13 | Never locate a file by counting `../` from `import.meta.url`. It works until the output layout changes depth, then silently reads the wrong path. Walk up to a marker file (`pnpm-workspace.yaml`) instead.                                                                                                                                                                                                | sdk interop                                                                        |
+| L-14 | Prove a proof system over a SWEEP of sizes, not one example. Both Merkle bugs returned correct answers for the tree shapes a hand-picked case would have used, and failed only at specific ones. Iterate every size in a range for anything recursive.                                                                                                                                                     | T1.5                                                                               |
+| L-15 | Under vitest, Nest DI cannot rely on `emitDecoratorMetadata` — esbuild does not emit it, so dependencies arrive as `undefined` with no wiring-time error. Inject explicitly with `@Inject(TOKEN)` (ADR-002).                                                                                                                                                                                               | T1.7                                                                               |
 
 ---
 
 ## P0 — Contracts & Skeleton
 
-### 2026-07-29 — Repository grasp, foundation docs, toolchain          [P0]
+### 2026-07-29 — Repository grasp, foundation docs, toolchain [P0]
 
 **Built:**
+
 - Read all 29 specification documents in `Plans/` and `Code Implementation/P0-P2-IMPLEMENTATION-PLAN.md`.
   No source code existed prior to this session — the repo was specification-only.
 - `CLAUDE.md` — the standing instruction file: goal priority, architecture in one pass, coding rules
@@ -74,9 +75,10 @@ explicitly. Do not assume `winget` exists on LTSC/IoT Windows images.
 
 ---
 
-### 2026-07-29 — backend/ and frontend/ workspace skeletons          [P0]
+### 2026-07-29 — backend/ and frontend/ workspace skeletons [P0]
 
 **Built:**
+
 - `backend/` — the NestJS node as its own workspace package (`@jagoo/backend`). `package.json`,
   `tsconfig.json` (CommonJS + decorator metadata, extends `tsconfig.base.json`), `nest-cli.json`,
   `vitest.config.ts`, `src/main.ts` on the Fastify adapter per ADR-002, and the full hexagonal tree:
@@ -97,6 +99,7 @@ explicitly. Do not assume `winget` exists on LTSC/IoT Windows images.
 (`node backend/dist/main.js` → 404 on `/`, correct for a node with no routes registered).
 
 **Broke:**
+
 1. `pnpm build` failed at `@jagoo/frontend` — `expo export` defaults to including web and demands
    `react-native-web`, which is deliberately not a dependency. Fixed by pinning the build script to
    `expo export --platform ios --platform android`.
@@ -105,19 +108,20 @@ explicitly. Do not assume `winget` exists on LTSC/IoT Windows images.
    is installed. Fixed by passing `new FastifyAdapter()` explicitly in the spec.
 3. `@nestjs/testing` was missing — it is not pulled in by `@nestjs/core`.
 4. `backend/tsconfig.json` excluded `**/*.spec.ts`, so specs were typechecked by **nothing** — `pnpm
-   typecheck` skipped them and the IDE treated them as orphan files outside any project. Fixed with the
+typecheck` skipped them and the IDE treated them as orphan files outside any project. Fixed with the
    standard Nest split: `tsconfig.json` includes specs (IDE + `typecheck`), `tsconfig.build.json`
    excludes them, and `nest-cli.json` points the build at the latter. Verified both ways — the spec now
    appears in `tsc --listFiles` and `dist/` still contains no spec output.
 
 **Learned:**
+
 - **L-06** — The HTTP adapter is chosen per-application, not per-project. A Nest test that calls
   `createNestApplication()` without arguments silently asks for Express, so on a Fastify-only node the
   failure surfaces as a confusing missing-module error. Always pass the adapter explicitly in specs.
 - **L-07** — `expo export` targets every platform in the project's platform list by default. On a
   native-only project this turns into a demand for `react-native-web`. Constrain the export explicitly
   rather than installing a web renderer that is not a P0–P2 target (ADR-003 §6 keeps web at P5).
-- **L-08** — Excluding specs in the *same* tsconfig the IDE and `typecheck` use means test code is never
+- **L-08** — Excluding specs in the _same_ tsconfig the IDE and `typecheck` use means test code is never
   type-checked, and the mistake is invisible because everything still passes. Exclude specs only in a
   separate `tsconfig.build.json` that the compiler uses. Confirm coverage with `tsc --listFiles` rather
   than assuming — a green `typecheck` over a file set that omits the file proves nothing.
@@ -129,11 +133,12 @@ writing the fixtures: expected bytes must come from a different implementation t
 
 ---
 
-### 2026-07-29 — P0 complete: all seven exit gates green          [P0]
+### 2026-07-29 — P0 complete: all seven exit gates green [P0]
 
 **Built:**
+
 - **T0.14 · the cross-language gate.** `tools/vectors/run-gate.mjs` runs the TypeScript,
-  Rust and Python dumps over the shared fixture set and diffs them *pairwise* — it never
+  Rust and Python dumps over the shared fixture set and diffs them _pairwise_ — it never
   trusts `expected.json`, because a committed expectation can be regenerated by a mistake
   whereas three independent implementations agreeing requires the same mistake three times.
   `--update` is manual and never runs in CI (L-02). Added `packages/sdk-ts/src/vectors/`
@@ -142,7 +147,7 @@ writing the fixtures: expected bytes must come from a different implementation t
   alongside the existing Python suite (22 tests). `field-omission.spec.ts` carries the full
   account of the v1 bug and adds a truncation probe — there must be no prefix of the
   canonical bytes that a signature over the full bytes also validates.
-- **T0.19 · ports.** Every port from `Plans/07` §2 as an abstract class (DI token *and*
+- **T0.19 · ports.** Every port from `Plans/07` §2 as an abstract class (DI token _and_
   type contract, ADR-002), plus an in-memory double for each (AR-03). The projection double
   implements real rollback, so a handler that writes then throws fails its unit test
   instead of corrupting production.
@@ -158,14 +163,15 @@ writing the fixtures: expected bytes must come from a different implementation t
 - Installed the Rust toolchain (1.97.1). It was **absent** on this machine — the first log
   entry's "cargo 1.97.1 verified" was recorded on a different (Windows) host.
 
-**Verified:** `pnpm vectors` → *3 implementations agree on 16 vectors, P0-G1 PASS* ·
+**Verified:** `pnpm vectors` → _3 implementations agree on 16 vectors, P0-G1 PASS_ ·
 `cargo test -p jb-core` 6/6 · `pytest tools/vectors` 22/22 · `pnpm test` 67 (sdk 36,
 backend 30, frontend 1) · `lint` 4/4 · `typecheck` 5/5 · `build` 4/4 · `proto:check` in
 sync · Mongo `rs0` reaches PRIMARY and a **real two-collection transaction commits**.
 
 **Broke — three latent defects, each found only because something was made to fail on purpose:**
+
 1. **P0-G6 was false.** The import-boundary lint did not fail on `core/domain` importing
-   `mongodb`, `@nestjs/common`, or an adapter. Root cause: ESLint flat config *replaces* a
+   `mongodb`, `@nestjs/common`, or an adapter. Root cause: ESLint flat config _replaces_ a
    rule's options rather than merging them, and the broad `SG-01` block matching
    `backend/src/**` came last, wiping out every AR-01 pattern. `eslint --print-config`
    showed the effective rule contained only the signer patterns. The `new Date()`
@@ -179,9 +185,10 @@ sync · Mongo `rs0` reaches PRIMARY and a **real two-collection transaction comm
    comment claiming 6 code points where there are 10.
 
 **Learned:**
+
 - **L-09**, **L-10**, **L-11** in the table above.
 - **The Bangla finding is a real design input, not a typo.** U+09DC RRA, U+09DD RHA and
-  U+09DF YYA are Unicode *composition exclusions*: NFC does not recompose base + nukta, so
+  U+09DF YYA are Unicode _composition exclusions_: NFC does not recompose base + nukta, so
   a precomposed `ড়` normalises DOWN to two code points and costs **6 bytes, not 3**. These
   are high-frequency letters. Any class 0–2 size budget (SIG-26: broadcast ≤ 512 B) sized
   at "3 bytes per visible character" under-counts ordinary Bangla — a broadcast that fits
@@ -194,9 +201,10 @@ see the entry below.
 
 ---
 
-### 2026-07-29 — module interop: backend and frontend can both consume `@jagoo/sdk`   [P0]
+### 2026-07-29 — module interop: backend and frontend can both consume `@jagoo/sdk` [P0]
 
 **Built:**
+
 - **`@jagoo/sdk` now ships a dual build.** `tsconfig.build.json` → `dist/esm` (ESM),
   `tsconfig.cjs.json` → `dist/cjs` (CommonJS, `verbatimModuleSyntax: false`, `src/vectors/**`
   excluded because `import.meta` has no CJS equivalent). `scripts/finalize-dual-build.mjs`
@@ -228,9 +236,10 @@ see the entry below.
 frontend 5) · `pnpm vectors` P0-G1 PASS · cargo 6 · pytest 22 · `proto:check` in sync.
 
 **Broke:**
+
 1. **The frontend had the identical bug and would have shipped undetected.** I nearly
    declared victory after fixing the backend. Probing Metro showed `@jagoo/sdk/core` was
-   *also* unresolvable from `frontend/` — Expo's `tsconfig.base` sets the node10 resolver,
+   _also_ unresolvable from `frontend/` — Expo's `tsconfig.base` sets the node10 resolver,
    and Metro in SDK 52 does not read `exports` maps unless told to.
 2. **Metro cannot bundle the sdk's TypeScript source.** Pointing the `react-native`
    condition at `src/` failed with `Unable to resolve module ./canonical.js` — Metro does
@@ -243,11 +252,12 @@ frontend 5) · `pnpm vectors` P0-G1 PASS · cargo 6 · pytest 22 · `proto:check
    for `pnpm-workspace.yaml`.
 
 **Learned:**
+
 - **L-12** and **L-13** in the table above.
 - **Fixing an interop problem for one consumer proves nothing about the others.** Three
   consumers, three resolvers, three different failure modes — and each failed with a message
   that named the module rather than the mechanism. When a package-boundary change lands,
-  probe *every* consumer with a real import before calling it done.
+  probe _every_ consumer with a real import before calling it done.
 
 **Next:** unchanged — P1 pipeline steps 1–12 (T1.1). Nothing now blocks the backend from
 using `canonicalBytes`/`contentId`.
@@ -258,14 +268,15 @@ using `canonicalBytes`/`contentId`.
 
 ## P1 — Core Node & Forum Plane
 
-### 2026-07-29 — the pipeline spine: an envelope goes in, a verifiable receipt comes out   [P1]
+### 2026-07-29 — the pipeline spine: an envelope goes in, a verifiable receipt comes out [P1]
 
 **Built:** (plan and gate status in `P1-CORE-NODE-PLAN.md` §6)
+
 - **Deterministic decoder** (`packages/sdk-ts/src/core/decode.ts`) — pipeline step 2. Rather
   than restating the five canonical rules inside the decoder, where they would drift from
   the encoder's copy, it decodes and then **re-encodes and compares bytes**. One check
   covers field order, omitted zeros, minimal varints, unknown fields, NFC and trailing
-  data. 15 tests, each a *different* byte string meaning the same thing — every one of
+  data. 15 tests, each a _different_ byte string meaning the same thing — every one of
   which v1 would have accepted.
 - **Pipeline steps 1–15** as pure functions in `core/domain/pipeline/`. Steps 1, 6, 7 and 13
   read policy from the generated registry row rather than branching on the domain string,
@@ -274,7 +285,7 @@ using `canonicalBytes`/`contentId`.
   contract does not define, or with a plane the contract disagrees with, throws at bootstrap
   (RG-01, SEP-02).
 - **`IngressPipeline`** — the 19 steps composed, nothing implemented inline.
-- **`LocalMerkleLog`** + RFC 6962 maths in `core/domain/merkle.ts`. Inclusion *and*
+- **`LocalMerkleLog`** + RFC 6962 maths in `core/domain/merkle.ts`. Inclusion _and_
   consistency, with tests that detect an altered historical leaf and a dropped one.
 - **`POST /v1/envelopes`** — the single write route — plus read endpoints with cursor
   pagination, `provenance` blocks, STH and inclusion proof. Composition root binds all 19
@@ -288,10 +299,11 @@ The HTTP suite runs against a **real Nest app on Fastify through the actual comp
 root**, so an unbound port fails the test rather than surfacing in production.
 
 **Broke:**
+
 1. **My `verifyConsistency` was wrong** — the RFC 6962 generator was right but the verifier
    was a different algorithm. Then `verifyInclusion` failed too: `inclusionPath` emits the
    DEEPEST sibling first, and the verifier consumed the path top-down. Both were caught only
-   because the tests sweep *every* (leaf, size) and (old, new) pair up to 33/24 rather than
+   because the tests sweep _every_ (leaf, size) and (old, new) pair up to 33/24 rather than
    spot-checking one tree.
 2. **DI silently returned `undefined`** for every controller dependency. Root cause: vitest
    compiles through esbuild, which does not support `emitDecoratorMetadata`, so Nest had no
@@ -302,6 +314,7 @@ root**, so an unbound port fails the test rather than surfacing in production.
    rather than the rule being relaxed. Exactly the value P0-G6 was fixed to provide.
 
 **Learned:**
+
 - **L-14** — Prove a proof system over a SWEEP, not an example. Both Merkle bugs produced
   correct results for the tree sizes a hand-picked case would have used; they only failed at
   specific shapes. For anything recursive and structural, iterate every size in a range.
@@ -317,6 +330,108 @@ pinned by tests.
 
 ---
 
+### 2026-07-29 — P1 audit: production node complete, client foundations complete [P1]
+
+**Verified inherited work:** all 30 Forum handlers are registered and exercised through the
+real pipeline. The audit rejected the prior session's completion claim because Mongo/Redis,
+rebuild, auth, anti-abuse, most reads, and the client were still absent.
+
+**Built and corrected:**
+
+- Mongo envelope/projection/Merkle/nonce adapters with shared transactions, persisted compact
+  Merkle frontier, dense leaf indices, original receipts, and a byte-identical projection rebuild CLI.
+- Redis atomic credits/nullifiers/nonces and tagged cache; stateless key-bound Argon2id; RSA blind
+  credentials; trusted-proxy subject derivation; production fail-closed startup.
+- Key-bound one-use auth, separate access/refresh signing keys, refresh revocation, ML-DSA-44
+  certificate enforcement, non-retroactive revocation, rotation standing, and owner-authorized
+  courier-published duress revocation (ADR-006).
+- Homogeneous batch ingress, full frozen Forum read table with cursor pagination and offline
+  provenance, SSE, derived notifications, fail-open label preflight, readiness probes, and
+  hash/MIME/size-bound object claims.
+- Expo foundations: scrypt/XChaCha-wrapped SecureStore mnemonic, per-context signer, certificates,
+  duress export, native Argon2, offline AsyncStorage/TanStack data, Bangla/English strings, offline
+  receipt verification, and X25519 + ML-KEM-768 + ChaCha20-Poly1305 Forum DM encryption.
+
+**Security defects found during audit:**
+
+1. Any certified third party could forge a duress revocation. The body had no owner authorization.
+2. PQ certificate fields were optional in the handler despite AUTH-13.
+3. Attachment claims never checked that the confirmed blob matched the signed claim.
+4. React Native Argon2 would UTF-8-transform arbitrary challenge bytes; both sides now hash the
+   challenge's hex representation.
+5. The vector gate compared LF output against CRLF checkout bytes on Windows. It now normalizes
+   only line endings; canonical envelope bytes remain unchanged.
+
+**Verified:** proto lint/check; 3-language vectors (16); lint; typecheck; build; 195 tests pass
+(SDK 54, backend 136, frontend 5). Three production-adapter integration tests are committed but
+skipped locally because Docker Desktop was unavailable. The Redis test is the real P1-G6
+50-concurrent/10-credit gate; the Mongo test forces a three-store transaction rollback.
+
+**Remaining:** RN feature screens and audit UI. They are intentionally not improvised without the
+requested design brief, so P1-G1 and ADR-003's screen-test replacement for P1-G2/P1-G10 remain open.
+
+---
+
+### 2026-07-29 — P1 parity audit: green routes were not complete features [P1]
+
+**Found and corrected:**
+
+- Mongo projection reads inside a transaction did not carry its session. `AsyncLocalStorage` now
+  gives every handler read-your-writes semantics, and the real-Mongo rollback test asserts it.
+- Accepted posts discarded polls, crossposts, flags, moderation state, and award/reply counters.
+  Votes changed scores but not author karma; default roles were never assigned; member policy was
+  not enforced for votes, awards, or reports. These projections and authorisation paths now retain
+  and enforce the frozen contract.
+- Feed/search routes existed but ignored documented sort, timeframe, depth, membership, status, and
+  result-kind inputs. They now implement those behaviors, including identity/comment search and
+  blocked-author filtering.
+- Refresh tokens were reusable and only returned in JSON. They now rotate and use an HttpOnly,
+  SameSite cookie; attachment tickets require an access token; production can no longer fall back
+  to volatile blob storage.
+- `proto:check` checked only registry outputs despite claiming to regenerate protobuf bindings. It
+  now runs Buf into an isolated temporary tree and byte-compares the entire generated TypeScript
+  file set.
+- Local notifications are identity-scoped; read/delete overrides remain private. Cache entries are
+  origin-scoped, signer-derived secrets are zeroed promptly, and Forum panic wipes Forum cache
+  without creating future cross-plane coupling.
+
+**Gate hardening:** CI now starts a transaction-capable Mongo replica set and Redis, then runs the
+VP-02, P1-G6, and tagged-cache integration tests explicitly. Unit suites remain isolated from that
+shared state.
+
+**Verified:** 203 workspace tests pass (SDK 54, backend 142, frontend 7); the three infrastructure
+tests skip locally because Docker Desktop is unavailable but are mandatory in CI. Lint, typecheck,
+native Expo export, backend build, Buf lint, full generated-code diff, and all 16 cross-language
+vectors pass. `git diff --check` is clean.
+
+**Still open:** visual RN feature screens and the audit view. The required product design brief has
+not been supplied, so P1-G1 and ADR-003's screen-based G2/G10 replacement remain honestly red.
+
+---
+
+### 2026-07-29 — P1 frozen-catalogue audit corrected the completion boundary [P1]
+
+**Finding:** the preceding audits completed the explicit T1 core-node spine, but incorrectly treated
+that task list as the whole P1 catalogue. `SYSTEM-REQUIREMENTS.md` remains authoritative and also
+requires administration/configuration, full attachment management, operational observability and
+documentation gates, moderation appeals, runtime network limiting, and the complete client surface.
+
+**Corrected:** added `P1-REQUIREMENTS-AUDIT.md`, changed the plan and architecture status from
+"production node complete" to "core-node spine complete", and downgraded P1-G4/G5 until the tested
+trusted-proxy helper is bound to a real request limiter/IP-block path. Added production secret
+generation and `ops/README.md` covering durable dependencies, required secrets, integration gates,
+projection recovery, and backup-critical state.
+
+**Verified:** secret generation emits five valid assignments, including a complete private RSA JWK.
+Lint, typecheck, 203 workspace tests, native Expo/backend builds, Buf lint, full generated-code drift,
+and all 16 three-language vectors pass. Three Mongo/Redis integration tests remain unexecuted locally:
+the Docker client is installed, but its Desktop Linux engine is not running.
+
+**Next:** finish the nonvisual rows in the audit matrix. Visual RN work remains blocked on the
+requested product design brief and must not be improvised.
+
+---
+
 ## P2 — Federation ★ PRIMARY
 
-*(not started)*
+_(not started)_

@@ -1,6 +1,15 @@
 export * as ed25519 from './ed25519.js';
 export * as mldsa from './mldsa.js';
 export {
+  messagingKeyPair,
+  sealFirstMessage,
+  openFirstMessage,
+  type MessagingPublicKey,
+  type MessagingSecretKey,
+  type MessagingKeyPair,
+  type HybridCiphertext,
+} from './messaging.js';
+export {
   FORUM_PATH,
   SIGNAL_PATH,
   deriveForumKey,

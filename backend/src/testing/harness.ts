@@ -10,9 +10,11 @@
  * `core/app/` — the rule is doing its job, so the file moved rather than the rule.
  */
 
-import { ed25519 } from '@jagoo/sdk/crypto';
+import { ed25519, mldsa } from '@jagoo/sdk/crypto';
 import { canonicalBytes, encodeSignedEnvelope, Plane as SdkPlane } from '@jagoo/sdk/core';
 import type { CanonicalEnvelope } from '@jagoo/sdk/core';
+import { certificateSelfSignatureBytes, pqAttestationBytes } from '@jagoo/sdk';
+import { KeyCertificate, Plane as ProtoPlane } from '@jagoo/sdk/proto';
 import { DomainRegistry } from '../core/domain/domain-registry.js';
 import { IngressPipeline, type IngressDeps } from '../core/app/ingress.js';
 import {
@@ -26,6 +28,7 @@ import {
   InMemoryCredentialIssuer,
   InMemoryFederationOut,
   InMemoryNullifierRegistry,
+  InMemoryPowVerifier,
 } from '../adapters/outbound/in-memory/in-memory-services.js';
 import { LocalMerkleLog } from '../adapters/outbound/in-memory/local-merkle-log.js';
 import {
@@ -49,6 +52,7 @@ export interface Harness {
   readonly credits: InMemoryCreditLedger;
   readonly nullifiers: InMemoryNullifierRegistry;
   readonly credentials: InMemoryCredentialIssuer;
+  readonly pow: InMemoryPowVerifier;
   readonly certificates: InMemoryCertificateStore;
   readonly federation: InMemoryFederationOut;
   readonly clock: FixedClock;
@@ -69,6 +73,7 @@ export async function buildHarness(
   const credits = new InMemoryCreditLedger(1000);
   const nullifiers = new InMemoryNullifierRegistry();
   const credentials = new InMemoryCredentialIssuer();
+  const pow = new InMemoryPowVerifier();
   const federation = new InMemoryFederationOut();
 
   // Step 10 requires a certificate that predates the envelope.
@@ -85,7 +90,7 @@ export async function buildHarness(
     certificates,
     witness,
     nonces: new InMemoryNonceStore(),
-    antiAbuse: { credits, nullifiers, credentials },
+    antiAbuse: { credits, nullifiers, credentials, pow },
     nodeSigner,
     clock,
     federation,
@@ -100,6 +105,7 @@ export async function buildHarness(
     credits,
     nullifiers,
     credentials,
+    pow,
     certificates,
     federation,
     clock,
@@ -121,6 +127,7 @@ export interface EnvelopeOverrides {
   readonly credential?: Uint8Array;
   readonly nullifier?: Uint8Array;
   readonly epoch?: number;
+  readonly pow?: Uint8Array;
   readonly seed?: Uint8Array;
   /** Corrupt the signature deliberately. */
   readonly forgeSignature?: boolean;
@@ -132,12 +139,12 @@ export function signEnvelope(over: EnvelopeOverrides = {}): Uint8Array {
   const publicKey = ed25519.derivePublicKey(seed);
 
   const anti =
-    over.credential || over.nullifier || over.epoch
+    over.credential || over.nullifier || over.epoch || over.pow
       ? {
           credential: over.credential ?? new Uint8Array(0),
           nullifier: over.nullifier ?? new Uint8Array(0),
           epoch: over.epoch ?? 0,
-          pow: new Uint8Array(0),
+          pow: over.pow ?? new Uint8Array(0),
         }
       : undefined;
 
@@ -161,4 +168,72 @@ export function signEnvelope(over: EnvelopeOverrides = {}): Uint8Array {
     : ed25519.sign(canonicalBytes(base), seed);
 
   return encodeSignedEnvelope({ ...base, signature });
+}
+
+/**
+ * A genuine, fully-signed `jb:key:certify:forum:v1` envelope.
+ *
+ * Tests that go through the composition root use this rather than poking a certificate
+ * into a store, so the ADR-004 bootstrap path is exercised for real: the registry's
+ * `requires_certificate: false` policy lets it past step 10, and the handler then verifies
+ * the Ed25519 self-signature and the ML-DSA attestation before anything is stored. Seeding
+ * a store directly would leave that whole path untested while making the suite look green.
+ */
+export function certifyEnvelope(
+  options: {
+    seed?: Uint8Array;
+    createdAtMs?: bigint;
+    validFromMs?: bigint;
+    validUntilMs?: bigint;
+  } = {},
+): Uint8Array {
+  const seed = options.seed ?? AUTHOR_SEED;
+  const deviceKey = ed25519.derivePublicKey(seed);
+  const createdAtMs = options.createdAtMs ?? BigInt(NOW_MS);
+
+  // A window that comfortably contains `createdAtMs`; the handler rejects a certificate
+  // that is not valid at its own publication time.
+  const validFrom = options.validFromMs ?? createdAtMs - 60_000n;
+  const validUntil = options.validUntilMs ?? createdAtMs + 365n * 24n * 60n * 60n * 1000n;
+
+  // ML-DSA-44 keygen wants a 32-byte seed. Derived from the Ed25519 seed so the same test
+  // identity always produces the same PQ key.
+  const pq = mldsa.generateKeyPair(Uint8Array.from(seed, (b) => b ^ 0x5a));
+
+  const fields = {
+    plane: SdkPlane.FORUM,
+    deviceKey,
+    pqKey: pq.publicKey,
+    validFrom,
+    validUntil,
+  };
+  const attestation = mldsa.attest(pqAttestationBytes(fields), pq.secretKey);
+  const selfSignature = ed25519.sign(
+    certificateSelfSignatureBytes(fields, attestation),
+    seed,
+  );
+
+  const body = KeyCertificate.encode(
+    KeyCertificate.fromPartial({
+      plane: ProtoPlane.PLANE_FORUM,
+      device_key: deviceKey,
+      pq_key: pq.publicKey,
+      pq_attestation: attestation,
+      valid_from: validFrom,
+      valid_until: validUntil,
+      self_signature: selfSignature,
+    }),
+  ).finish();
+
+  return signEnvelope({
+    domain: 'jb:key:certify:forum:v1',
+    seed,
+    scope: '',
+    priority: 4,
+    createdAtMs,
+    body,
+    // The registry row gates certification on proof of work, so the anti-abuse block must
+    // be present. The in-memory verifier accepts any non-empty proof.
+    pow: new Uint8Array([1]),
+  });
 }

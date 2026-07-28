@@ -17,7 +17,7 @@ import {
   merkleRoot,
   verifyConsistency,
 } from '../../../core/domain/merkle.js';
-import type { Tx } from '../../../core/domain/domain-handler.js';
+import { registerRollback, type Tx } from '../../../core/domain/domain-handler.js';
 import {
   PeerLogStatus,
   WitnessLog,
@@ -49,7 +49,7 @@ export class LocalMerkleLog extends WitnessLog {
     super();
   }
 
-  async append(contentId: string, _tx: Tx): Promise<number> {
+  async append(contentId: string, tx: Tx): Promise<number> {
     const existing = this.indexById.get(contentId);
     // Append-only and idempotent: the same content ID must never occupy two positions, or
     // a receipt could name a position the log disagrees with.
@@ -58,13 +58,18 @@ export class LocalMerkleLog extends WitnessLog {
     const index = this.leaves.length;
     this.leaves.push(hashLeaf(new TextEncoder().encode(contentId)));
     this.indexById.set(contentId, index);
+    registerRollback(tx, () => {
+      if (this.indexById.get(contentId) === index) this.indexById.delete(contentId);
+      if (this.leaves.length === index + 1) this.leaves.pop();
+    });
     return index;
   }
 
-  async currentSth(): Promise<SignedTreeHead> {
+  async currentSth(_tx?: Tx): Promise<SignedTreeHead> {
     const rootHash = merkleRoot(this.leaves);
     const timestampMs = this.clock.nowMs();
     return {
+      serverKey: this.signer.publicKey,
       treeSize: this.leaves.length,
       rootHash,
       timestampMs,
@@ -72,7 +77,7 @@ export class LocalMerkleLog extends WitnessLog {
     };
   }
 
-  async inclusionProof(contentId: string): Promise<InclusionProof> {
+  async inclusionProof(contentId: string, _tx?: Tx): Promise<InclusionProof> {
     const leafIndex = this.indexById.get(contentId);
     if (leafIndex === undefined) throw new Error(`not in log: ${contentId}`);
     return {
@@ -82,8 +87,8 @@ export class LocalMerkleLog extends WitnessLog {
     };
   }
 
-  async consistencyProof(from: number, _to: number): Promise<readonly Uint8Array[]> {
-    return consistencyPath(this.leaves, from);
+  async consistencyProof(from: number, to: number): Promise<readonly Uint8Array[]> {
+    return consistencyPath(this.leaves.slice(0, to), from);
   }
 
   /**

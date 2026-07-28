@@ -15,13 +15,27 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync } from 'node:fs';
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  existsSync,
+  readdirSync,
+  statSync,
+  mkdtempSync,
+  rmSync,
+} from 'node:fs';
 import { join, dirname, relative } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CHECK = process.argv.includes('--check');
+// Registry-only changes do not need protoc/Buf. This keeps a contract-policy correction
+// reviewable when generated protobuf sources are already current, while the default still
+// regenerates every artefact and CI continues to use the full path.
+const REGISTRY_ONLY = process.argv.includes('--registry-only');
 
 const REGISTRY_YAML = join(ROOT, 'proto', 'jagoo', 'v1', 'registry.yaml');
 const OUT = {
@@ -67,6 +81,12 @@ function validate(rows) {
     if (!PRIORITIES.has(r.priority)) errors.push(`${at}: unknown priority ${r.priority}`);
     if (!SCOPE_KINDS.has(r.scope_kind)) errors.push(`${at}: unknown scope_kind ${r.scope_kind}`);
     if (typeof r.idempotent !== 'boolean') errors.push(`${at}: idempotent must be a boolean`);
+    if (r.requires_certificate != null && typeof r.requires_certificate !== 'boolean') {
+      errors.push(`${at}: requires_certificate must be a boolean when present`);
+    }
+    if (r.requires_certificate === false && r.body !== 'jagoo.v1.KeyCertificate') {
+      errors.push(`${at}: only KeyCertificate may opt out of the prior-certificate check`);
+    }
     if (!r.body?.startsWith('jagoo.v1.')) errors.push(`${at}: body must be a jagoo.v1.* message`);
 
     for (const g of r.requires ?? []) {
@@ -84,7 +104,9 @@ function validate(rows) {
     // PC-01: the declared ceiling may not exceed the class budget.
     const budget = CLASS_BUDGET[r.priority];
     if (budget && r.max_bytes > budget) {
-      errors.push(`${at}: PC-01 — max_bytes ${r.max_bytes} exceeds the ${r.priority} budget of ${budget}`);
+      errors.push(
+        `${at}: PC-01 — max_bytes ${r.max_bytes} exceeds the ${r.priority} budget of ${budget}`,
+      );
     }
 
     // SEP-03 is structural: a SIGNAL-plane domain must never be reachable from a
@@ -125,6 +147,7 @@ function emitTs(rows) {
       r.credit_cost_per_mb != null ? `\n    creditCostPerMb: ${r.credit_cost_per_mb},` : ''
     }
     requires: [${(r.requires ?? []).map((g) => `'${g}'`).join(', ')}],
+    requiresCertificate: ${r.requires_certificate !== false},
     permission: '${r.permission ?? ''}',
   },`,
     )
@@ -150,6 +173,8 @@ export interface DomainSpec {
   readonly creditCost: number;
   readonly creditCostPerMb?: number;
   readonly requires: readonly RegistryGate[];
+  /** Step 10 policy. Only a self-validating KeyCertificate may set this false. */
+  readonly requiresCertificate: boolean;
   readonly permission: string;
 }
 
@@ -184,6 +209,7 @@ function emitRust(rows) {
         scope_kind: ScopeKind::${pascal(r.scope_kind)},
         max_bytes: ${r.max_bytes},
         credit_cost: ${r.credit_cost},
+        requires_certificate: ${r.requires_certificate !== false},
     },`,
     )
     .join('\n');
@@ -223,6 +249,7 @@ pub struct DomainSpec {
     pub scope_kind: ScopeKind,
     pub max_bytes: u32,
     pub credit_cost: u32,
+    pub requires_certificate: bool,
 }
 
 pub const DOMAIN_SPECS: &[DomainSpec] = &[
@@ -248,6 +275,7 @@ function emitPython(rows) {
         scope_kind="${r.scope_kind}",
         max_bytes=${r.max_bytes},
         credit_cost=${r.credit_cost},
+        requires_certificate=${r.requires_certificate !== false ? 'True' : 'False'},
     ),`,
     )
     .join('\n');
@@ -268,6 +296,7 @@ class DomainSpec:
     scope_kind: str
     max_bytes: int
     credit_cost: int
+    requires_certificate: bool
 
 
 DOMAIN_SPECS: list[DomainSpec] = [
@@ -312,10 +341,61 @@ function writeOrCheck(path, content) {
 function runBuf() {
   const bufBin = process.platform === 'win32' ? 'buf.cmd' : 'buf';
   try {
-    execFileSync(bufBin, ['generate'], { cwd: ROOT, stdio: 'inherit', shell: process.platform === 'win32' });
+    execFileSync(bufBin, ['generate'], {
+      cwd: ROOT,
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+    });
   } catch {
     console.error('✗ `buf generate` failed. Is @bufbuild/buf installed? Run `pnpm install`.');
     process.exit(1);
+  }
+}
+
+function filesBelow(root, prefix = '') {
+  return readdirSync(join(root, prefix))
+    .flatMap((name) => {
+      const rel = join(prefix, name);
+      return statSync(join(root, rel)).isDirectory() ? filesBelow(root, rel) : [rel];
+    })
+    .sort();
+}
+
+/** INF-34: prove the protobuf-generated TypeScript is byte-for-byte current. */
+function checkBufOutput() {
+  const temp = mkdtempSync(join(tmpdir(), 'jagoo-buf-check-'));
+  const bufBin = process.platform === 'win32' ? 'buf.cmd' : 'buf';
+  try {
+    execFileSync(bufBin, ['generate', '--output', temp], {
+      cwd: ROOT,
+      stdio: 'pipe',
+      shell: process.platform === 'win32',
+    });
+    const generated = join(temp, 'packages', 'sdk-ts', 'src', 'gen');
+    const committed = join(ROOT, 'packages', 'sdk-ts', 'src', 'gen');
+    const expectedFiles = filesBelow(generated);
+    const committedFiles = filesBelow(committed).filter((path) => path !== 'registry.ts');
+
+    if (
+      expectedFiles.length !== committedFiles.length ||
+      expectedFiles.some((path, index) => path !== committedFiles[index])
+    ) {
+      console.error('✗ protobuf-generated file set is stale. Run `pnpm proto:gen`.');
+      return false;
+    }
+    for (const path of expectedFiles) {
+      if (!readFileSync(join(generated, path)).equals(readFileSync(join(committed, path)))) {
+        console.error(`✗ ${join('packages/sdk-ts/src/gen', path)} is stale or hand-edited.`);
+        return false;
+      }
+    }
+    console.log('✓ protobuf-generated TypeScript');
+    return true;
+  } catch {
+    console.error('✗ temporary `buf generate` failed. Is @bufbuild/buf installed?');
+    return false;
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
   }
 }
 
@@ -327,7 +407,8 @@ function main() {
   const signal = rows.length - forum;
   console.log(`registry: ${rows.length} domains (${forum} FORUM, ${signal} SIGNAL)`);
 
-  if (!CHECK) runBuf();
+  if (!CHECK && !REGISTRY_ONLY) runBuf();
+  const bufOk = CHECK && !REGISTRY_ONLY ? checkBufOutput() : true;
 
   const ok = [
     writeOrCheck(OUT.ts, emitTs(rows)),
@@ -335,7 +416,7 @@ function main() {
     writeOrCheck(OUT.python, emitPython(rows)),
   ].every(Boolean);
 
-  if (CHECK && !ok) process.exit(1);
+  if (CHECK && (!ok || !bufOk)) process.exit(1);
   if (CHECK) console.log('generated code is in sync with proto/');
 }
 

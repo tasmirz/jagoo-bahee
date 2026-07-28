@@ -6,7 +6,12 @@
  * Reticulum paths are testable with no hardware.
  */
 
-export { EnvelopeReader, EnvelopeWriter, ProjectionStore, type Collection } from './storage.port.js';
+export {
+  EnvelopeReader,
+  EnvelopeWriter,
+  ProjectionStore,
+  type Collection,
+} from './storage.port.js';
 export {
   SignatureVerifier,
   CertificateStore,
@@ -17,6 +22,7 @@ export {
   CreditLedger,
   NullifierRegistry,
   CredentialIssuer,
+  PowVerifier,
   type CreditSubject,
   type CreditStatus,
   type PowChallenge,
@@ -50,6 +56,15 @@ export {
   type Label,
   type ResolvedContent,
   type UploadTicket,
+  type BlobMetadata,
   type Notification,
 } from './content.port.js';
 export { Clock, RandomSource } from './system.port.js';
+export {
+  SessionAuth,
+  type AuthChallenge,
+  type SessionTokens,
+  type AccessPrincipal,
+} from './auth.port.js';
+export { EventBus, type AcceptedEvent } from './events.port.js';
+export { TaggedCache } from './cache.port.js';

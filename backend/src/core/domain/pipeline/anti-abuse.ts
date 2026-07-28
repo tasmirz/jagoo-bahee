@@ -24,6 +24,7 @@ import type {
   CredentialIssuer,
   CreditSubject,
   NullifierRegistry,
+  PowVerifier,
 } from '../../ports/anti-abuse.port.js';
 import type { ParsedEnvelope } from '../envelope.js';
 import { EnvelopeRejected, RejectionCode } from '../errors.js';
@@ -32,6 +33,7 @@ export interface AntiAbuseDeps {
   readonly credits: CreditLedger;
   readonly nullifiers: NullifierRegistry;
   readonly credentials: CredentialIssuer;
+  readonly pow: PowVerifier;
 }
 
 /**
@@ -57,6 +59,20 @@ export async function acceptAntiAbuse(
   deps: AntiAbuseDeps,
 ): Promise<void> {
   const gates = spec.requires;
+
+  if (gates.includes('POW')) {
+    const proof = env.antiAbuse?.pow;
+    if (!proof || proof.length === 0 || !(await deps.pow.verify(env.authorKey, proof))) {
+      throw new EnvelopeRejected(
+        RejectionCode.INSUFFICIENT_CREDITS,
+        'valid proof of work required',
+        {
+          field: 'anti_abuse.pow',
+          challenge: await deps.pow.issue(env.authorKey),
+        },
+      );
+    }
+  }
 
   if (gates.includes('CREDENTIAL')) {
     const credential = env.antiAbuse?.credential;
@@ -99,6 +115,7 @@ export async function acceptAntiAbuse(
     if (!status.allowed) {
       throw new EnvelopeRejected(RejectionCode.INSUFFICIENT_CREDITS, 'insufficient credits', {
         retryAfterMs: Math.max(0, status.resetAtMs),
+        challenge: await deps.pow.issue(env.authorKey),
       });
     }
   }

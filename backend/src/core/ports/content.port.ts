@@ -40,11 +40,25 @@ export interface UploadTicket {
   readonly url: string;
   readonly key: string;
   readonly expiresAtMs: number;
+  readonly headers?: Readonly<Record<string, string>>;
+}
+
+export interface BlobMetadata {
+  readonly key: string;
+  readonly mime: string;
+  readonly size: number;
+  readonly sha256: Uint8Array;
 }
 
 export abstract class BlobStore {
-  abstract presignUpload(key: string, mime: string, size: number): Promise<UploadTicket>;
+  abstract presignUpload(
+    key: string,
+    mime: string,
+    size: number,
+    sha256: Uint8Array,
+  ): Promise<UploadTicket>;
   abstract presignDownload(key: string): Promise<string>;
+  abstract confirm(key: string): Promise<BlobMetadata>;
 }
 
 export interface Notification {

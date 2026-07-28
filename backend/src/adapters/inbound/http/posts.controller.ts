@@ -130,6 +130,7 @@ export class PostsController {
     const head = await this.witness.currentSth();
     return {
       tree_size: head.treeSize,
+      server_key: Buffer.from(head.serverKey).toString('base64'),
       root_hash: Buffer.from(head.rootHash).toString('base64'),
       timestamp_ms: head.timestampMs,
       signature: Buffer.from(head.signature).toString('base64'),

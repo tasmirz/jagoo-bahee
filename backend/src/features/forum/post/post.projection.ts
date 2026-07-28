@@ -24,6 +24,18 @@ export interface PostDoc {
   readonly url: string;
   readonly attachments: readonly string[];
   readonly flair: string;
+  readonly poll: {
+    readonly question: string;
+    readonly options: readonly string[];
+    readonly multiple: boolean;
+    readonly closesAtMs: number;
+  } | null;
+  readonly crosspostOf: string;
+  readonly flags: {
+    readonly nsfw: boolean;
+    readonly spoiler: boolean;
+    readonly oc: boolean;
+  };
   /** From the SIGNED envelope, not from the projector's clock. */
   readonly createdAtMs: number;
   readonly editedAtMs: number | null;
@@ -34,8 +46,13 @@ export interface PostDoc {
    */
   readonly removed: boolean;
   readonly removedReason: string | null;
+  readonly locked: boolean;
+  readonly pinned: boolean;
+  readonly flagged: boolean;
+  readonly approved: boolean;
   readonly score: number;
   readonly commentCount: number;
+  readonly awardCount: number;
 }
 
 export const POSTS_COLLECTION = 'forum_posts';
