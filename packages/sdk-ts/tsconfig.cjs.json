@@ -1,0 +1,23 @@
+{
+  // The CommonJS half of the dual build. It exists so `backend/` — which is NestJS and
+  // therefore CommonJS — can require this package. See scripts/finalize-dual-build.mjs.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": "dist/cjs",
+    // `verbatimModuleSyntax` forbids ESM syntax in a CommonJS emit (TS1286). The ESM half
+    // keeps it on; the CJS half must transform imports into `require` calls.
+    "verbatimModuleSyntax": false
+  },
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    // `src/vectors/` reads the fixture file via `import.meta.url`, which has no CommonJS
+    // equivalent (TS1343). It is gate tooling, never part of the package's public surface,
+    // and `run-gate.mjs` executes the ESM build — so it simply does not need a CJS copy.
+    "src/vectors/**"
+  ]
+}

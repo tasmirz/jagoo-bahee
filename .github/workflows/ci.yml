@@ -1,0 +1,117 @@
+# P0 exit gates, as blocking CI.
+#
+# CLAUDE.md §7.4: never disable one of these to get a build green. Each exists because it
+# caught a real, expensive v1 bug. The cross-language vector job is the single
+# highest-value gate in the project — it is what permanently forecloses the v1
+# signature-confusion bug class.
+#
+# | Gate  | Job                                    |
+# |-------|----------------------------------------|
+# | P0-G1 | vectors  (TS = Rust = Python)          |
+# | P0-G2 | vectors  (domain separation)           |
+# | P0-G3 | vectors  (plane separation)            |
+# | P0-G4 | vectors  (field omission — the v1 bug) |
+# | P0-G5 | contracts (registry codegen identical) |
+# | P0-G6 | backend  (import-boundary lint probes) |
+# | P0-G7 | backend  (unknown version / domain)    |
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push supersedes an in-flight run on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PNPM_VERSION: '9.15.4'
+  NODE_VERSION: '20'
+
+jobs:
+  # ── P0-G5 — generated code is in sync with proto/ ────────────────────────────────────
+  # AR-10 / build log L-01: never hand-edit generated code. This regenerates and diffs, so
+  # a hand edit fails here rather than silently surviving until someone else regenerates.
+  contracts:
+    name: contracts (P0-G5)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: buf lint
+        run: pnpm proto:lint
+      - name: regenerate and diff (AR-10)
+        run: pnpm proto:check
+      - name: no uncommitted codegen drift
+        run: git diff --exit-code
+
+  # ── ★ P0-G1..G4 — the cross-language canonical gate ─────────────────────────────────
+  vectors:
+    name: ★ cross-language vectors (P0-G1..G4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pip install pytest
+
+      # The gate proper: three independent implementations, compared pairwise.
+      - name: TS = Rust = Python (P0-G1)
+        run: pnpm vectors
+
+      # Each language also asserts the three regressions in its own idiom, so a language
+      # cannot pass the pairwise diff while getting domain/plane separation wrong locally.
+      - name: TypeScript regressions (P0-G2..G4)
+        run: pnpm --filter @jagoo/sdk test
+      - name: Rust regressions (P0-G2..G4)
+        run: cargo test -p jb-core
+      - name: Python regressions (P0-G2..G4)
+        run: python -m pytest tools/vectors -q
+
+  # ── P0-G6, P0-G7, and the rest of the workspace ─────────────────────────────────────
+  build:
+    name: lint · typecheck · test (P0-G6, P0-G7)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Import boundaries are enforced here AND probed by backend/src/core/
+      # import-boundary.spec.ts, which lints a deliberately violating file. A rule that is
+      # merely configured is a rule that can silently stop working.
+      - name: lint (AR-01, AR-02, AR-05, SG-01)
+        run: pnpm lint
+      - name: typecheck
+        run: pnpm typecheck
+      - name: build
+        run: pnpm build
+      - name: test (includes P0-G6 lint probes and P0-G7 rejection)
+        run: pnpm test

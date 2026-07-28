@@ -25,7 +25,7 @@
  * Specification: Plans/01-IDENTITY-PLANES.md §8
  */
 
-import { Plane } from '../core/types.js';
+import type { Plane } from '../core/types.js';
 
 /**
  * What a signature may be made *for*, per plane.

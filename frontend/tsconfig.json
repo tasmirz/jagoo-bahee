@@ -1,0 +1,15 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    // `expo/tsconfig.base` sets the legacy node10 resolver, which ignores package
+    // `exports` maps — so `@jagoo/sdk/core` fails with TS2307 even though the types are on
+    // disk. `bundler` matches what Metro actually does with the config in metro.config.js.
+    "moduleResolution": "bundler",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]
+}

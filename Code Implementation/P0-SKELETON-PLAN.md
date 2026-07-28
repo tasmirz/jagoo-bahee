@@ -150,13 +150,45 @@ forecloses the v1 bug class before any feature work compiles against it.
 
 - [x] Toolchain: pnpm 9.15.4, cargo 1.97.1, node 20.19.6, Python 3.14, Docker 29.1.3
 - [x] `CLAUDE.md`, `BUILD-LOG.md`, ADR-001/002/003
-- [ ] Monorepo root + tooling
-- [ ] Proto contracts + registry (T0.1–T0.6)
-- [ ] Codegen + `proto:check` (T0.7)
-- [ ] sdk-ts canonical/contentId/Ed25519 (T0.8–T0.10)
-- [ ] Rust + Python references
-- [ ] **Cross-language gate + 3 regressions (T0.14–T0.17)**
-- [ ] Backend skeleton + ports + registry + lint (T0.18–T0.22)
-- [ ] BIP85 + ML-DSA + signer boundary (T0.11–T0.12)
-- [ ] Frontend shell + design system + i18n
-- [ ] P0-G1 … P0-G7 all green in CI
+- [x] Monorepo root + tooling — pnpm workspace, turbo, tsconfig.base, eslint boundaries, buf
+- [x] Proto contracts + registry (T0.1–T0.6) — 6 `.proto` files, 48 domains (30 FORUM, 18 SIGNAL)
+- [x] Codegen (T0.7) — `tools/codegen/generate.mjs` emits TS + Rust + Python registries
+- [x] `proto:check` regenerate-and-diff wired into CI (T0.7) — `contracts` job
+- [x] sdk-ts canonical/contentId/Ed25519 (T0.8–T0.10)
+- [x] Rust + Python reference implementations — `crates/jb-core`, `tools/vectors`
+- [x] **★ Cross-language gate + 3 regressions (T0.14–T0.17)** — `pnpm vectors`: 3 implementations
+      agree on 16 vectors; TS 36 tests, Rust 6, Python 22
+- [x] Backend skeleton (T0.18) — hexagonal tree, Fastify composition root, boot spec passes
+- [x] Ports as abstract classes + in-memory doubles (T0.19) — all 19 ports, doubles with real rollback
+- [x] Import-boundary lint (T0.20 / **P0-G6**) — **was silently broken; fixed and now probe-tested**
+- [x] `DomainRegistry` + `DomainHandler` register/dispatch (T0.21)
+- [x] Unknown-version / unknown-domain hard rejection (T0.22 / **P0-G7**) — 16 tests
+- [x] BIP85 + ML-DSA + signer boundary (T0.11–T0.12) — `PlaneSigner<P>` nominal typing in place
+- [~] Frontend shell — Expo Router shell, `src/{signer,data,verify,i18n,theme}`, render test passes
+- [ ] `packages/ui` design system + i18n (bn/en) — **not started**, first P1 client task
+- [x] `ops/docker-compose.yml` — mongo `rs0` + redis + minio; verified a real multi-doc transaction
+- [x] `.github/workflows/ci.yml` — every P0 gate blocking
+- [x] **P0-G1 … P0-G7 all green** (locally verified; CI workflow committed but not yet run on a remote)
+
+Legend: `[x]` done · `[~]` scaffolded, not complete · `[ ]` not started.
+
+## 10. Exit gate status
+
+| Gate | Criterion | Status | Evidence |
+|---|---|---|---|
+| P0-G1 | TS ≡ Rust ≡ Python, byte-identical | ✅ | `pnpm vectors` — 3 implementations, 16 vectors |
+| P0-G2 | Signature over one domain fails under another | ✅ | TS `domain-separation.spec.ts`, Rust `domain_separation`, Python |
+| P0-G3 | FORUM signature fails as SIGNAL | ✅ | TS/Rust/Python plane-separation |
+| P0-G4 | Field-omission confusion (the v1 bug) | ✅ | TS/Rust/Python field-omission + truncation probe |
+| P0-G5 | registry.yaml → identical tables in 3 languages | ✅ | `pnpm proto:check` |
+| P0-G6 | Lint fails when `core/domain` imports a driver | ✅ | `import-boundary.spec.ts` — 8 probes incl. a passing control |
+| P0-G7 | Unknown version and unknown domain hard-rejected | ✅ | `accept.spec.ts` — 16 tests |
+
+**Carried into P1:** `packages/ui` (design system + bn/en i18n) is the only open item.
+
+The `@jagoo/sdk` consumption blocker is **closed**. The sdk ships a dual ESM/CJS build with a
+subpath `exports` map; `backend/` resolves the `require` condition on `node16`, `frontend/`
+resolves `react-native` via Metro package exports, and the vector gate runs the ESM output.
+All three are asserted against `tools/vectors/expected.json` by
+`backend/src/sdk-interop.spec.ts` and `frontend/src/verify/verify.test.ts` — the backend
+produces byte-identical canonical output to Rust and Python.

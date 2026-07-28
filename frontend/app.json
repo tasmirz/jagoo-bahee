@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Jagoo Bahee",
+    "slug": "jagoo-bahee",
+    "scheme": "jagoobahee",
+    "version": "2.0.0",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "plugins": ["expo-router"],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {},
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

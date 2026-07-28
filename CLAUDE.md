@@ -36,17 +36,50 @@ must never be a dependency — the system ships complete with it absent from the
 ## 2. Repository layout
 
 ```
-proto/jagoo/v1/          SOURCE OF TRUTH — envelope, forum, signal, federation, bridge, registry.yaml
+proto/jagoo/v1/          SOURCE OF TRUTH — envelope, forum, signal, federation, bridge, transport, registry.yaml
 crates/jb-core/          Rust reference impl: canonical encode, contentId, Ed25519 verify
 tools/vectors/           Python reference impl + shared fixture runner
+tools/codegen/           generate.mjs — registry.yaml → TS / Rust / Python domain tables
 packages/sdk-ts/         Generated TS types + canonical encoder + contentId + crypto + PlaneSigner
-packages/ui/             Shared React Native design system (tokens, primitives, components)
-backend/                 NestJS node  — hexagonal: core/{domain,ports,app}, adapters, features, composition
+backend/                 NestJS node  — hexagonal: core/{domain,ports,app}, adapters, features, composition, cli
 frontend/                Expo React Native app — the only client for P0–P2
-ops/                     docker-compose (mongo replica set, redis, minio, node-a, node-b)
 Plans/                   FROZEN specification. Read-only unless explicitly revising a contract.
 Code Implementation/     Phase plans, BUILD-LOG.md, decision records. Written before code, updated after.
 ```
+
+**No source code in the repository root.** Every runtime artefact belongs to exactly one workspace
+package. The root holds only workspace-level configuration — `package.json`, `pnpm-workspace.yaml`,
+`turbo.json`, `tsconfig.base.json`, `Cargo.toml`, `eslint.config.mjs`, `buf.*`, `.npmrc`. Backend code
+goes in `backend/`, client code in `frontend/`, shared code in a `packages/*` package. A `.ts`/`.tsx`
+file at the root is a design-pattern violation, not a shortcut.
+
+**State: P0 is complete — all seven exit gates pass.** `Code Implementation/P0-SKELETON-PLAN.md` §10
+holds the gate-by-gate evidence table. One item is carried into P1: **`packages/ui/` is not started.**
+`frontend/src/theme/` re-exports it once it exists; until then screens must still not use raw hex or
+ad-hoc spacing (§6).
+
+### `@jagoo/sdk` is consumed by three toolchains — do not "simplify" this
+
+The sdk ships a **dual build** and every consumer resolves it differently. All three paths are asserted
+by tests (`backend/src/sdk-interop.spec.ts`, `frontend/src/verify/verify.test.ts`) against the shared
+`tools/vectors/expected.json`, so a client that drifts from the canonical form fails loudly.
+
+| Consumer | Resolves via | Gets | Requires |
+|---|---|---|---|
+| `backend/` (NestJS, CommonJS) | `require` condition | `dist/cjs` | `module`/`moduleResolution: "node16"` — the legacy `Node` resolver ignores `exports` maps entirely |
+| `frontend/` (Expo, Metro) | `react-native` condition | `dist/esm` | `moduleResolution: "bundler"` + `unstable_enablePackageExports` in `metro.config.js` |
+| `pnpm vectors` (plain node) | `import` condition | `dist/esm` | — |
+
+Three things that look like cleanups and are not:
+
+- **`react-native` must stay FIRST in each `exports` entry.** Condition order is priority order; move it
+  after `require` and Metro bundles the CommonJS build meant for Nest.
+- **`dist/cjs/package.json` and `dist/esm/package.json` (`{"type": ...}`) are load-bearing.** The sdk root
+  is `"type": "module"`, so without the nested marker Node parses `dist/cjs` as ESM and throws
+  `Unexpected token 'export'` — at require time, not build time.
+- **Metro cannot bundle the sdk's TypeScript source**, because it does not remap TS-ESM `./x.js`
+  specifiers to `./x.ts`. Hence `dist/esm`, hence `dev` depends on `^build`. For active sdk work run
+  `tsc -w` alongside.
 
 **Folder mapping vs. the Plans.** `Plans/07-ARCHITECTURE.md` §6 names `services/node` and `apps/web`.
 This repo uses **`backend/`** (= `services/node`) and **`frontend/`** (= `apps/mobile`, Expo RN).
@@ -91,6 +124,22 @@ pnpm ops:two-node                 # node-a + node-b federation harness (P2)
 
 Rust and Python are invoked through `pnpm vectors`; run them directly with `cargo test -p jb-core`
 and `python -m pytest tools/vectors`.
+
+**All of the above run green as of P0 completion.** Current counts, so a regression is obvious:
+`pnpm vectors` → 3 implementations agree on 16 vectors · `pnpm test` → 67 (sdk 36, backend 30,
+frontend 1) · `cargo test -p jb-core` → 6 · `pytest tools/vectors` → 22.
+
+Two environment notes that will otherwise cost you an hour:
+
+- **Rust is required** for `pnpm vectors`. If `cargo` is missing, install it — do not "temporarily" cut
+  the gate to two languages. `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+  --profile minimal --no-modify-path`, then add `~/.cargo/bin` to PATH.
+- **`frontend` exports native platforms only** (`expo export --platform ios --platform android`). Web is
+  not a P0–P2 target and `react-native-web` is deliberately absent, so a bare `expo export` fails.
+
+**`pnpm vectors --update` rewrites `expected.json`.** It only does so after all three implementations
+already agree, and it never runs in CI. Review the diff by hand — regenerating expectations without
+reading them turns the project's highest-value gate into a rubber stamp (build log L-02).
 
 ---
 
@@ -300,6 +349,21 @@ Never disable these to get a build green. They exist because each one caught a r
 | Two-node federation suite | P2 |
 | Network-namespace ISP suite | P3 |
 | Build-without-Reticulum suite | P6 |
+
+**A gate that is only *configured* is not a gate.** P0-G6 was silently false for its entire existence:
+the import-boundary lint was correctly written, but a later ESLint flat-config block matching
+`backend/src/**` **replaced** the rule's options instead of merging them, erasing every AR-01 pattern.
+Nothing failed, because the codebase happened to be clean. It was caught only by
+`backend/src/core/import-boundary.spec.ts`, which writes a genuinely violating file, runs the real
+ESLint over it, and asserts a non-zero exit — plus a clean control file that must pass.
+
+Two rules follow, and they apply to every gate added from here:
+
+- **Every gate needs a test that makes it fail on purpose.** Assert the failure *and* assert that a
+  compliant input still passes, or you have only proved the tool dislikes the directory.
+- **In ESLint flat config, the last matching block wins outright for a given rule.** Declare shared
+  pattern sets once, spread them into each block that applies, and order blocks most-specific-LAST.
+  Check the result with `eslint --print-config <file>`, not by reading the config.
 
 ---
 

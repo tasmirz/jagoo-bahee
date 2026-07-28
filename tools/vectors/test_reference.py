@@ -119,9 +119,35 @@ def test_bangla_round_trips():
     """
     headline = "পানি বাড়ছে"
     assert encode_utf8_nfc(headline).decode("utf-8") == headline
-    # 6 Bangla code points + 1 space, at 3 bytes per Bangla char: the worst case that
-    # SIG-26's 512-byte broadcast budget is computed against.
-    assert len(encode_utf8_nfc(headline)) == 28
+    # 10 Bangla code points + 1 space. Every Bangla code point is 3 bytes in UTF-8, so
+    # 10 * 3 + 1 = 31. Note this is ELEVEN code points for what a reader sees as nine
+    # glyphs, because 'ড়' survives NFC as two — see the exclusion test below.
+    assert len(encode_utf8_nfc(headline)) == 31
+
+
+def test_bangla_nukta_letters_are_composition_exclusions():
+    """The Bangla worst case is worse than '3 bytes per visible character'.
+
+    U+09DC RRA, U+09DD RHA and U+09DF YYA are Unicode *composition exclusions*. NFC does
+    NOT recompose their base + nukta pairs, so a precomposed 'ড়' normalises DOWN to two
+    code points and occupies 6 bytes, not 3.
+
+    This is load-bearing, not trivia. The class 0-2 size budgets (SIG-26: broadcast <= 512 B
+    after encoding, including signature and anti-abuse fields) are computed against the
+    Bangla worst case. Sizing them as '3 bytes per character' would under-count any text
+    containing these three letters — and they are ordinary, high-frequency Bangla, not
+    exotica. Getting this wrong means a broadcast that fits in the lab and is rejected at
+    construction in the field.
+    """
+    composed = "ড়"  # ড় as a single code point
+    decomposed = "ড়"  # ড + nukta
+
+    # NFC maps the composed form to the decomposed one, not the other way around.
+    assert encode_utf8_nfc(composed) == encode_utf8_nfc(decomposed)
+    assert len(encode_utf8_nfc(composed)) == 6
+
+    # A plain Bangla letter with no nukta stays at 3 bytes, for contrast.
+    assert len(encode_utf8_nfc("ড")) == 3
 
 
 # ── P0-G2 / P0-G3 / P0-G4: the three regressions ─────────────────────────────────

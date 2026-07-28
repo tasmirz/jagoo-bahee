@@ -1,0 +1,38 @@
+{
+  "name": "@jagoo/frontend",
+  "version": "2.0.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "description": "Expo React Native app — the only client for P0-P2. Expo Router shell, src/{signer,data,verify,i18n,theme}.",
+  "scripts": {
+    "dev": "expo start --dev-client",
+    "build": "expo export --platform ios --platform android",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint app src",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "clean": "rimraf dist .expo"
+  },
+  "dependencies": {
+    "@jagoo/sdk": "workspace:*",
+    "expo": "~52.0.11",
+    "expo-router": "~4.0.9",
+    "expo-status-bar": "~2.0.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-native": "0.76.5",
+    "react-native-safe-area-context": "4.12.0",
+    "react-native-screens": "~4.4.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.0",
+    "@types/jest": "^29.5.14",
+    "@types/react": "~18.3.12",
+    "@types/react-test-renderer": "^18.3.1",
+    "babel-preset-expo": "~12.0.1",
+    "jest": "^29.7.0",
+    "jest-expo": "~52.0.2",
+    "react-test-renderer": "18.3.1",
+    "typescript": "^5.7.2"
+  }
+}

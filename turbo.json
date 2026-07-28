@@ -29,6 +29,9 @@
       "persistent": true
     },
     "dev": {
+      // Both dev servers consume the sdk's BUILT output — Nest requires dist/cjs and Metro
+      // bundles dist/esm — so a cold `pnpm dev:frontend` must not race an unbuilt sdk.
+      "dependsOn": ["^build"],
       "cache": false,
       "persistent": true
     },

@@ -1,0 +1,153 @@
+# Local infrastructure for a Jagoo Bahee node.
+#
+#   pnpm ops:up         mongo + redis + minio
+#   pnpm ops:two-node   adds node-a and node-b for the P2 federation harness
+#   pnpm ops:down       stop everything
+#
+# ── Why Mongo runs as a replica set even single-node ─────────────────────────────────
+# Pipeline steps 16 (project) and 17 (witness append) MUST be atomic with respect to each
+# other — a projected envelope missing from the Merkle log is a transparency failure, not
+# a cosmetic inconsistency. That needs multi-document transactions, and Mongo only offers
+# those on a replica set. A standalone `mongod` fails at runtime with the misleading
+# "Transaction numbers are only allowed on a replica set member" (ADR-001, build log L-03).
+#
+# The `mongo-init` service below runs `rs.initiate()` once and exits, so a fresh
+# `pnpm ops:up` produces a transaction-capable node with no manual step.
+
+name: jagoo-bahee
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: jb-mongo
+    command: ['--replSet', 'rs0', '--bind_ip_all', '--quiet']
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # Deliberately just "is mongod listening", NOT "is there a PRIMARY".
+      #
+      # Gating this on `hello().isWritablePrimary` looks stricter and is actually broken:
+      # the set only gets a primary after `rs.initiate()`, which cannot run until mongod
+      # accepts connections — so mongo would wait for init while init waited for mongo,
+      # and the observed failure is `MongoNetworkError: ECONNREFUSED` from a racing init
+      # container plus a permanently unhealthy mongo (build log L-10).
+      #
+      # The transaction-capability guarantee lives on `mongo-init` completing
+      # successfully, which is precisely what that condition means.
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok || quit(1)"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  mongo-init:
+    image: mongo:7
+    container_name: jb-mongo-init
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: 'no'
+    # Idempotent: rs.status() succeeds on re-run, so `ops:up` twice is harmless.
+    # Waits for the PRIMARY to be elected before exiting, so anything depending on
+    # `service_completed_successfully` can open a transaction immediately.
+    entrypoint:
+      - mongosh
+      - --host
+      - mongo:27017
+      - --quiet
+      - --eval
+      - |
+        try {
+          rs.status();
+        } catch (e) {
+          rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] });
+        }
+        for (let i = 0; i < 60; i++) {
+          if (db.hello().isWritablePrimary) { print('rs0 PRIMARY ready'); quit(0); }
+          sleep(500);
+        }
+        print('timed out waiting for PRIMARY');
+        quit(1);
+
+  redis:
+    image: redis:7-alpine
+    container_name: jb-redis
+    # appendonly so credits and nullifiers survive a restart. A lost nullifier set would
+    # let an epoch quota be spent twice.
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    container_name: jb-minio
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: jagoo
+      MINIO_ROOT_PASSWORD: jagoo-dev-only
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # ── P2 federation harness ───────────────────────────────────────────────────────────
+  # Two independent nodes with SEPARATE databases. Sharing a database would let a test
+  # pass because both nodes read the same rows rather than because federation actually
+  # transferred and re-verified anything — the exact false green this harness must avoid.
+  node-a:
+    profiles: ['federation']
+    build:
+      context: ..
+      dockerfile: ops/node.Dockerfile
+    container_name: jb-node-a
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: '3000'
+      MONGO_URL: 'mongodb://mongo:27017/jagoo_a?replicaSet=rs0'
+      REDIS_URL: 'redis://redis:6379/0'
+      NODE_NAME: 'node-a'
+    ports:
+      - '3001:3000'
+
+  node-b:
+    profiles: ['federation']
+    build:
+      context: ..
+      dockerfile: ops/node.Dockerfile
+    container_name: jb-node-b
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: '3000'
+      MONGO_URL: 'mongodb://mongo:27017/jagoo_b?replicaSet=rs0'
+      REDIS_URL: 'redis://redis:6379/1'
+      NODE_NAME: 'node-b'
+    ports:
+      - '3002:3000'
+
+volumes:
+  mongo-data:
+  redis-data:
+  minio-data:
