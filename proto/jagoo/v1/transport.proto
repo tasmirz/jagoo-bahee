@@ -1,0 +1,78 @@
+// Transport and reachability contracts — FROZEN before P2, implemented in P3.
+// Specification: Plans/06-CONTRACTS-TRANSPORT.md
+//
+// TP-01, the narrowest-working-scope rule, is the central resilience mechanism and not
+// a performance optimisation: a fallback path that only runs during a blackout is
+// untested code that will fail during a blackout. By preferring the narrowest scope
+// during NORMAL operation, the ISP-local path is exercised continuously — warm,
+// monitored, and known-good at the moment it becomes the only path.
+
+syntax = "proto3";
+
+package jagoo.v1;
+
+import "jagoo/v1/envelope.proto";
+
+option go_package = "github.com/jagoo-bahee/proto/jagoo/v1;jagoov1";
+
+// Ranking, best first: LAN -> ISP_LOCAL -> NATIONAL -> GLOBAL -> MESH -> RETICULUM.
+enum ReachabilityScope {
+  REACHABILITY_SCOPE_UNSPECIFIED = 0;
+  REACHABILITY_SCOPE_GLOBAL = 1;     // Reachable from the public internet.
+  REACHABILITY_SCOPE_NATIONAL = 2;   // Via domestic peering / IX (e.g. BDIX).
+  REACHABILITY_SCOPE_ISP_LOCAL = 3;  // Only within one ISP's AS.
+  REACHABILITY_SCOPE_LAN = 4;        // Same local network segment.
+  REACHABILITY_SCOPE_MESH = 5;       // WebRTC / BLE peer-to-peer.
+  REACHABILITY_SCOPE_RETICULUM = 6;  // RNS destination hash.
+}
+
+message PeerEndpoint {
+  string uri = 1;  // https:// | grpc:// | rns://<dest_hash> | mesh://<peer_id>
+  ReachabilityScope scope = 2;
+  uint32 asn = 3;  // Autonomous system number — drives the same-ASN bonus (TP-11).
+  string isp_name = 4;
+  string region = 5;           // Free-form: "dhaka", "chittagong".
+  bool inbound_capable = 6;    // false => this peer must initiate (FD-11).
+  int64 last_ok_at_ms = 7;
+  uint32 rtt_ms = 8;
+  uint32 consecutive_failures = 9;
+}
+
+// TP-05: peer records MUST be cached continuously during normal operation, on both
+// nodes and clients. When the gateway drops, the ISP-local addresses must already be
+// known — discovery cannot depend on the network that just failed (THR-11).
+message PeerRecord {
+  bytes server_key = 1;  // FD-02: peer identity is the key, never a URL.
+  string display_name = 2;
+  repeated PeerEndpoint endpoints = 3;
+  TrustLevel trust = 4;
+  repeated bytes vouched_by = 5;
+  repeated string communities = 6;
+  repeated string channels = 7;
+  repeated Plane planes = 8;  // FED-17: a Signal-only relay is a legitimate deployment.
+  bool is_bridge = 9;         // BR-05: multi-homed, relays between islands.
+  repeated uint32 bridged_asns = 10;
+  int64 last_seen_ms = 11;
+}
+
+// FD-01: admin allowlisting MUST NOT be the only path to federate. During a shutdown,
+// volunteers stand up relay nodes and cannot wait for manual approval — which is
+// exactly backwards for the threat model. New peers land at PROBATION via TOFU and
+// earn reach through vouches. FD-03: trust affects QUOTA ONLY, never verification.
+enum TrustLevel {
+  TRUST_LEVEL_UNSPECIFIED = 0;
+  TRUST_LEVEL_BLOCKED = 1;
+  TRUST_LEVEL_PROBATION = 2;  // Default on first contact. Class 0-2 only, tight quota.
+  TRUST_LEVEL_NORMAL = 3;
+  TRUST_LEVEL_TRUSTED = 4;    // May relay for others, gossip STHs, act as a bridge.
+}
+
+// FD-15: exceeding quota returns backpressure_hint_ms rather than dropping the
+// connection. BR-04: classes 0-2 have reserved capacity that bulk traffic cannot
+// consume — the emergency channel must never be starved by a forum backlog.
+message Quota {
+  uint32 envelopes_per_min = 1;
+  uint64 bytes_per_min = 2;
+  uint32 max_concurrent_streams = 3;
+  repeated Priority allowed_classes = 4;
+}

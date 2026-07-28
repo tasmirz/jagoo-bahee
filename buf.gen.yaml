@@ -1,0 +1,28 @@
+version: v2
+
+# TypeScript is the ONLY language that consumes generated protobuf code.
+#
+# Rust (crates/jb-core) and Python (tools/vectors) implement the canonical encoder
+# directly from the specification, by hand. That is deliberate: if all three languages
+# shared a codegen lineage they would share its bugs, and the cross-language gate would
+# prove only that the code agrees with itself (build log L-02). Independent
+# implementations are what make P0-G1 a real check on the wire format.
+
+managed:
+  enabled: false
+
+plugins:
+  - local: protoc-gen-ts_proto
+    out: packages/sdk-ts/src/gen
+    opt:
+      - esModuleInterop=true
+      # int64 -> bigint: created_at_ms and log_index must be exact. A double loses
+      # precision above 2^53 and these values are signed over.
+      - forceLong=bigint
+      # Field names stay as written in the .proto so code cross-references the frozen
+      # spec without a mental translation step.
+      - snakeToCamel=false
+      - useOptionals=messages
+      - outputServices=generic-definitions
+      - outputIndex=true
+      - unrecognizedEnum=false

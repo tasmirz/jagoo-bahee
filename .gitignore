@@ -1,0 +1,51 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+target/
+*.tsbuildinfo
+
+# NOTE: generated code (packages/sdk-ts/src/gen, crates/jb-core/src/gen,
+# tools/vectors/gen) IS committed on purpose. AR-10/INF-34 require CI to regenerate and
+# diff, which only detects a hand edit if the previous output is in the tree. It also
+# means a fresh clone builds without protoc installed. Never hand-edit it (L-01).
+
+# expo / react native
+.expo/
+.expo-shared/
+frontend/android/
+frontend/ios/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# turbo
+.turbo/
+
+# test / coverage
+coverage/
+.nyc_output/
+__pycache__/
+.pytest_cache/
+.venv/
+
+# secrets and local config — never commit a server key
+*.env
+.env.*
+!.env.example
+ops/secrets/
+*.pem
+server.key
+
+# editors / os
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

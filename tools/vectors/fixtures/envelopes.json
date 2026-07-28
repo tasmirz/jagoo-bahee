@@ -1,0 +1,310 @@
+{
+  "$schema": "./envelopes.schema.md",
+  "$comment": [
+    "Shared canonical-encoding fixture set. Consumed by TypeScript, Rust and Python,",
+    "which implement the encoder independently (buf.gen.yaml explains why).",
+    "",
+    "Byte fields are lowercase hex. created_at_ms is a decimal STRING so no consumer's",
+    "JSON parser silently rounds it through a double — the field is int64 and it is",
+    "signed over.",
+    "",
+    "Adding a vector: add it here, run `pnpm vectors --update`, and REVIEW the diff to",
+    "expected.json by hand. Regenerating expectations without reading them turns the",
+    "gate into a rubber stamp."
+  ],
+  "vectors": [
+    {
+      "name": "minimal",
+      "description": "EN-01 rule 2 — every zero-valued field omitted entirely. Only version, plane, domain, key_alg and priority are set, so the output must contain exactly five fields and nothing else.",
+      "envelope": {
+        "version": 1,
+        "plane": 1,
+        "domain": "jb:membership:leave:v1",
+        "author_key": "",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "",
+        "created_at_ms": "0",
+        "nonce": "",
+        "priority": 4,
+        "body": "",
+        "anti_abuse": null
+      }
+    },
+    {
+      "name": "forum-post-full",
+      "description": "Every field populated, including a full anti-abuse block. The ordinary case.",
+      "envelope": {
+        "version": 1,
+        "plane": 1,
+        "domain": "jb:post:create:v1",
+        "author_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "dhaka-relief@jbs1a4f7m2k",
+        "created_at_ms": "1750000000000",
+        "nonce": "000102030405060708090a0b0c0d0e0f",
+        "priority": 4,
+        "body": "0a0d54657374206865616c646c696e65",
+        "anti_abuse": {
+          "credential": "aabbccdd",
+          "nullifier": "1122334455667788",
+          "epoch": 42,
+          "pow": "deadbeef"
+        }
+      }
+    },
+    {
+      "name": "anti-abuse-absent",
+      "description": "EN-02 — an all-empty AntiAbuse is omitted entirely, never emitted as a zero-length message. Proto3 permits either shape; permitting both would be a second accepted form. This vector and 'anti-abuse-empty-object' MUST produce identical bytes.",
+      "envelope": {
+        "version": 1,
+        "plane": 1,
+        "domain": "jb:vote:cast:v1",
+        "author_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "dhaka-relief@jbs1a4f7m2k",
+        "created_at_ms": "1750000000001",
+        "nonce": "0f0e0d0c0b0a09080706050403020100",
+        "priority": 4,
+        "body": "1801",
+        "anti_abuse": null
+      }
+    },
+    {
+      "name": "anti-abuse-empty-object",
+      "description": "Same as 'anti-abuse-absent' but with an explicitly-present, all-zero AntiAbuse. Must encode identically — that equality IS the rule.",
+      "envelope": {
+        "version": 1,
+        "plane": 1,
+        "domain": "jb:vote:cast:v1",
+        "author_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "dhaka-relief@jbs1a4f7m2k",
+        "created_at_ms": "1750000000001",
+        "nonce": "0f0e0d0c0b0a09080706050403020100",
+        "priority": 4,
+        "body": "1801",
+        "anti_abuse": { "credential": "", "nullifier": "", "epoch": 0, "pow": "" }
+      }
+    },
+    {
+      "name": "anti-abuse-epoch-only",
+      "description": "A single non-zero field inside the submessage — the submessage is emitted, but only that field within it.",
+      "envelope": {
+        "version": 1,
+        "plane": 1,
+        "domain": "jb:vote:cast:v1",
+        "author_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "",
+        "created_at_ms": "1750000000002",
+        "nonce": "0f0e0d0c0b0a09080706050403020100",
+        "priority": 4,
+        "body": "1801",
+        "anti_abuse": { "credential": "", "nullifier": "", "epoch": 7, "pow": "" }
+      }
+    },
+    {
+      "name": "large-timestamp",
+      "description": "created_at_ms above 2^53. A double loses precision here, so this catches any consumer that routes an int64 through a float — the value is inside the signature.",
+      "envelope": {
+        "version": 1,
+        "plane": 1,
+        "domain": "jb:post:create:v1",
+        "author_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "",
+        "created_at_ms": "9007199254740993",
+        "nonce": "000102030405060708090a0b0c0d0e0f",
+        "priority": 4,
+        "body": "00",
+        "anti_abuse": null
+      }
+    },
+    {
+      "name": "bangla-broadcast",
+      "description": "NFR-A04 — Bangla is a first-class locale, and SIG-26 budgets are computed against Bangla UTF-8 worst case. A normalisation divergence that only appears in the primary language of the target users is exactly what this gate exists to catch. Headline: 'পানি বাড়ছে, এখনই সরে যান' (water is rising, move now).",
+      "envelope": {
+        "version": 1,
+        "plane": 2,
+        "domain": "jb:broadcast:emit:v1",
+        "author_key": "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "jbc1a4f7m2kqy2f8x",
+        "created_at_ms": "1750000123456",
+        "nonce": "112233445566778899aabbccddeeff00",
+        "priority": 1,
+        "body": "1a30e0a6aae0a6bee0a6a8e0a6bf20e0a6ace0a6bee0a6a1e0a6bce0a69be0a7872c20e0a49ce0a696e0a6a8e0a6873020e0a6b8e0a6b0e0a7872020e0a6afe0a6bee0a6a8",
+        "anti_abuse": null
+      }
+    },
+    {
+      "name": "nfc-composed",
+      "description": "EN-01 rule 4. This vector and 'nfc-decomposed' carry the same text in composed (U+00E9) and decomposed (U+0065 U+0301) form. After NFC normalisation they MUST produce identical bytes and therefore the identical content ID — otherwise the same post signed on two devices dedupes as two different objects.",
+      "envelope": {
+        "version": 1,
+        "plane": 1,
+        "domain": "jb:post:create:v1",
+        "author_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "café@jbs1a4f7m2k",
+        "created_at_ms": "1750000000003",
+        "nonce": "000102030405060708090a0b0c0d0e0f",
+        "priority": 4,
+        "body": "00",
+        "anti_abuse": null
+      }
+    },
+    {
+      "name": "nfc-decomposed",
+      "description": "Decomposed twin of 'nfc-composed'. Identical expected output.",
+      "envelope": {
+        "version": 1,
+        "plane": 1,
+        "domain": "jb:post:create:v1",
+        "author_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "café@jbs1a4f7m2k",
+        "created_at_ms": "1750000000003",
+        "nonce": "000102030405060708090a0b0c0d0e0f",
+        "priority": 4,
+        "body": "00",
+        "anti_abuse": null
+      }
+    },
+    {
+      "name": "checkin-zero-cost",
+      "description": "CR-01 — a check-in carries no credential and no PoW. This is the shape that must encode and verify when a person has zero credits, which is the whole point.",
+      "envelope": {
+        "version": 1,
+        "plane": 2,
+        "domain": "jb:checkin:post:v1",
+        "author_key": "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "",
+        "created_at_ms": "1750000200000",
+        "nonce": "aabbccddeeff00112233445566778899",
+        "priority": 3,
+        "body": "0801",
+        "anti_abuse": null
+      }
+    },
+    {
+      "name": "domain-separation-a",
+      "description": "P0-G2 pair, half one. Identical to 'domain-separation-b' in every field except `domain`, so their canonical bytes and content IDs must differ. A signature over one must not verify the other.",
+      "envelope": {
+        "version": 1,
+        "plane": 1,
+        "domain": "jb:post:create:v1",
+        "author_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "dhaka-relief@jbs1a4f7m2k",
+        "created_at_ms": "1750000000004",
+        "nonce": "000102030405060708090a0b0c0d0e0f",
+        "priority": 4,
+        "body": "0a0474657374",
+        "anti_abuse": null
+      }
+    },
+    {
+      "name": "domain-separation-b",
+      "description": "P0-G2 pair, half two. Only `domain` differs from 'domain-separation-a'.",
+      "envelope": {
+        "version": 1,
+        "plane": 1,
+        "domain": "jb:comment:create:v1",
+        "author_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "dhaka-relief@jbs1a4f7m2k",
+        "created_at_ms": "1750000000004",
+        "nonce": "000102030405060708090a0b0c0d0e0f",
+        "priority": 4,
+        "body": "0a0474657374",
+        "anti_abuse": null
+      }
+    },
+    {
+      "name": "plane-separation-forum",
+      "description": "P0-G3 pair, half one. Identical to 'plane-separation-signal' except for `plane`. Because the plane byte is inside the signature, a FORUM signature can never be lifted into a SIGNAL envelope (SEP-02).",
+      "envelope": {
+        "version": 1,
+        "plane": 1,
+        "domain": "jb:message:forum:v1",
+        "author_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "",
+        "created_at_ms": "1750000000005",
+        "nonce": "000102030405060708090a0b0c0d0e0f",
+        "priority": 2,
+        "body": "0a0474657374",
+        "anti_abuse": null
+      }
+    },
+    {
+      "name": "plane-separation-signal",
+      "description": "P0-G3 pair, half two. Only `plane` differs.",
+      "envelope": {
+        "version": 1,
+        "plane": 2,
+        "domain": "jb:message:forum:v1",
+        "author_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "",
+        "created_at_ms": "1750000000005",
+        "nonce": "000102030405060708090a0b0c0d0e0f",
+        "priority": 2,
+        "body": "0a0474657374",
+        "anti_abuse": null
+      }
+    },
+    {
+      "name": "field-omission-sparse",
+      "description": "P0-G4 pair, half one — THE v1 REGRESSION. A PostCreate body carrying only a title. v1 accepted a signature valid over either of two canonical forms, the legacy one omitting url, attachmentIds and poll, so a signature produced over exactly this body ALSO validated 'field-omission-populated' below — a post carrying an attacker-chosen URL and arbitrary attachments — and the verification UI showed a green check on the forgery.",
+      "envelope": {
+        "version": 1,
+        "plane": 1,
+        "domain": "jb:post:create:v1",
+        "author_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "dhaka-relief@jbs1a4f7m2k",
+        "created_at_ms": "1750000000006",
+        "nonce": "000102030405060708090a0b0c0d0e0f",
+        "priority": 4,
+        "body": "0a0b48656c6c6f20776f726c64",
+        "anti_abuse": null
+      }
+    },
+    {
+      "name": "field-omission-populated",
+      "description": "P0-G4 pair, half two. Same title, plus an attacker-chosen url field. Canonical bytes and content ID MUST differ from 'field-omission-sparse', and a signature over one MUST NOT verify the other.",
+      "envelope": {
+        "version": 1,
+        "plane": 1,
+        "domain": "jb:post:create:v1",
+        "author_key": "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c",
+        "key_alg": 1,
+        "parent": "",
+        "scope": "dhaka-relief@jbs1a4f7m2k",
+        "created_at_ms": "1750000000006",
+        "nonce": "000102030405060708090a0b0c0d0e0f",
+        "priority": 4,
+        "body": "0a0b48656c6c6f20776f726c64221768747470733a2f2f6576696c2e6578616d706c652f78",
+        "anti_abuse": null
+      }
+    }
+  ]
+}

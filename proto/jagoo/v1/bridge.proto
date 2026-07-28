@@ -1,0 +1,90 @@
+// Reticulum bridge sidecar contract — FROZEN before P2, implemented in P6 (LOWEST).
+// Specification: Plans/06-CONTRACTS-TRANSPORT.md §9
+//
+// RT-01: Reticulum is an OPTIONAL adapter behind the Transport port. The system MUST
+// build, run, and pass its full acceptance suite with this adapter absent from the
+// build (RG-04). Nothing in the rest of the system may depend on it.
+//
+// RT-05: the bridge is a separate process (Python RNS — there is no TypeScript
+// implementation). A bridge crash MUST NOT affect the node.
+//
+// This file exists at P0 so that the registry generator is exercised against every
+// plane and the Transport port is frozen with a real consumer in mind. No P6 logic is
+// built yet.
+
+syntax = "proto3";
+
+package jagoo.v1;
+
+import "jagoo/v1/envelope.proto";
+
+option go_package = "github.com/jagoo-bahee/proto/jagoo/v1;jagoov1";
+
+service ReticulumBridge {
+  rpc Announce(BridgeAnnounceReq) returns (BridgeAnnounceResp);  // Publish a destination.
+  rpc Send(SendReq) returns (SendResp);                          // Class 0-2 only.
+  rpc Receive(ReceiveReq) returns (stream InboundEnvelope);
+  rpc Status(StatusReq) returns (BridgeStatus);
+}
+
+message BridgeAnnounceReq {
+  string app_name = 1;
+  repeated string aspects = 2;
+}
+
+message BridgeAnnounceResp {
+  string destination_hash = 1;
+}
+
+// RT-02: the bridge MUST reject PRIORITY_BULK with TRANSPORT_UNSUPPORTED. A LoRa link
+// cannot carry a forum feed, and attempting it starves the emergency channel.
+message SendReq {
+  bytes envelope = 1;
+  string destination_hash = 2;  // "" => broadcast to the announced destination.
+  Priority priority = 3;
+}
+
+message SendResp {
+  bool accepted = 1;
+  ErrorCode code = 2;
+  uint32 fragments = 3;
+}
+
+message ReceiveReq {
+  string destination_hash = 1;
+}
+
+// RT-03: fragmentation and reassembly carry per-fragment integrity, so a partial
+// reassembly is discarded rather than delivered.
+message InboundEnvelope {
+  bytes envelope = 1;
+  string source_hash = 2;
+  int32 rssi = 3;
+  int32 snr = 4;
+  uint32 hops = 5;
+  int64 received_at_ms = 6;
+}
+
+message StatusReq {}
+
+message BridgeStatus {
+  repeated RnsInterface interfaces = 1;
+  repeated RnsPath paths = 2;
+  uint32 queue_depth = 3;
+}
+
+message RnsInterface {
+  string name = 1;
+  string kind = 2;  // "TCPInterface" (demo, no hardware) | "RNodeInterface" (real LoRa)
+  bool up = 3;
+  int32 rssi = 4;
+  int32 snr = 5;
+  uint64 tx_bytes = 6;
+  uint64 rx_bytes = 7;
+}
+
+message RnsPath {
+  string destination_hash = 1;
+  uint32 hops = 2;
+  int64 last_seen_ms = 3;
+}

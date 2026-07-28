@@ -1,0 +1,39 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "globalDependencies": ["tsconfig.base.json", "proto/**", "eslint.config.mjs"],
+  "tasks": {
+    "codegen": {
+      "inputs": ["../proto/**"],
+      "outputs": ["src/gen/**"],
+      "cache": true
+    },
+    "build": {
+      "dependsOn": ["^build", "codegen"],
+      "outputs": ["dist/**", "build/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build", "codegen"],
+      "outputs": []
+    },
+    "lint": {
+      "dependsOn": ["codegen"],
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": ["^build", "codegen"],
+      "outputs": ["coverage/**"]
+    },
+    "test:watch": {
+      "cache": false,
+      "persistent": true
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "clean": {
+      "cache": false
+    }
+  }
+}

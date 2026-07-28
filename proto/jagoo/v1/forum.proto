@@ -1,0 +1,396 @@
+// Forum plane bodies (Plane A, anonymous) — FROZEN before P1.
+// Specification: Plans/03-CONTRACTS-FORUM.md §1
+//
+// Content is trusted because it is SIGNED, not because of who signed it. Identity here
+// is pseudonymous with no real-world binding, and per-community derived keys make
+// activity in one community unlinkable to activity in another.
+
+syntax = "proto3";
+
+package jagoo.v1;
+
+option go_package = "github.com/jagoo-bahee/proto/jagoo/v1;jagoov1";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Posts
+// ─────────────────────────────────────────────────────────────────────────────
+message PostCreate {
+  string title = 1;                 // <= 300 chars (PST-02)
+  PostKind kind = 2;
+  string body_markdown = 3;
+  string url = 4;
+  repeated string attachments = 5;  // content_ids of AttachmentClaim
+  Poll poll = 6;
+  string crosspost_of = 7;          // content_id
+  string flair = 8;
+  ContentFlags flags = 9;
+}
+
+enum PostKind {
+  POST_KIND_UNSPECIFIED = 0;
+  POST_KIND_TEXT = 1;
+  POST_KIND_LINK = 2;
+  POST_KIND_IMAGE = 3;
+  POST_KIND_VIDEO = 4;
+  POST_KIND_POLL = 5;
+  POST_KIND_CROSSPOST = 6;
+}
+
+message Poll {
+  string question = 1;
+  repeated string options = 2;
+  bool multiple = 3;
+  int64 closes_at_ms = 4;
+}
+
+message ContentFlags {
+  bool nsfw = 1;
+  bool spoiler = 2;
+  bool oc = 3;
+}
+
+message PostUpdate {
+  string target = 1;
+  string body_markdown = 2;
+  string flair = 3;
+  ContentFlags flags = 4;
+}
+
+// FM-08: removal is a tombstone. Content ID, author, timestamp, acting moderator and
+// reason stay publicly visible; only the body is withheld from the default view.
+message PostDelete {
+  string target = 1;
+  string reason = 2;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Comments
+// ─────────────────────────────────────────────────────────────────────────────
+message CommentCreate {
+  string post = 1;
+  string parent_comment = 2;
+  string body_markdown = 3;
+  repeated string attachments = 4;
+}
+
+message CommentUpdate {
+  string target = 1;
+  string body_markdown = 2;
+}
+
+message CommentDelete {
+  string target = 1;
+  string reason = 2;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Votes
+// ─────────────────────────────────────────────────────────────────────────────
+message VoteCast {
+  string target = 1;
+  TargetKind target_kind = 2;
+  int32 value = 3;  // -1 | 0 | +1
+}
+
+enum TargetKind {
+  TARGET_KIND_UNSPECIFIED = 0;
+  TARGET_KIND_POST = 1;
+  TARGET_KIND_COMMENT = 2;
+  TARGET_KIND_IDENTITY = 3;
+  TARGET_KIND_COMMUNITY = 4;
+  TARGET_KIND_MESSAGE = 5;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Communities
+//
+// COM-19: community identity is <name>@<origin_fingerprint>, never a row ID.
+// v1 signed subredditId as a Mongo ObjectId, which is meaningless on any other node —
+// the specific defect that made federation impossible (ID-01).
+// ─────────────────────────────────────────────────────────────────────────────
+message CommunityCreate {
+  string name = 1;
+  string title = 2;
+  string description = 3;
+  string rules_markdown = 4;
+  Theme theme = 5;
+  CommunitySettings settings = 6;
+  bool is_private = 7;
+  bool is_nsfw = 8;
+}
+
+message Theme {
+  string primary = 1;
+  string accent = 2;
+  string background = 3;
+  string foreground = 4;
+}
+
+message CommunitySettings {
+  bool allow_text_posts = 1;
+  bool allow_link_posts = 2;
+  bool allow_image_posts = 3;
+  bool allow_video_posts = 4;
+  bool require_post_approval = 5;
+  bool allow_crossposts = 6;
+  int32 minimum_karma_to_post = 7;
+  int32 minimum_account_age_days = 8;
+}
+
+message CommunityUpdate {
+  string target = 1;
+  CommunityCreate patch = 2;
+}
+
+// COM-06: archive (tombstone) replaces hard delete.
+message CommunityArchive {
+  string target = 1;
+  bool archived = 2;
+}
+
+message MembershipJoin {
+  string community = 1;
+}
+
+message MembershipLeave {
+  string community = 1;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Moderation
+//
+// FM-01 / MOD-06: jb:mod:action:v1 is non-idempotent and MUST carry a nonce.
+// v1 moderator signatures were `${action}|${subredditId}|${postId}|${reason}` — no
+// nonce, no expiry, no server binding. Anyone who observed one could replay it
+// forever, on any instance.
+// ─────────────────────────────────────────────────────────────────────────────
+message ModAction {
+  ModVerb verb = 1;
+  string target = 2;  // content_id or key_id
+  TargetKind target_kind = 3;
+  string reason = 4;
+  int64 expires_at_ms = 5;  // Temporary bans and mutes.
+}
+
+enum ModVerb {
+  MOD_VERB_UNSPECIFIED = 0;
+  MOD_VERB_APPROVE = 1;
+  MOD_VERB_REMOVE = 2;
+  MOD_VERB_RESTORE = 3;
+  MOD_VERB_LOCK = 4;
+  MOD_VERB_UNLOCK = 5;
+  MOD_VERB_PIN = 6;
+  MOD_VERB_UNPIN = 7;
+  MOD_VERB_FLAG = 8;
+  MOD_VERB_UNFLAG = 9;
+  MOD_VERB_COLLAPSE = 10;
+  MOD_VERB_UNCOLLAPSE = 11;
+  MOD_VERB_BAN = 12;
+  MOD_VERB_UNBAN = 13;
+  MOD_VERB_MUTE = 14;
+  MOD_VERB_UNMUTE = 15;
+  MOD_VERB_KICK = 16;
+}
+
+message ReportCreate {
+  string target = 1;
+  TargetKind target_kind = 2;
+  ReportReason reason = 3;
+  string detail = 4;
+}
+
+enum ReportReason {
+  REPORT_REASON_UNSPECIFIED = 0;
+  REPORT_REASON_SPAM = 1;
+  REPORT_REASON_HARASSMENT = 2;
+  REPORT_REASON_HATE = 3;
+  REPORT_REASON_VIOLENCE = 4;
+  REPORT_REASON_MISINFORMATION = 5;
+  REPORT_REASON_SEXUAL_CONTENT = 6;
+  REPORT_REASON_SELF_HARM = 7;
+  REPORT_REASON_ILLEGAL = 8;
+  REPORT_REASON_RULE_VIOLATION = 9;
+  REPORT_REASON_OTHER = 10;
+}
+
+message ReportResolve {
+  string target = 1;
+  ReportStatus status = 2;
+  ModVerb action_taken = 3;
+  string note = 4;
+}
+
+enum ReportStatus {
+  REPORT_STATUS_UNSPECIFIED = 0;
+  REPORT_STATUS_PENDING = 1;
+  REPORT_STATUS_REVIEWED = 2;
+  REPORT_STATUS_RESOLVED = 3;
+  REPORT_STATUS_DISMISSED = 4;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Roles — permission bit positions are FROZEN (ROL-11).
+// They cross federation boundaries and MUST NOT be renumbered.
+// ─────────────────────────────────────────────────────────────────────────────
+message RoleDefine {
+  string community = 1;
+  string name = 2;
+  uint64 permission_mask = 3;
+  bool is_default = 4;
+}
+
+message RoleAssign {
+  string community = 1;
+  bytes subject_key = 2;
+  string role = 3;
+}
+
+message RoleRevoke {
+  string community = 1;
+  bytes subject_key = 2;
+  string role = 3;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Social and profile
+// ─────────────────────────────────────────────────────────────────────────────
+message ProfileUpdate {
+  string display_name = 1;
+  string bio = 2;
+  string avatar = 3;
+  string banner = 4;
+}
+
+message FollowIdentity {
+  bytes subject_key = 1;
+  bool follow = 2;
+}
+
+message BlockIdentity {
+  bytes subject_key = 1;
+  bool block = 2;
+  string reason = 3;
+}
+
+message SaveContent {
+  string target = 1;
+  TargetKind target_kind = 2;
+  bool save = 3;
+  string collection = 4;
+}
+
+message FeedPreferences {
+  SortMode default_sort = 1;
+  Timeframe default_timeframe = 2;
+  bool show_nsfw = 3;
+  bool blur_nsfw = 4;
+  LayoutMode layout = 5;
+  repeated string favourite_communities = 6;
+  repeated bytes hidden_keys = 7;
+}
+
+enum SortMode {
+  SORT_MODE_UNSPECIFIED = 0;
+  SORT_MODE_HOT = 1;
+  SORT_MODE_NEW = 2;
+  SORT_MODE_TOP = 3;
+  SORT_MODE_CONTROVERSIAL = 4;
+  SORT_MODE_RISING = 5;
+}
+
+enum Timeframe {
+  TIMEFRAME_UNSPECIFIED = 0;
+  TIMEFRAME_HOUR = 1;
+  TIMEFRAME_DAY = 2;
+  TIMEFRAME_WEEK = 3;
+  TIMEFRAME_MONTH = 4;
+  TIMEFRAME_YEAR = 5;
+  TIMEFRAME_ALL = 6;
+}
+
+enum LayoutMode {
+  LAYOUT_MODE_UNSPECIFIED = 0;
+  LAYOUT_MODE_CARD = 1;
+  LAYOUT_MODE_CLASSIC = 2;
+  LAYOUT_MODE_COMPACT = 3;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Awards
+//
+// AWD-09: anonymous awards MUST NOT be deanonymisable from the projection. The giver
+// key is in the signed envelope, but the projection stores only an anonymity flag.
+// ─────────────────────────────────────────────────────────────────────────────
+message AwardGive {
+  string target = 1;
+  TargetKind target_kind = 2;
+  string award_type = 3;
+  bool anonymous = 4;
+  string message = 5;
+}
+
+message AwardTypeDefine {
+  string slug = 1;
+  string name = 2;
+  string icon = 3;
+  int32 cost = 4;
+  bool active = 5;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Attachments
+//
+// ATT-11: the content hash is INSIDE the signed claim. v1 signed only the attachment
+// ID, so a server could swap the stored blob and every signature still verified.
+// ATT-18: blobs are not federated — the claim travels, bytes are fetched on demand
+// and verified against this hash on arrival.
+// ─────────────────────────────────────────────────────────────────────────────
+message AttachmentClaim {
+  string storage_key = 1;
+  bytes content_sha256 = 2;
+  string mime = 3;
+  uint64 size_bytes = 4;
+  uint32 width = 5;
+  uint32 height = 6;
+  uint32 duration_ms = 7;
+  string alt_text = 8;  // ATT-12 — also what renders when the blob is unavailable (ATT-19).
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pseudonymous DMs (Plane A)
+// Same engine as Signal-plane messaging (signal.proto), different identity provider.
+// MSG-09: the server stores ciphertext only.
+// ─────────────────────────────────────────────────────────────────────────────
+message ForumMessageSend {
+  bytes recipient_key = 1;
+  bytes kem_ciphertext = 2;     // ML-KEM-768, first message of a session.
+  bytes ephemeral_x25519 = 3;
+  bytes ciphertext = 4;         // ChaCha20-Poly1305.
+  string thread = 5;
+  uint32 ratchet_index = 6;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Labels — moderation attestation (Plans/03 §6)
+//
+// FM-04: server approval MUST NOT be a precondition for publishing. Labellers publish
+// signed opinions asynchronously; clients subscribe to labellers they trust and filter
+// locally. Removing a label removes a filter, never the content.
+// ─────────────────────────────────────────────────────────────────────────────
+message Label {
+  string target = 1;
+  Verdict verdict = 2;
+  repeated string categories = 3;
+  uint32 confidence_pct = 4;
+  string model_id = 5;  // "claude-haiku-4-5" | "human:mod"
+  repeated string reasons = 6;
+  bool appealable = 7;
+}
+
+enum Verdict {
+  VERDICT_UNSPECIFIED = 0;
+  VERDICT_OK = 1;
+  VERDICT_REVIEW = 2;
+  VERDICT_RESTRICT = 3;
+  VERDICT_DANGEROUS = 4;
+}

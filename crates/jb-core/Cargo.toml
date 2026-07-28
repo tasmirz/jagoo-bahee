@@ -1,0 +1,26 @@
+[package]
+name = "jb-core"
+description = "Reference implementation of Jagoo Bahee canonical encoding, content IDs and Ed25519 verification. Independent of the TypeScript path on purpose — see buf.gen.yaml."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+sha2.workspace = true
+ed25519-dalek.workspace = true
+# EN-01 requires NFC normalisation before encoding. This must work for Bangla, not just
+# ASCII — see wire::encode_utf8_nfc.
+unicode-normalization = "0.1"
+# Used by the jb-dump binary and the vector test to read the shared fixture set.
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+
+[[bin]]
+name = "jb-dump"
+path = "src/bin/dump.rs"
+
+[[test]]
+name = "vectors"
+path = "tests/vectors.rs"

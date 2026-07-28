@@ -1,0 +1,335 @@
+// Signal plane bodies (Plane B, identified) — FROZEN before P1, implemented in P4.
+// Specification: Plans/04-CONTRACTS-SIGNAL.md
+//
+// Here, content matters PRECISELY BECAUSE of who signed it — you subscribe to a channel
+// because you know the broadcaster. An anonymous emergency broadcast is worse than
+// worthless, because it is trivially spoofable at scale.
+//
+// Delivery is flood-then-filter, never server-side fanout: broadcasts are <= 512 bytes
+// and replicate regardless of who is subscribed, and the subscriber's client filters
+// locally. A server-side subscription table is a list of targets (SB-01, THR-10).
+
+syntax = "proto3";
+
+package jagoo.v1;
+
+import "jagoo/v1/envelope.proto";
+
+option go_package = "github.com/jagoo-bahee/proto/jagoo/v1;jagoov1";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Channel lifecycle
+//
+// CH-01: the channel identifier is "jbc1" + base32(signing_key). channel_name is a
+// mutable label and MUST NOT be used as an identifier anywhere (CH-06).
+// ─────────────────────────────────────────────────────────────────────────────
+message ChannelDeclare {
+  string channel_name = 1;  // Human label — NOT an identifier.
+  string description = 2;
+  ChannelKind kind = 3;
+  repeated BroadcastCategory categories = 4;
+  GeoArea default_area = 5;
+  repeated IdentityClaim claims = 6;
+  bytes signing_key = 7;     // Ed25519 — this is the channel identity.
+  bytes kem_public_key = 8;  // ML-KEM-768, for encrypted broadcasts.
+  bytes pq_key = 9;          // ML-DSA-44 attestation key.
+  string language = 10;      // BCP-47, e.g. "bn" | "en".
+  int64 valid_from = 11;
+}
+
+message ChannelUpdate {
+  string channel = 1;
+  ChannelDeclare patch = 2;
+}
+
+message ChannelRetire {
+  string channel = 1;
+  string note = 2;
+  bytes successor_key = 3;
+}
+
+// CH-03: signed by the OLD key. This is what preserves subscriber lists across a key
+// change — subscribers follow a channel, and continuity is established cryptographically.
+message ChannelRotate {
+  string channel = 1;
+  bytes new_signing_key = 2;
+  bytes new_kem_key = 3;
+  int64 effective_from_ms = 4;
+}
+
+enum ChannelKind {
+  CHANNEL_KIND_UNSPECIFIED = 0;
+  CHANNEL_KIND_PERSON = 1;        // Ward coordinator, journalist, doctor.
+  CHANNEL_KIND_ORGANISATION = 2;  // NGO, relief group, hospital, student body.
+  CHANNEL_KIND_AUTHORITY = 3;     // Official body — higher verification bar.
+  CHANNEL_KIND_COMMUNITY = 4;     // A neighbourhood or building's shared channel.
+}
+
+// A key alone means nothing. There is no certificate authority here; there is
+// accumulated evidence, and the client shows its weight (Plans/01 §5).
+message IdentityClaim {
+  ClaimKind kind = 1;
+  string value = 2;
+  string proof = 3;  // Where and how it can be checked.
+  int64 asserted_at_ms = 4;
+}
+
+enum ClaimKind {
+  CLAIM_KIND_UNSPECIFIED = 0;
+  CLAIM_KIND_WEBSITE = 1;
+  CLAIM_KIND_SOCIAL_ACCOUNT = 2;
+  CLAIM_KIND_ORG_REGISTRY = 3;
+  CLAIM_KIND_PHYSICAL_ADDRESS = 4;
+  CLAIM_KIND_PHONE = 5;
+  CLAIM_KIND_IN_PERSON = 6;  // Strongest, unscalable. Works with no network (CV-03).
+  CLAIM_KIND_PRINTED = 7;
+}
+
+// CV-02: no single authority may confer verification. Instance attestation is one
+// signal among several and MUST be overridable by the user.
+message ChannelVouch {
+  string channel = 1;
+  VouchLevel level = 2;
+  string basis = 3;  // "verified in person", "known since 2019"
+  int64 asserted_at_ms = 4;
+}
+
+enum VouchLevel {
+  VOUCH_LEVEL_UNSPECIFIED = 0;
+  VOUCH_LEVEL_NEGATIVE = 1;  // This channel is impersonating someone.
+  VOUCH_LEVEL_KNOWN = 2;
+  VOUCH_LEVEL_VERIFIED = 3;
+  VOUCH_LEVEL_ENDORSED = 4;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Broadcast — PRIORITY_BROADCAST, <= 512 bytes total (SIG-26)
+// ─────────────────────────────────────────────────────────────────────────────
+message BroadcastEmit {
+  string channel = 1;
+  uint64 sequence = 2;  // Monotonic per channel — see BC-01 below.
+  Severity severity = 3;
+  BroadcastCategory category = 4;
+  string headline = 5;  // <= 120 chars — must fit one LoRa frame, actionable alone.
+  string detail = 6;    // Omitted when the transport MTU cannot carry it (BC-04).
+  GeoArea area = 7;
+  int64 expires_at_ms = 8;
+  string supersedes = 9;  // content_id of a broadcast this corrects.
+  string language = 10;
+}
+
+// BC-02: a false alarm in a crisis is dangerous, so retraction is first-class.
+// BC-03: a revoked broadcast is marked revoked, NOT deleted — subscribers who acted
+// on it need to see that it was retracted and why.
+message BroadcastRevoke {
+  string channel = 1;
+  string target = 2;  // content_id being retracted.
+  RevokeReason reason = 3;
+  string note = 4;
+}
+
+enum RevokeReason {
+  REVOKE_REASON_UNSPECIFIED = 0;
+  REVOKE_REASON_FALSE_ALARM = 1;
+  REVOKE_REASON_RESOLVED = 2;
+  REVOKE_REASON_CORRECTED = 3;
+  REVOKE_REASON_ERROR = 4;
+  REVOKE_REASON_EXPIRED = 5;
+}
+
+// CV-04 / SIG-19: SEVERITY_CRITICAL is rejected by the client's default filter unless
+// the channel is at least vouched. An unverified channel can advise; it cannot alarm.
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_INFO = 1;      // "distribution point open at X"
+  SEVERITY_ADVISORY = 2;  // "avoid route Y"
+  SEVERITY_WARNING = 3;   // "water rising in Z"
+  SEVERITY_CRITICAL = 4;  // "evacuate now" — requires a vouched channel
+}
+
+enum BroadcastCategory {
+  BROADCAST_CATEGORY_UNSPECIFIED = 0;
+  BROADCAST_CATEGORY_FLOOD = 1;
+  BROADCAST_CATEGORY_EARTHQUAKE = 2;
+  BROADCAST_CATEGORY_FIRE = 3;
+  BROADCAST_CATEGORY_STORM = 4;
+  BROADCAST_CATEGORY_MEDICAL = 5;
+  BROADCAST_CATEGORY_SHELTER = 6;
+  BROADCAST_CATEGORY_SUPPLY = 7;
+  BROADCAST_CATEGORY_SAFETY = 8;
+  BROADCAST_CATEGORY_NETWORK_STATUS = 9;  // "ISP X is blocking, use transport Y" (CRS-11)
+  BROADCAST_CATEGORY_MISSING_PERSON = 10;
+  BROADCAST_CATEGORY_UTILITY = 11;
+  BROADCAST_CATEGORY_OTHER = 12;
+}
+
+// Fixed-point degrees x 1e5. Integers only — EN-01 forbids floats in signed structures.
+// CR-02: coarse by default; precise coordinates require explicit per-message opt-in.
+message GeoArea {
+  sint32 lat_e5 = 1;
+  sint32 lon_e5 = 2;
+  uint32 radius_m = 3;
+  string place_name = 4;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Identified messaging
+//
+// MS-01: key agreement is hybrid X25519 + ML-KEM-768; the session key derives from
+// both, so breaking it requires breaking both. The PQ budget goes here — to
+// confidentiality — because traffic captured today is decrypted a decade from now and
+// the people it exposes are still exposed. A signature forged in 2035 over a 2026
+// message has no value to anyone.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// MS-04: publishable ahead of time so a sender can start a session while the recipient
+// is offline. Without this, store-and-forward messaging cannot work.
+message PrekeyBundle {
+  bytes identity_key = 1;       // Ed25519
+  bytes signed_prekey = 2;      // X25519
+  bytes signed_prekey_sig = 3;
+  bytes kem_public_key = 4;     // ML-KEM-768
+  repeated bytes one_time_prekeys = 5;
+  int64 valid_until_ms = 6;
+}
+
+message SignalSessionInit {
+  bytes recipient_key = 1;
+  bytes kem_ciphertext = 2;     // ML-KEM-768 encapsulation.
+  bytes ephemeral_x25519 = 3;
+  bytes used_prekey_id = 4;
+  bytes ciphertext = 5;         // First message, ChaCha20-Poly1305.
+}
+
+message SignalMessage {
+  string session = 1;  // content_id of the SessionInit.
+  uint64 counter = 2;  // Ratchet counter — gap and reorder detection (MS-05).
+  bytes header = 3;    // Encrypted ratchet header.
+  bytes ciphertext = 4;
+  repeated string attachment_refs = 5;  // content_ids, separately encrypted (MSG-24).
+}
+
+message SignalDeliveryReceipt {
+  string message = 1;
+  DeliveryState state = 2;
+}
+
+enum DeliveryState {
+  DELIVERY_STATE_UNSPECIFIED = 0;
+  DELIVERY_STATE_QUEUED = 1;
+  DELIVERY_STATE_RELAYED = 2;
+  DELIVERY_STATE_DELIVERED = 3;
+  DELIVERY_STATE_READ = 4;
+}
+
+// MS-06: sender-keys model, capped at 64 members. Larger coordination uses a channel.
+message SignalGroupCreate {
+  string name = 1;
+  repeated bytes member_keys = 2;
+  bytes group_key_wrapped = 3;
+}
+
+message SignalGroupUpdate {
+  string group = 1;
+  repeated bytes add = 2;
+  repeated bytes remove = 3;
+  bytes rekey_wrapped = 4;  // MSG-25 — rekey on every membership change.
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Crisis reporting
+//
+// CR-01 / CRS-03: CheckIn costs ZERO credits and requires no credential. In a disaster,
+// telling people you are alive must never be rate-limited. This is the one action in
+// the system with no cost gate at all, and it is deliberate.
+// ─────────────────────────────────────────────────────────────────────────────
+message CheckIn {
+  CheckInStatus status = 1;
+  GeoArea area = 2;  // Optional, coarse by default.
+  string note = 3;   // <= 80 chars.
+  repeated bytes notify_keys = 4;  // Trusted contacts.
+}
+
+enum CheckInStatus {
+  CHECKIN_STATUS_UNSPECIFIED = 0;
+  CHECKIN_STATUS_SAFE = 1;
+  CHECKIN_STATUS_NEED_HELP = 2;
+  CHECKIN_STATUS_MEDICAL = 3;
+  CHECKIN_STATUS_MOVING = 4;
+  CHECKIN_STATUS_UNREACHABLE = 5;
+}
+
+message MissingPersonReport {
+  string name = 1;
+  uint32 age = 2;
+  string description = 3;
+  string last_seen_place = 4;
+  int64 last_seen_at_ms = 5;
+  string contact_channel = 6;
+  repeated string photos = 7;
+  MissingStatus status = 8;
+}
+
+enum MissingStatus {
+  MISSING_STATUS_UNSPECIFIED = 0;
+  MISSING_STATUS_MISSING = 1;
+  MISSING_STATUS_FOUND_SAFE = 2;
+  MISSING_STATUS_FOUND_INJURED = 3;
+  MISSING_STATUS_DECEASED = 4;
+  MISSING_STATUS_RESOLVED_OTHER = 5;
+}
+
+message ResourceReport {
+  ResourceKind kind = 1;
+  GeoArea area = 2;
+  string detail = 3;
+  ResourceState state = 4;
+  int64 observed_at_ms = 5;
+}
+
+enum ResourceKind {
+  RESOURCE_KIND_UNSPECIFIED = 0;
+  RESOURCE_KIND_SHELTER = 1;
+  RESOURCE_KIND_WATER = 2;
+  RESOURCE_KIND_FOOD = 3;
+  RESOURCE_KIND_MEDICAL = 4;
+  RESOURCE_KIND_FUEL = 5;
+  RESOURCE_KIND_POWER = 6;
+  RESOURCE_KIND_INTERNET = 7;
+  RESOURCE_KIND_ROAD = 8;
+}
+
+enum ResourceState {
+  RESOURCE_STATE_UNSPECIFIED = 0;
+  RESOURCE_STATE_AVAILABLE = 1;
+  RESOURCE_STATE_LIMITED = 2;
+  RESOURCE_STATE_EXHAUSTED = 3;
+  RESOURCE_STATE_BLOCKED = 4;
+  RESOURCE_STATE_DAMAGED = 5;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subscription
+// ─────────────────────────────────────────────────────────────────────────────
+
+// SB-01: LOCAL ONLY. This message MUST NOT be serialised into an envelope or
+// transmitted. It is defined here so the client has a stable persisted shape, and its
+// absence from registry.yaml is what enforces that it can never be sent.
+message LocalSubscription {
+  string channel = 1;
+  bool alert_critical = 2;
+  bool alert_warning = 3;
+  bool alert_advisory = 4;
+  bool alert_info = 5;
+  GeoArea area_filter = 6;
+  repeated BroadcastCategory category_filter = 7;
+  int64 muted_until_ms = 8;
+}
+
+// SB-02: opt-in, server-visible, ONLY for push delivery. The UI must state plainly
+// that enabling this reveals the subscription to the server, before the user enables it.
+message ChannelSubscribe {
+  string channel = 1;
+  bool push = 2;
+  bytes push_token = 3;
+}

@@ -1,0 +1,653 @@
+# Domain registry — the ONLY place a domain is defined.
+#
+# Specification: Plans/02-CONTRACTS-CORE.md §4, Plans/03 §2 (Forum), Plans/04 §5 (Signal).
+# Generated into TypeScript, Rust and Python by `pnpm proto:gen` (RG-02). Hand-maintained
+# duplicates in any language are forbidden and caught by `pnpm proto:check`.
+#
+# RG-01: a domain not present here is rejected with UNKNOWN_DOMAIN. There is no dynamic
+#        or implicit domain.
+# RG-03: adding a feature MUST NOT require modifying ingress, projection dispatch,
+#        signing, verification, or receipt code. Add a row and a DomainHandler.
+# SEP-03: every domain belongs to EXACTLY ONE plane. An envelope whose domain plane does
+#        not match its plane field is rejected with PLANE_MISMATCH.
+#
+# ── Field reference ──────────────────────────────────────────────────────────────────
+#   domain       string        the wire identifier, versioned
+#   plane        FORUM|SIGNAL  bound at registry level; enforced at pipeline step 5
+#   body         string        fully-qualified proto message name
+#   priority     enum          MUST equal the envelope's priority (pipeline step 7)
+#   idempotent   bool          false => nonce required and replay-checked (step 12)
+#   scope_kind   enum          COMMUNITY | CHANNEL | NONE — what envelope.scope means
+#   key_algs     list          permitted signature algorithms (step 6)
+#   max_bytes    int           hard size ceiling for the whole envelope (step 1)
+#   credit_cost  int           charged at step 13; 0 = free
+#   requires     list          CREDENTIAL | NULLIFIER | POW — anti-abuse gates
+#   permission   string        checked at step 14 against current projections
+#
+# Size budgets (PC-01) are enforced AT CONSTRUCTION with a typed error, not discovered at
+# send time: BROADCAST <= 512 B, DIRECT <= 1 KB, CHECKIN <= 512 B, BULK unbounded.
+
+version: 1
+
+# ═══════════════════════════════════════════════════════════════════════════════════════
+# PLANE A — FORUM (anonymous / pseudonymous)
+# ═══════════════════════════════════════════════════════════════════════════════════════
+domains:
+  # ── Posts ────────────────────────────────────────────────────────────────────────
+  - domain: 'jb:post:create:v1'
+    plane: FORUM
+    body: jagoo.v1.PostCreate
+    priority: BULK
+    idempotent: true
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 65536
+    credit_cost: 10
+    requires: [CREDENTIAL, NULLIFIER]
+    permission: post.create
+
+  - domain: 'jb:post:update:v1'
+    plane: FORUM
+    body: jagoo.v1.PostUpdate
+    priority: BULK
+    idempotent: false
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 65536
+    credit_cost: 2
+    requires: [CREDENTIAL]
+    permission: owner
+
+  - domain: 'jb:post:delete:v1'
+    plane: FORUM
+    body: jagoo.v1.PostDelete
+    priority: BULK
+    idempotent: true
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 4096
+    credit_cost: 0
+    requires: [CREDENTIAL]
+    permission: owner
+
+  # ── Comments ─────────────────────────────────────────────────────────────────────
+  - domain: 'jb:comment:create:v1'
+    plane: FORUM
+    body: jagoo.v1.CommentCreate
+    priority: BULK
+    idempotent: true
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 16384
+    credit_cost: 3
+    requires: [CREDENTIAL, NULLIFIER]
+    permission: post.create
+
+  - domain: 'jb:comment:update:v1'
+    plane: FORUM
+    body: jagoo.v1.CommentUpdate
+    priority: BULK
+    idempotent: false
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 16384
+    credit_cost: 1
+    requires: [CREDENTIAL]
+    permission: owner
+
+  - domain: 'jb:comment:delete:v1'
+    plane: FORUM
+    body: jagoo.v1.CommentDelete
+    priority: BULK
+    idempotent: true
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 4096
+    credit_cost: 0
+    requires: [CREDENTIAL]
+    permission: owner
+
+  # ── Votes ────────────────────────────────────────────────────────────────────────
+  - domain: 'jb:vote:cast:v1'
+    plane: FORUM
+    body: jagoo.v1.VoteCast
+    priority: BULK
+    idempotent: false
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 1024
+    credit_cost: 1
+    requires: [CREDENTIAL]
+    permission: member
+
+  # ── Communities ──────────────────────────────────────────────────────────────────
+  - domain: 'jb:community:create:v1'
+    plane: FORUM
+    body: jagoo.v1.CommunityCreate
+    priority: BULK
+    idempotent: true
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 32768
+    credit_cost: 200
+    requires: [CREDENTIAL, NULLIFIER, POW]
+    permission: authenticated
+
+  - domain: 'jb:community:update:v1'
+    plane: FORUM
+    body: jagoo.v1.CommunityUpdate
+    priority: BULK
+    idempotent: false
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 32768
+    credit_cost: 5
+    requires: [CREDENTIAL]
+    permission: community.update
+
+  - domain: 'jb:community:archive:v1'
+    plane: FORUM
+    body: jagoo.v1.CommunityArchive
+    priority: BULK
+    idempotent: false
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 1024
+    credit_cost: 5
+    requires: [CREDENTIAL]
+    permission: owner
+
+  - domain: 'jb:membership:join:v1'
+    plane: FORUM
+    body: jagoo.v1.MembershipJoin
+    priority: BULK
+    idempotent: true
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 1024
+    credit_cost: 1
+    requires: [CREDENTIAL]
+    permission: ''
+
+  - domain: 'jb:membership:leave:v1'
+    plane: FORUM
+    body: jagoo.v1.MembershipLeave
+    priority: BULK
+    idempotent: true
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 1024
+    credit_cost: 0
+    requires: []
+    permission: ''
+
+  # ── Moderation ───────────────────────────────────────────────────────────────────
+  # FM-01: non-idempotent, so a nonce is REQUIRED and replay is checked. v1 moderator
+  # signatures had no nonce, no expiry and no server binding — replayable forever, on
+  # any instance.
+  - domain: 'jb:mod:action:v1'
+    plane: FORUM
+    body: jagoo.v1.ModAction
+    priority: BULK
+    idempotent: false
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 4096
+    credit_cost: 0
+    requires: [CREDENTIAL]
+    permission: per_verb
+
+  - domain: 'jb:report:create:v1'
+    plane: FORUM
+    body: jagoo.v1.ReportCreate
+    priority: BULK
+    idempotent: true
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 8192
+    credit_cost: 2
+    requires: [CREDENTIAL, NULLIFIER]
+    permission: member
+
+  - domain: 'jb:report:resolve:v1'
+    plane: FORUM
+    body: jagoo.v1.ReportResolve
+    priority: BULK
+    idempotent: false
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 4096
+    credit_cost: 0
+    requires: [CREDENTIAL]
+    permission: report.review
+
+  # ── Roles ────────────────────────────────────────────────────────────────────────
+  - domain: 'jb:role:define:v1'
+    plane: FORUM
+    body: jagoo.v1.RoleDefine
+    priority: BULK
+    idempotent: false
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 2048
+    credit_cost: 5
+    requires: [CREDENTIAL]
+    permission: member.role.update
+
+  - domain: 'jb:role:assign:v1'
+    plane: FORUM
+    body: jagoo.v1.RoleAssign
+    priority: BULK
+    idempotent: false
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 1024
+    credit_cost: 1
+    requires: [CREDENTIAL]
+    permission: member.role.update
+
+  - domain: 'jb:role:revoke:v1'
+    plane: FORUM
+    body: jagoo.v1.RoleRevoke
+    priority: BULK
+    idempotent: false
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 1024
+    credit_cost: 1
+    requires: [CREDENTIAL]
+    permission: member.role.update
+
+  # ── Social and profile ───────────────────────────────────────────────────────────
+  - domain: 'jb:profile:update:v1'
+    plane: FORUM
+    body: jagoo.v1.ProfileUpdate
+    priority: BULK
+    idempotent: false
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 8192
+    credit_cost: 2
+    requires: [CREDENTIAL]
+    permission: self
+
+  - domain: 'jb:social:follow:v1'
+    plane: FORUM
+    body: jagoo.v1.FollowIdentity
+    priority: BULK
+    idempotent: false
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 1024
+    credit_cost: 1
+    requires: [CREDENTIAL]
+    permission: self
+
+  - domain: 'jb:social:block:v1'
+    plane: FORUM
+    body: jagoo.v1.BlockIdentity
+    priority: BULK
+    idempotent: false
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 2048
+    credit_cost: 0
+    requires: [CREDENTIAL]
+    permission: self
+
+  - domain: 'jb:social:save:v1'
+    plane: FORUM
+    body: jagoo.v1.SaveContent
+    priority: BULK
+    idempotent: false
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 1024
+    credit_cost: 0
+    requires: []
+    permission: self
+
+  - domain: 'jb:prefs:feed:v1'
+    plane: FORUM
+    body: jagoo.v1.FeedPreferences
+    priority: BULK
+    idempotent: false
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 8192
+    credit_cost: 0
+    requires: []
+    permission: self
+
+  # ── Awards ───────────────────────────────────────────────────────────────────────
+  - domain: 'jb:award:give:v1'
+    plane: FORUM
+    body: jagoo.v1.AwardGive
+    priority: BULK
+    idempotent: true
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 2048
+    credit_cost: 5
+    requires: [CREDENTIAL]
+    permission: member
+
+  - domain: 'jb:award:type:v1'
+    plane: FORUM
+    body: jagoo.v1.AwardTypeDefine
+    priority: BULK
+    idempotent: false
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 2048
+    credit_cost: 0
+    requires: [CREDENTIAL]
+    permission: admin
+
+  # ── Attachments ──────────────────────────────────────────────────────────────────
+  # Cost is 5 + 1 per MB (Plans/03 §2); the per-MB component is applied by the handler
+  # from AttachmentClaim.size_bytes.
+  - domain: 'jb:attachment:claim:v1'
+    plane: FORUM
+    body: jagoo.v1.AttachmentClaim
+    priority: BULK
+    idempotent: true
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 4096
+    credit_cost: 5
+    credit_cost_per_mb: 1
+    requires: [CREDENTIAL]
+    permission: authenticated
+
+  # ── Pseudonymous DMs ─────────────────────────────────────────────────────────────
+  - domain: 'jb:message:forum:v1'
+    plane: FORUM
+    body: jagoo.v1.ForumMessageSend
+    priority: DIRECT
+    idempotent: true
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 1024
+    credit_cost: 2
+    requires: [CREDENTIAL]
+    permission: authenticated
+
+  # ── Labels ───────────────────────────────────────────────────────────────────────
+  - domain: 'jb:label:emit:v1'
+    plane: FORUM
+    body: jagoo.v1.Label
+    priority: BULK
+    idempotent: false
+    scope_kind: COMMUNITY
+    key_algs: [ED25519]
+    max_bytes: 8192
+    credit_cost: 0
+    requires: []
+    permission: label.trust
+
+  # ── Identity: certificates and revocation, FORUM plane ───────────────────────────
+  # SEP-03 REQUIRES one domain to belong to exactly one plane, but Plans/04 §5 lists
+  # jb:key:certify:v1 / jb:key:revoke:v1 once with the note "both planes". Those two
+  # statements cannot both hold: a single-plane row makes Forum certificates
+  # unpublishable, and a dual-plane row destroys the structural guarantee that makes
+  # PLANE_MISMATCH meaningful.
+  #
+  # Resolved by splitting into per-plane domains. The BODY is unchanged; only the
+  # domain string differs, so nothing downstream of the registry is affected.
+  # SEP-09 (independent revocation) is preserved and now enforced by construction.
+  - domain: 'jb:key:certify:forum:v1'
+    plane: FORUM
+    body: jagoo.v1.KeyCertificate
+    priority: BROADCAST
+    idempotent: true
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 512
+    credit_cost: 0
+    requires: [POW]
+    permission: self
+
+  # KY-03: revocations reach subscribers at BROADCAST priority so they propagate on
+  # every transport, including during a blackout.
+  - domain: 'jb:key:revoke:forum:v1'
+    plane: FORUM
+    body: jagoo.v1.KeyRevocation
+    priority: BROADCAST
+    idempotent: true
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 512
+    credit_cost: 0
+    requires: []
+    permission: self
+
+  # ═════════════════════════════════════════════════════════════════════════════════
+  # PLANE B — SIGNAL (identified)
+  # ═════════════════════════════════════════════════════════════════════════════════
+
+  # ── Channel lifecycle ────────────────────────────────────────────────────────────
+  - domain: 'jb:channel:declare:v1'
+    plane: SIGNAL
+    body: jagoo.v1.ChannelDeclare
+    priority: BULK
+    idempotent: true
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 16384
+    credit_cost: 100
+    requires: [POW]
+    permission: authenticated
+
+  - domain: 'jb:channel:update:v1'
+    plane: SIGNAL
+    body: jagoo.v1.ChannelUpdate
+    priority: BULK
+    idempotent: false
+    scope_kind: CHANNEL
+    key_algs: [ED25519]
+    max_bytes: 16384
+    credit_cost: 5
+    requires: []
+    permission: channel.owner
+
+  # CH-03: signed by the OLD key — that is what preserves subscribers across rotation.
+  - domain: 'jb:channel:rotate:v1'
+    plane: SIGNAL
+    body: jagoo.v1.ChannelRotate
+    priority: BROADCAST
+    idempotent: true
+    scope_kind: CHANNEL
+    key_algs: [ED25519]
+    max_bytes: 512
+    credit_cost: 0
+    requires: []
+    permission: channel.owner
+
+  - domain: 'jb:channel:retire:v1'
+    plane: SIGNAL
+    body: jagoo.v1.ChannelRetire
+    priority: BROADCAST
+    idempotent: true
+    scope_kind: CHANNEL
+    key_algs: [ED25519]
+    max_bytes: 512
+    credit_cost: 0
+    requires: []
+    permission: channel.owner
+
+  - domain: 'jb:channel:vouch:v1'
+    plane: SIGNAL
+    body: jagoo.v1.ChannelVouch
+    priority: BULK
+    idempotent: false
+    scope_kind: CHANNEL
+    key_algs: [ED25519]
+    max_bytes: 2048
+    credit_cost: 1
+    requires: []
+    permission: authenticated
+
+  # ── Broadcast ────────────────────────────────────────────────────────────────────
+  # SIG-26 / P4-G12: <= 512 bytes INCLUDING signature and anti-abuse fields.
+  - domain: 'jb:broadcast:emit:v1'
+    plane: SIGNAL
+    body: jagoo.v1.BroadcastEmit
+    priority: BROADCAST
+    idempotent: true
+    scope_kind: CHANNEL
+    key_algs: [ED25519]
+    max_bytes: 512
+    credit_cost: 0
+    requires: []
+    permission: broadcast.emit
+
+  - domain: 'jb:broadcast:revoke:v1'
+    plane: SIGNAL
+    body: jagoo.v1.BroadcastRevoke
+    priority: BROADCAST
+    idempotent: true
+    scope_kind: CHANNEL
+    key_algs: [ED25519]
+    max_bytes: 512
+    credit_cost: 0
+    requires: []
+    permission: broadcast.emit
+
+  # ── Crisis reporting ─────────────────────────────────────────────────────────────
+  # CR-01 / AB-08 / CRS-03: ZERO credits, NO credential. In a disaster, telling people
+  # you are alive must never be rate-limited.
+  - domain: 'jb:checkin:post:v1'
+    plane: SIGNAL
+    body: jagoo.v1.CheckIn
+    priority: CHECKIN
+    idempotent: false
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 512
+    credit_cost: 0
+    requires: []
+    permission: ''
+
+  - domain: 'jb:missing:report:v1'
+    plane: SIGNAL
+    body: jagoo.v1.MissingPersonReport
+    priority: CHECKIN
+    idempotent: false
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 512
+    credit_cost: 0
+    requires: []
+    permission: authenticated
+
+  - domain: 'jb:resource:report:v1'
+    plane: SIGNAL
+    body: jagoo.v1.ResourceReport
+    priority: CHECKIN
+    idempotent: false
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 512
+    credit_cost: 0
+    requires: []
+    permission: authenticated
+
+  # ── Identified messaging ─────────────────────────────────────────────────────────
+  - domain: 'jb:message:signal:v1'
+    plane: SIGNAL
+    body: jagoo.v1.SignalMessage
+    priority: DIRECT
+    idempotent: true
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 1024
+    credit_cost: 1
+    requires: []
+    permission: authenticated
+
+  - domain: 'jb:message:session:v1'
+    plane: SIGNAL
+    body: jagoo.v1.SignalSessionInit
+    priority: DIRECT
+    idempotent: true
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 1024
+    credit_cost: 1
+    requires: []
+    permission: authenticated
+
+  - domain: 'jb:message:receipt:v1'
+    plane: SIGNAL
+    body: jagoo.v1.SignalDeliveryReceipt
+    priority: DIRECT
+    idempotent: false
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 512
+    credit_cost: 0
+    requires: []
+    permission: authenticated
+
+  - domain: 'jb:message:prekeys:v1'
+    plane: SIGNAL
+    body: jagoo.v1.PrekeyBundle
+    priority: BULK
+    idempotent: false
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 8192
+    credit_cost: 0
+    requires: []
+    permission: self
+
+  - domain: 'jb:group:create:v1'
+    plane: SIGNAL
+    body: jagoo.v1.SignalGroupCreate
+    priority: DIRECT
+    idempotent: true
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 1024
+    credit_cost: 2
+    requires: []
+    permission: authenticated
+
+  - domain: 'jb:group:update:v1'
+    plane: SIGNAL
+    body: jagoo.v1.SignalGroupUpdate
+    priority: DIRECT
+    idempotent: false
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 1024
+    credit_cost: 1
+    requires: []
+    permission: group.admin
+
+  # ── Identity: certificates and revocation, SIGNAL plane ──────────────────────────
+  # See the FORUM-plane note above for why these are split per plane.
+  - domain: 'jb:key:certify:signal:v1'
+    plane: SIGNAL
+    body: jagoo.v1.KeyCertificate
+    priority: BROADCAST
+    idempotent: true
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 512
+    credit_cost: 0
+    requires: [POW]
+    permission: self
+
+  - domain: 'jb:key:revoke:signal:v1'
+    plane: SIGNAL
+    body: jagoo.v1.KeyRevocation
+    priority: BROADCAST
+    idempotent: true
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 512
+    credit_cost: 0
+    requires: []
+    permission: self

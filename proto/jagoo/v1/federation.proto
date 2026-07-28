@@ -1,0 +1,148 @@
+// Federation contracts — FROZEN before P2. THIS IS THE PRIMARY GOAL.
+// Specification: Plans/05-CONTRACTS-FEDERATION.md
+//
+// Server<->server only. Browsers and mobile clients use REST/JSON: gRPC's HTTP/2 has a
+// distinctive TLS and frame fingerprint, degrades badly on lossy mobile links, and
+// gRPC-web needs an Envoy shim without gaining bidirectional streaming. Operators
+// choose their peers, so the fingerprinting risk that rules gRPC out for clients does
+// not apply between servers — and compact binary framing matters for satellite and HF
+// backhaul between instances.
+
+syntax = "proto3";
+
+package jagoo.v1;
+
+import "jagoo/v1/envelope.proto";
+import "jagoo/v1/transport.proto";
+
+option go_package = "github.com/jagoo-bahee/proto/jagoo/v1;jagoov1";
+
+service Federation {
+  // Mutual key exchange and capability advertisement. TOFU on first contact (FG-01).
+  rpc Announce(AnnounceRequest) returns (AnnounceResponse);
+
+  // Peer pushes to us, with flow control. Client-streaming, so a NATed node can use
+  // this with NO inbound port at all (FD-11).
+  rpc Deliver(stream Envelope) returns (DeliverAck);
+
+  // We pull live updates from a peer. Long-lived server-streaming, caller-initiated —
+  // the other half of what makes outbound-only federation work.
+  rpc StreamActivities(StreamRequest) returns (stream Envelope);
+
+  // Catch-up after a partition. Resumable by log index (FG-04).
+  rpc Backfill(BackfillRequest) returns (stream Envelope);
+
+  // Transparency gossip — detects a peer forking its own log (FG-08, TL-05).
+  rpc ExchangeTreeHeads(TreeHeadExchange) returns (TreeHeadExchange);
+
+  // Endpoint and reachability refresh. Used heavily in P3 (ISP bridging).
+  rpc ExchangeDirectory(DirectoryExchange) returns (DirectoryExchange);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Handshake
+// ─────────────────────────────────────────────────────────────────────────────
+message AnnounceRequest {
+  bytes server_key = 1;
+  string display_name = 2;
+  string software = 3;
+  string version = 4;
+  repeated PeerEndpoint endpoints = 5;
+  repeated string communities = 6;
+  repeated string channels = 7;
+  repeated Plane planes = 8;  // FED-17: which planes this node serves.
+  repeated Priority accepted_classes = 9;
+  SignedTreeHead current_sth = 10;
+  int64 timestamp_ms = 11;
+  bytes nonce = 12;
+  bytes signature = 13;  // Over fields 1..12.
+}
+
+message AnnounceResponse {
+  bytes server_key = 1;
+  TrustLevel assigned = 2;
+  repeated PeerEndpoint endpoints = 3;
+  repeated ServerVouch vouches = 4;
+  Quota granted_quota = 5;
+  SignedTreeHead current_sth = 6;
+  bytes signature = 7;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Delivery
+//
+// FD-04: inbound envelopes MUST be PROJECTED into the read model, not merely archived.
+// v1's receive() inserted into a federationactivities collection that nothing ever
+// read, and emitLocalActivity() wrote to an outbox that was never delivered.
+// Federation was a message morgue.
+// ─────────────────────────────────────────────────────────────────────────────
+message DeliverAck {
+  repeated string accepted = 1;  // content_ids
+  repeated Rejection rejected = 2;
+  uint32 backpressure_hint_ms = 3;
+  uint64 our_log_size = 4;
+}
+
+message Rejection {
+  string content_id = 1;
+  ErrorCode code = 2;
+  string detail = 3;
+}
+
+message StreamRequest {
+  repeated string communities = 1;
+  repeated string channels = 2;
+  repeated Plane planes = 3;
+  repeated Priority classes = 4;
+  uint64 since_index = 5;  // NFR-R07: durable, so a restart does not lose position.
+}
+
+message BackfillRequest {
+  repeated string communities = 1;
+  repeated string channels = 2;
+  repeated Plane planes = 3;
+  uint64 from_index = 4;
+  uint64 to_index = 5;
+  uint32 max = 6;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Trust — TOFU plus web-of-trust (Plans/05 §3)
+// ─────────────────────────────────────────────────────────────────────────────
+message ServerVouch {
+  bytes peer_key = 1;
+  TrustLevel level = 2;
+  string note = 3;
+  int64 asserted_at_ms = 4;
+  bytes signature = 5;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Transparency gossip
+//
+// FD-09: an inconsistent peer STH means the peer rewrote its log. The node MUST record
+// the divergence, alert the operator, and demote the peer to BLOCKED pending review.
+// FD-10: PeerObservation lets node C learn that A saw a different STH for B than C did,
+// catching a peer that shows different logs to different partners.
+// ─────────────────────────────────────────────────────────────────────────────
+message TreeHeadExchange {
+  bytes server_key = 1;
+  SignedTreeHead sth = 2;
+  repeated PeerObservation observed = 3;
+  bytes signature = 4;
+}
+
+message PeerObservation {
+  bytes peer_key = 1;
+  SignedTreeHead sth = 2;
+  int64 observed_at_ms = 3;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Directory — heavily used by P3 for pre-positioning (TP-05)
+// ─────────────────────────────────────────────────────────────────────────────
+message DirectoryExchange {
+  repeated PeerRecord peers = 1;
+  int64 generated_at_ms = 2;
+  bytes signature = 3;
+}

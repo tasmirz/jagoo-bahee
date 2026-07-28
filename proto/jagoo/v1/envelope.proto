@@ -1,0 +1,196 @@
+// Core contracts — FROZEN before P1.
+//
+// The envelope is the single most important contract in the system; everything else is
+// downstream of it. Changes after freeze require a version bump, never an in-place edit.
+// Specification: Plans/02-CONTRACTS-CORE.md
+//
+// Canonical encoding (EN-01): ascending field number, zero values omitted entirely,
+// unknown fields rejected not retained, strings NFC-normalised, NO float/double anywhere
+// in a signed structure.
+//
+// content_id = "jb1" + base32-nopad-lowercase( SHA-256( canonical_bytes(fields 1..12) ) )
+
+syntax = "proto3";
+
+package jagoo.v1;
+
+option go_package = "github.com/jagoo-bahee/proto/jagoo/v1;jagoov1";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The universal signed unit. Every mutation in the system is one of these.
+// ─────────────────────────────────────────────────────────────────────────────
+message Envelope {
+  uint32 version = 1;         // MUST be 1. Unknown -> hard reject (EN-02).
+  Plane plane = 2;            // Inside the signature (SEP-02).
+  string domain = 3;          // e.g. "jb:post:create:v1" — must exist in the registry.
+  bytes author_key = 4;       // Raw public key. Identity IS this value (VIS-02).
+  KeyAlg key_alg = 5;
+  string parent = 6;          // content_id of parent, "" if none.
+  string scope = 7;           // community_id (FORUM) | channel_id (SIGNAL) | "".
+  int64 created_at_ms = 8;    // Within [now - max_age, now + max_skew].
+  bytes nonce = 9;            // 16 bytes. Required on non-idempotent domains.
+  Priority priority = 10;     // MUST equal the registry's declared class.
+  bytes body = 11;            // Serialized typed body.
+  AntiAbuse anti_abuse = 12;  // MAY be empty on MESH / RETICULUM transports.
+  bytes signature = 13;       // Over canonical bytes of fields 1..12.
+}
+
+// The plane is a signed field, which is what makes cross-plane replay structurally
+// impossible rather than merely checked (SEP-02). Combined with the registry mapping
+// each domain to exactly one plane, a FORUM signature can never be lifted into a
+// SIGNAL envelope.
+enum Plane {
+  PLANE_UNSPECIFIED = 0;
+  PLANE_FORUM = 1;   // anonymous / pseudonymous
+  PLANE_SIGNAL = 2;  // identified
+}
+
+// KY-05: BROADCAST, DIRECT and CHECKIN priority envelopes MUST use a 64-byte
+// signature algorithm. One ML-DSA signature is ~12 LoRa frames before any content.
+enum KeyAlg {
+  KEY_ALG_UNSPECIFIED = 0;
+  KEY_ALG_ED25519 = 1;     // 64 B signature — default for all per-message signing
+  KEY_ALG_ML_DSA_44 = 2;   // 2420 B — certificates only
+  KEY_ALG_FALCON_512 = 3;  // reserved
+}
+
+// PC-03: outbound queues are ordered by priority class first, then FIFO.
+// A queued emergency broadcast overtakes 500 queued votes.
+enum Priority {
+  PRIORITY_UNSPECIFIED = 0;
+  PRIORITY_BROADCAST = 1;  // class 0 — emergency, key revocation.  <= 512 B
+  PRIORITY_DIRECT = 2;     // class 1 — messages.                   <= 1 KB
+  PRIORITY_CHECKIN = 3;    // class 2 — safe-status, resources.     <= 512 B
+  PRIORITY_BULK = 4;       // class 3 — posts, comments, votes.     unbounded, rejected by Reticulum
+}
+
+// VIS-07 / THR-08: rate limiting must work against a fully anonymous actor,
+// because requiring identity for spam control hands the adversary a censorship lever.
+message AntiAbuse {
+  bytes credential = 1;  // Unblinded membership token (FORUM).
+  bytes nullifier = 2;   // H(domain || epoch || secret) (FORUM).
+  uint32 epoch = 3;
+  bytes pow = 4;         // Argon2id proof, when demanded.
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Receipts and transparency (Plans/02 §3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// TL-03: carries an inclusion proof small enough for a client to store offline as
+// durable proof of publication. ER-01: a DUPLICATE returns the ORIGINAL receipt.
+message Receipt {
+  string content_id = 1;
+  string server_id = 2;  // Server key fingerprint, NOT a URL (FD-02).
+  bytes server_key = 3;
+  int64 accepted_at_ms = 4;
+  uint64 log_index = 5;
+  SignedTreeHead sth = 6;
+  repeated bytes inclusion_proof = 7;
+  bytes server_signature = 8;
+}
+
+// TL-02: published at least every 60 seconds and on demand.
+// TL-05: gossiped between peers, so a node that forks its log is caught by its peers.
+message SignedTreeHead {
+  bytes server_key = 1;
+  uint64 tree_size = 2;
+  bytes root_hash = 3;
+  int64 timestamp_ms = 4;
+  bytes signature = 5;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Error contract (Plans/02 §6)
+// ─────────────────────────────────────────────────────────────────────────────
+message EnvelopeError {
+  ErrorCode code = 1;
+  string detail = 2;
+  string field = 3;  // Offending field path, when applicable.
+  int64 retry_after_ms = 4;
+  PowChallenge challenge = 5;  // Present on INSUFFICIENT_CREDITS / RATE_LIMITED.
+}
+
+// ER-02: error responses MUST NOT reveal whether a key exists, what a user's other
+// content is, or any cross-plane information.
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_UNKNOWN_VERSION = 1;
+  ERROR_CODE_UNKNOWN_DOMAIN = 2;
+  ERROR_CODE_PLANE_MISMATCH = 3;
+  ERROR_CODE_MALFORMED = 4;
+  ERROR_CODE_ALG_NOT_PERMITTED = 5;
+  ERROR_CODE_PRIORITY_MISMATCH = 6;
+  ERROR_CODE_CLOCK_SKEW = 7;
+  ERROR_CODE_BAD_SIGNATURE = 8;
+  ERROR_CODE_NO_CERTIFICATE = 9;
+  ERROR_CODE_KEY_REVOKED = 10;
+  ERROR_CODE_DUPLICATE = 11;
+  ERROR_CODE_REPLAY = 12;
+  ERROR_CODE_INSUFFICIENT_CREDITS = 13;
+  ERROR_CODE_NULLIFIER_SPENT = 14;
+  ERROR_CODE_CREDENTIAL_INVALID = 15;
+  ERROR_CODE_FORBIDDEN = 16;
+  ERROR_CODE_BODY_INVALID = 17;
+  ERROR_CODE_TOO_LARGE = 18;
+  ERROR_CODE_RATE_LIMITED = 19;
+  ERROR_CODE_TRANSPORT_UNSUPPORTED = 20;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Anti-abuse primitives (Plans/02 §8)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// AB-04: memory-hard and bound to the requesting key. Challenge issuance MUST be
+// stateless (HMAC-derived) so issuing challenges cannot exhaust server memory —
+// v1 stored every issued challenge in Redis with no issuance limit.
+message PowChallenge {
+  string challenge = 1;    // HMAC(server_secret, key || window) — stateless, not stored.
+  string algorithm = 2;    // "argon2id"
+  uint32 memory_kib = 3;   // Scaled by live system pressure.
+  uint32 iterations = 4;
+  uint32 parallelism = 5;
+  bytes bound_to = 6;      // Author key — work is non-transferable.
+  int64 expires_at_ms = 7;
+}
+
+message PowSolution {
+  string challenge = 1;
+  bytes solution = 2;
+  bytes bound_to = 3;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Key certificates and revocation — both planes (Plans/01 §6)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The PQ budget is spent by actual threat: an ML-DSA identity certificate signed once
+// and cached, so peers verify a 64-byte Ed25519 signature against an Ed25519 key that
+// is itself post-quantum attested.
+message KeyCertificate {
+  Plane plane = 1;
+  bytes device_key = 2;      // Ed25519, 32 B.
+  bytes pq_key = 3;          // ML-DSA-44, 1312 B.
+  bytes pq_attestation = 4;  // ML-DSA sig over device_key || valid_from || valid_until.
+  int64 valid_from = 5;
+  int64 valid_until = 6;
+  bytes self_signature = 7;  // Ed25519.
+}
+
+// KY-01: revocation MUST NOT invalidate content signed before effective_from_ms.
+// Retroactive erasure of a person's history is itself a censorship vector.
+message KeyRevocation {
+  Plane plane = 1;
+  bytes revoked_key = 2;
+  RevocationKind kind = 3;
+  int64 effective_from_ms = 4;
+  bytes replacement_key = 5;
+}
+
+enum RevocationKind {
+  REVOCATION_KIND_UNSPECIFIED = 0;
+  REVOCATION_KIND_ROTATE = 1;      // Planned; replacement inherits standing.
+  REVOCATION_KIND_COMPROMISE = 2;  // Content signed after effective_from is untrusted.
+  REVOCATION_KIND_DURESS = 3;      // Pre-signed, third-party publishable; triggers wipe (KY-02).
+  REVOCATION_KIND_RETIRE = 4;      // Identity or channel stops publishing.
+}

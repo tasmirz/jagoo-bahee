@@ -1,0 +1,47 @@
+{
+  "name": "jagoo-bahee",
+  "private": true,
+  "version": "2.0.0",
+  "description": "Federated, censorship-resistant community platform that degrades gracefully from full internet to national blackout",
+  "license": "AGPL-3.0-or-later",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=20.11.0",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rimraf node_modules",
+    "proto:lint": "buf lint",
+    "proto:breaking": "buf breaking --against '.git#branch=main'",
+    "proto:gen": "node tools/codegen/generate.mjs",
+    "proto:check": "node tools/codegen/generate.mjs --check",
+    "vectors": "node tools/vectors/run-gate.mjs",
+    "vectors:ts": "pnpm --filter @jagoo/sdk exec vitest run src/vectors",
+    "vectors:rust": "cargo test -p jb-core --test vectors",
+    "vectors:python": "python -m pytest tools/vectors -q",
+    "dev:backend": "pnpm --filter @jagoo/backend dev",
+    "dev:frontend": "pnpm --filter @jagoo/frontend dev",
+    "ops:up": "docker compose -f ops/docker-compose.yml up -d mongo redis minio",
+    "ops:down": "docker compose -f ops/docker-compose.yml down",
+    "ops:two-node": "docker compose -f ops/docker-compose.yml --profile federation up -d",
+    "ops:logs": "docker compose -f ops/docker-compose.yml logs -f"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.47.2",
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "eslint-plugin-import-x": "^4.6.1",
+    "prettier": "^3.4.2",
+    "rimraf": "^6.0.1",
+    "ts-proto": "^2.6.1",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.2",
+    "vitest": "^2.1.8",
+    "yaml": "^2.6.1"
+  }
+}

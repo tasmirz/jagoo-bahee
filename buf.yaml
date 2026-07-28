@@ -1,0 +1,22 @@
+version: v2
+
+modules:
+  - path: proto
+
+lint:
+  use:
+    - STANDARD
+  except:
+    # Our enum value prefixes already carry the enum name where it matters
+    # (PLANE_FORUM, PRIORITY_BULK). A few short enums read better without the
+    # full prefix and the generated TS is clearer for it.
+    - ENUM_VALUE_PREFIX
+    - ENUM_ZERO_VALUE_SUFFIX
+  enum_zero_value_suffix: _UNSPECIFIED
+  rpc_allow_same_request_response: true
+
+breaking:
+  use:
+    - FILE
+  # EN-02 / G-03: contracts are frozen. A breaking change requires a version bump
+  # (a new vN file), never an in-place edit — `pnpm proto:breaking` enforces that.
