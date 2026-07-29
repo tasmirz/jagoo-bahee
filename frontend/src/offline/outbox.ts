@@ -118,11 +118,22 @@ export async function enqueueSignedEnvelope(input: QueueInput): Promise<OutboxRe
 }
 
 async function defaultSubmit(baseUrl: string, requestBody: string): Promise<AuditReceiptJson> {
-  const response = await fetch(new URL('/v1/envelopes', `${baseUrl}/`).toString(), {
-    method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: requestBody,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  let response: Response;
+  try {
+    response = await fetch(new URL('/v1/envelopes', `${baseUrl}/`).toString(), {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: requestBody,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    throw new Error(`Network timeout or error connecting to ${baseUrl}: ${(error as Error).message}`);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+  
   const payload = (await response.json()) as AuditReceiptJson & { readonly detail?: string };
   if (!response.ok) {
     const error = new Error(payload.detail ?? `Node request failed with HTTP ${response.status}`);
@@ -139,9 +150,13 @@ async function deliver(
   await replace({ ...record, state: 'sending' });
   const requestBody = JSON.stringify({ envelope: record.envelope });
   try {
+    console.log('[outbox.deliver] Sending envelope to node...', record.baseUrl);
     const receipt = await submitter(record.baseUrl, requestBody);
+    console.log('[outbox.deliver] Envelope submitted, receipt received.', receipt);
     const certificate = createAuditCertificate(text.encode(requestBody), receipt);
+    console.log('[outbox.deliver] Storing and forwarding certificate to audit logs...');
     const stored = await storeAndForwardCertificate(certificate, record.auditServices);
+    console.log('[outbox.deliver] Certificate stored and forwarded.', stored);
     await replace({ ...record, state: 'receipted', receipt });
     return {
       contentId: record.contentId,

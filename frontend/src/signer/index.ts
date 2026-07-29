@@ -47,6 +47,7 @@ import {
 import { KeyCertificate, KeyRevocation, RevocationKind } from '@jagoo/sdk/proto';
 import {
   CommentCreate,
+  CommunityCreate,
   PostCreate,
   PostKind,
   TargetKind,
@@ -771,6 +772,85 @@ export async function publishForumPost(
     auditServices,
     activeAccessToken ?? undefined,
   );
+  return {
+    contentId: audited.contentId,
+    ...(audited.receipt ? { leafIndex: audited.receipt.leaf_index } : {}),
+    ...(audited.certificate ? { certificate: audited.certificate } : {}),
+    auditCopies: audited.auditCopies,
+    auditPending: audited.auditPending,
+    pending: audited.pending,
+  };
+}
+
+export async function publishCommunity(
+  baseUrl: string,
+  input: {
+    readonly name: string;
+    readonly title: string;
+    readonly description: string;
+    readonly rulesMarkdown: string;
+    readonly isPrivate: boolean;
+    readonly isNsfw: boolean;
+  },
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<PublishedPost> {
+  console.log('[publishCommunity] Starting community creation...');
+  if (!activeSigner) throw new Error('Unlock your Forum identity first');
+  if (!activeCredential) {
+    console.log('[publishCommunity] Registering forum identity...');
+    await registerForumIdentity(baseUrl, auditServices);
+    console.log('[publishCommunity] Identity registered.');
+  }
+  const epoch = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
+  console.log('[publishCommunity] Building and sealing envelope for jb:community:create:v1...');
+
+  const sealed = await activeSigner.seal(
+    { kind: 'device' },
+    {
+      domain: 'jb:community:create:v1',
+      body: CommunityCreate.encode(
+        CommunityCreate.fromPartial({
+          name: input.name,
+          title: input.title,
+          description: input.description,
+          rules_markdown: input.rulesMarkdown,
+          is_private: input.isPrivate,
+          is_nsfw: input.isNsfw,
+          settings: {
+            allow_text_posts: true,
+            allow_link_posts: true,
+            allow_image_posts: true,
+            allow_video_posts: true,
+            require_post_approval: false,
+            allow_crossposts: true,
+            minimum_karma_to_post: 0,
+            minimum_account_age_days: 0,
+          },
+          theme: {
+            primary: '#E85D2C',
+            accent: '#F2A93D',
+            background: '#0E0F11',
+            foreground: '#F2F1EE',
+          },
+        }),
+      ).finish(),
+      scope: '',
+      antiAbuse: {
+        credential: activeCredential!.bytes,
+        nullifier: await activeSigner.nullifier(epoch, 'jb:community:create:v1'),
+        epoch,
+        pow: new Uint8Array(0),
+      },
+    },
+  );
+  console.log('[publishCommunity] Envelope sealed. Submitting audited envelope...');
+  const audited = await submitAuditedEnvelope(
+    baseUrl,
+    sealed.wireBytes,
+    auditServices,
+    activeAccessToken ?? undefined,
+  );
+  console.log('[publishCommunity] Audited envelope submitted successfully.', audited);
   return {
     contentId: audited.contentId,
     ...(audited.receipt ? { leafIndex: audited.receipt.leaf_index } : {}),

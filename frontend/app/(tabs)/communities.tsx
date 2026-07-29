@@ -18,6 +18,7 @@ export default function CommunitiesRoute() {
         onOpenFeature={(feature) =>
           router.push({ pathname: '/feature/[featureId]', params: { featureId: feature.id } })
         }
+        onCreateCommunity={() => router.push('/community/create')}
         onOpenNetwork={() => router.push('/network')}
         reach={reach}
       />
