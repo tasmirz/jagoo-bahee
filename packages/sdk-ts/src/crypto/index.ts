@@ -10,6 +10,13 @@ export {
   type HybridCiphertext,
 } from './messaging.js';
 export {
+  openRatchetMessage,
+  sealRatchetMessage,
+  signalPrekeySignatureBytes,
+  type RatchetCiphertext,
+  type RatchetState,
+} from './signal.js';
+export {
   FORUM_PATH,
   SIGNAL_PATH,
   deriveForumKey,

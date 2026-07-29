@@ -133,6 +133,18 @@ export class GrpcFederationSender extends FederationSender {
             allowedClasses: response.granted_quota.allowed_classes as never,
           }
         : null,
+      // FD-05: the asserter is contextual — `ServerVouch` carries no asserter field, so it
+      // is whoever signed this response. Attributing to `response.server_key` is what makes
+      // the signature checkable; taking the asserter from the payload would let a peer
+      // forge opinions in someone else's name.
+      vouches: response.vouches.map((vouch) => ({
+        asserterKey: response.server_key,
+        peerKey: vouch.peer_key,
+        level: WIRE_TO_TRUST[vouch.level] ?? PeerTrust.UNSPECIFIED,
+        note: vouch.note,
+        assertedAtMs: Number(vouch.asserted_at_ms),
+        signature: vouch.signature,
+      })),
     };
   }
 

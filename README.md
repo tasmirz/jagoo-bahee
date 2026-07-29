@@ -67,7 +67,9 @@ Peer trust, scoped endpoints and transparency findings are visible at
 
 - `services/audit-log/` — independent third-party acknowledgement archive
 - `backend/` — NestJS core node and HTTP adapters
-- `frontend/` — Expo Router React Native client
+- `frontend/` — Expo Router React Native client. Route files live in `app/`; application state in
+  `src/application/`; semantic tokens and reusable UI in `src/design-system/`; domain screens in
+  `src/features/`; offline/network access in `src/data/`; and key material stays in `src/signer/`.
 - `packages/sdk-ts/` — shared TypeScript contracts, signing, and verification
 - `crates/jb-core/` — independent Rust parity implementation
 - `proto/` — canonical protobuf contracts

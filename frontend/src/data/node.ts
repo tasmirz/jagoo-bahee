@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { ReachState } from '../ui/primitives';
 import { OfflineApi, type CachedValue } from './index';
 import type { DiscoveredService } from './node-config';
+import type { ProvenanceJson } from '../verify';
 
 export interface FeedPost {
   readonly contentId: string;
@@ -14,13 +15,14 @@ export interface FeedPost {
   readonly score: number;
   readonly commentCount: number;
   readonly removed: boolean;
-  readonly provenance: {
-    readonly contentId: string;
-    readonly authorKey: string;
-    readonly signature: string;
-    readonly canonicalBytes: string;
-    readonly receipt: { readonly leafIndex: number } | null;
-  } | null;
+  /**
+   * The full block the node sends, not a subset.
+   *
+   * It was previously narrowed to five fields, which silently dropped `keyAlg` and the
+   * receipt's signature, tree head and inclusion proof — everything `verifyProvenance`
+   * needs. A type that cannot express the evidence guarantees the evidence is never checked.
+   */
+  readonly provenance: ProvenanceJson | null;
 }
 
 export interface FeedPage {
@@ -36,6 +38,8 @@ export interface NodeComment {
   readonly depth: number;
   readonly score: number;
   readonly removed: boolean;
+  /** The node sends this for comments too; dropping it is what made their seals decorative. */
+  readonly provenance: ProvenanceJson | null;
 }
 
 export interface CommentPage {

@@ -501,7 +501,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         priority: Priority::Direct,
         idempotent: true,
         scope_kind: ScopeKind::None,
-        max_bytes: 1024,
+        max_bytes: 2048,
         credit_cost: 1,
         requires_certificate: true,
     },

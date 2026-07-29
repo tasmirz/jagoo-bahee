@@ -11,6 +11,12 @@ import {
   Put,
 } from '@nestjs/common';
 import { identityId } from '@jagoo/sdk/core';
+import { serverVouchSigningBytes } from '@jagoo/sdk';
+import { FederationInbox } from '../../../core/app/federation-inbox.js';
+import { TRUST_LEVEL_WIRE } from '../../../core/domain/federation/trust.js';
+import { PeerDirectory, PeerTrust } from '../../../core/ports/network.port.js';
+import { NodeSigner } from '../../../core/ports/node-signer.port.js';
+import { Clock } from '../../../core/ports/system.port.js';
 import { SessionAuth } from '../../../core/ports/auth.port.js';
 import { Observability } from '../../../core/ports/observability.port.js';
 import { RequestSecurity, type IpBlock } from '../../../core/ports/request-security.port.js';
@@ -30,6 +36,15 @@ function configuredAdminKeys(): Set<string> {
   );
 }
 
+/**
+ * Levels an operator may assert about a peer.
+ *
+ * `UNSPECIFIED` is absent because a vouch that says nothing is not an opinion, and
+ * `PROBATION` because it is the TOFU default every peer already has — asserting it would
+ * be a no-op that still consumed a directory row and a gossip slot.
+ */
+const VOUCHABLE_LEVELS = [PeerTrust.BLOCKED, PeerTrust.NORMAL, PeerTrust.TRUSTED] as const;
+
 function validSubject(value: string): boolean {
   return (
     /^(?:\d{1,3}\.){3}\d{1,3}$/.test(value) ||
@@ -48,6 +63,10 @@ export class AdminController {
     @Inject(WitnessLog) private readonly witness: WitnessLog,
     @Inject(Observability) private readonly metrics: Observability,
     @Inject(OperatorConfig) private readonly config: OperatorConfig,
+    @Inject(PeerDirectory) private readonly peers: PeerDirectory,
+    @Inject(FederationInbox) private readonly inbox: FederationInbox,
+    @Inject(NodeSigner) private readonly signer: NodeSigner,
+    @Inject(Clock) private readonly clock: Clock,
   ) {}
 
   private async authorize(authorization?: string): Promise<void> {
@@ -210,5 +229,66 @@ export class AdminController {
     await this.authorize(authorization);
     await this.security.unblock(subject);
     return { deleted: true };
+  }
+
+  /**
+   * ADM-11 / FD-05 — assert a vouch about a peer.
+   *
+   * This is the only way a vouch enters the system, and it is deliberately an operator
+   * action: a vouch is a statement that a human checked something out of band, so nothing
+   * automatic should be able to manufacture one. The node signs it with its own key, which
+   * is what makes it verifiable and non-repudiable once gossiped in a handshake.
+   *
+   * `recordVouch` re-derives the peer's trust level immediately (`Plans/05` §3), so the
+   * response shows the effect rather than making the operator go and look.
+   */
+  @Post('federation/vouches')
+  async vouch(
+    @Body()
+    body: {
+      readonly peer_id?: string;
+      readonly level?: string;
+      readonly note?: string;
+    },
+    @Headers('authorization') authorization?: string,
+  ): Promise<Record<string, unknown>> {
+    await this.authorize(authorization);
+
+    const peerId = body?.peer_id?.trim();
+    if (!peerId) throw new HttpException({ detail: 'peer_id is required' }, 400);
+
+    const level = VOUCHABLE_LEVELS.find((candidate) => candidate === body?.level);
+    if (!level) {
+      throw new HttpException(
+        { detail: `level must be one of ${VOUCHABLE_LEVELS.join(', ')}` },
+        400,
+      );
+    }
+
+    const note = (body?.note ?? '').slice(0, 240);
+    const peer = await this.peers.get(peerId);
+    if (!peer) throw new HttpException({ detail: 'peer is not known here' }, 404);
+
+    const assertedAtMs = this.clock.nowMs();
+    const signature = this.signer.sign(
+      serverVouchSigningBytes({
+        peerKey: peer.publicKey,
+        level: TRUST_LEVEL_WIRE[level],
+        note,
+        assertedAtMs: BigInt(assertedAtMs),
+      }),
+    );
+
+    const updated = await this.inbox.recordVouch({
+      asserterKey: this.signer.publicKey,
+      peerKey: peer.publicKey,
+      level,
+      note,
+      assertedAtMs,
+      signature,
+    });
+    if (!updated) throw new HttpException({ detail: 'vouch was refused' }, 409);
+
+    return { peerId, level, note, assertedAtMs, resultingTrust: updated.trust };
   }
 }

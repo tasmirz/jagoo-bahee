@@ -21,17 +21,33 @@ import {
   type CertificateDoc,
   type RevocationDoc,
 } from '../../features/forum/identity/certificate.projection.js';
+import {
+  SIGNAL_CERTIFICATES_COLLECTION,
+  SIGNAL_REVOCATIONS_COLLECTION,
+  type SignalCertificateDoc,
+  type SignalRevocationDoc,
+} from '../../features/signal/identity/certificate.projection.js';
+import { Plane } from '../../core/domain/envelope.js';
 
 export class ProjectionCertificateStore extends CertificateStore {
   constructor(private readonly projections: ProjectionStore) {
     super();
   }
 
-  async certificateAt(key: Uint8Array, atMs: number): Promise<KeyCertificate | null> {
+  async certificateAt(
+    plane: Plane,
+    key: Uint8Array,
+    atMs: number,
+  ): Promise<KeyCertificate | null> {
     const id = Buffer.from(key).toString('hex');
-    const doc = await this.projections
-      .collection<CertificateDoc>(CERTIFICATES_COLLECTION)
-      .findOne({ id });
+    const doc =
+      plane === Plane.SIGNAL
+        ? await this.projections
+            .collection<SignalCertificateDoc>(SIGNAL_CERTIFICATES_COLLECTION)
+            .findOne({ id })
+        : await this.projections
+            .collection<CertificateDoc>(CERTIFICATES_COLLECTION)
+            .findOne({ id });
     if (!doc) return null;
 
     // The window is half-open: valid_until is the first instant the certificate no longer
@@ -41,20 +57,27 @@ export class ProjectionCertificateStore extends CertificateStore {
     const pqAttestation = Buffer.from(doc.pqAttestation, 'base64');
     return {
       key,
+      plane,
       issuedAtMs: doc.certifiedAtMs,
       ...(pqAttestation.length > 0 ? { pqAttestation: new Uint8Array(pqAttestation) } : {}),
     };
   }
 
-  async revocationFor(key: Uint8Array): Promise<KeyRevocation | null> {
+  async revocationFor(plane: Plane, key: Uint8Array): Promise<KeyRevocation | null> {
     const id = Buffer.from(key).toString('hex');
-    const doc = await this.projections
-      .collection<RevocationDoc>(REVOCATIONS_COLLECTION)
-      .findOne({ id });
+    const doc =
+      plane === Plane.SIGNAL
+        ? await this.projections
+            .collection<SignalRevocationDoc>(SIGNAL_REVOCATIONS_COLLECTION)
+            .findOne({ id })
+        : await this.projections
+            .collection<RevocationDoc>(REVOCATIONS_COLLECTION)
+            .findOne({ id });
     if (!doc) return null;
 
     return {
       key,
+      plane,
       effectiveFromMs: doc.effectiveFromMs,
       reason: RevocationKindName[doc.kind] ?? 'REVOKED',
     };

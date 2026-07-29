@@ -60,6 +60,65 @@ export function consume(
   return { allowed: false, state: refilled, overBy: cost - refilled.tokens };
 }
 
+export interface PairDecision {
+  readonly allowed: boolean;
+  readonly envelopes: BucketState;
+  readonly bytes: BucketState;
+  /** The larger shortfall of the two, in bucket units. Drives `backpressure_hint_ms`. */
+  readonly overBy: number;
+}
+
+/**
+ * Spend the envelope bucket and the byte bucket together, all or nothing.
+ *
+ * FD-15 grants both `envelopes_per_min` and `bytes_per_min`, and a peer is over quota if it
+ * exceeds EITHER. They must therefore be decided together and spent together: checking them
+ * in sequence and spending as you go means a request refused by the second bucket has
+ * already drained a token from the first, so a peer sending oversized envelopes silently
+ * burns its envelope allowance on requests that were never admitted. Over a stream that
+ * converts a byte-limit breach into an envelope-limit breach, and the hint the peer gets
+ * back tells it to slow down when it should be sending less.
+ *
+ * A rate of zero means "not permitted", never "unlimited" — treating it as unlimited is how
+ * FG-09 inverts.
+ */
+export function consumePair(input: {
+  readonly envelopes: BucketState;
+  readonly bytes: BucketState;
+  readonly envelopeCost: number;
+  readonly envelopesPerMinute: number;
+  readonly byteCost: number;
+  readonly bytesPerMinute: number;
+  readonly nowMs: number;
+}): PairDecision {
+  const envelopeCapacity = Math.max(input.envelopesPerMinute, input.envelopeCost);
+  const byteCapacity = Math.max(input.bytesPerMinute, input.byteCost);
+
+  const envelopes = refill(
+    input.envelopes,
+    input.envelopesPerMinute,
+    envelopeCapacity,
+    input.nowMs,
+  );
+  const bytes = refill(input.bytes, input.bytesPerMinute, byteCapacity, input.nowMs);
+
+  const envelopeShort = Math.max(0, input.envelopeCost - envelopes.tokens);
+  const byteShort = Math.max(0, input.byteCost - bytes.tokens);
+
+  if (envelopeShort > 0 || byteShort > 0) {
+    // Neither bucket is debited. The refilled timestamps are kept, because time passing is
+    // not something a refusal should undo.
+    return { allowed: false, envelopes, bytes, overBy: Math.max(envelopeShort, byteShort) };
+  }
+
+  return {
+    allowed: true,
+    envelopes: { ...envelopes, tokens: envelopes.tokens - input.envelopeCost },
+    bytes: { ...bytes, tokens: bytes.tokens - input.byteCost },
+    overBy: 0,
+  };
+}
+
 export const QuotaOutcome = {
   ACCEPTED: 'ACCEPTED',
   /** The trust level does not carry this class at all. Not a rate problem — a reach problem. */
@@ -86,7 +145,6 @@ export function shouldDemote(quotaBreaches: number, limit: number): boolean {
   return quotaBreaches >= limit;
 }
 
-/** Bytes-per-minute is enforced alongside envelopes-per-minute; both are in the quota grant. */
 export function costOf(priority: Priority): number {
   // Every envelope costs one unit of its class's bucket. Weighting by class here would
   // double-count: the classes already have separate buckets with separate rates.
@@ -100,4 +158,17 @@ export function envelopesPerMinuteFor(quota: PeerQuota, priority: Priority): num
   return priority === Priority.BULK
     ? Math.floor(quota.envelopesPerMin / 2)
     : quota.envelopesPerMin;
+}
+
+/**
+ * The byte allowance for a class, with the same BR-04 reservation.
+ *
+ * Bytes need the reservation more than envelope counts do, not less: bulk envelopes are
+ * unbounded in size while classes 0–2 are capped at 512 B / 1 KB, so a single large post
+ * can carry as many bytes as a thousand broadcasts. Without a per-class byte ceiling the
+ * emergency channel starves on volume even while it has envelope tokens to spare.
+ */
+export function bytesPerMinuteFor(quota: PeerQuota, priority: Priority): number {
+  if (!quota.allowedClasses.includes(priority)) return 0;
+  return priority === Priority.BULK ? Math.floor(quota.bytesPerMin / 2) : quota.bytesPerMin;
 }

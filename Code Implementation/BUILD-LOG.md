@@ -46,6 +46,9 @@ Rules earned the hard way. Violating one of these has already cost time.
 | L-21 | **An identifier defaulted to `''` becomes one shared database row.** `exchangeDirectory` returned `serverId: ''`; every peer a directory named upserted onto `_id: ''`, producing one document with one node's key and another's endpoints — which then poisoned FD-10's observation relay into a FALSE FORK BLOCK. Never persist an entity whose identity field is empty; discard it and say why.        | container run                                                                      |
 | L-22 | **Any check that can BLOCK a peer must verify the claim belongs to that peer.** FD-10 relays tree heads labelled by the RELAYER. Without matching `sth.serverKey` to the peer it is attributed to, any peer could get any other blocked by relaying a mislabelled head — and BLOCKED needs an operator to lift, so a false positive is a long-tailed denial of service.                                   | container run                                                                      |
 | L-23 | **Node-local secrets cannot gate federated content.** Proof of work, credits, blind credentials and nullifiers are each keyed to ONE node by design. A proof minted for A is meaningless on B, so re-charging on arrival makes every gated domain unfederatable. Admission cost is charged at origin; the receiver's protection is the per-peer quota (ADR-011).                                          | container run                                                                      |
+| L-24 | **Two stores answering the same question is one store too many, and the wrong one wins.** Peer tree heads lived in a durable ledger AND a per-process `Map` behind `verifyPeerSth`; the in-process copy was authoritative, so fork detection reset on every restart. When you find state duplicated, delete a copy — do not sync them.                                                                    | Stage 0                                                                            |
+| L-25 | **A verification badge with a default state is a lie with a uniform on.** `Seal`'s `state` defaulted to `'synced'`, so every badge in the app claimed "verified" while `verifyProvenance` had zero call sites. Make the honest value impossible to omit: no default, and the compiler names every caller that was asserting without checking.                                                              | Stage 0                                                                            |
+| L-26 | **Two limits enforced in sequence are not two limits.** Checking the envelope bucket, spending it, then checking the byte bucket converts a byte breach into an envelope breach and tells the peer the wrong thing to do about it. Allowances that are jointly binding must be decided and spent in one atomic step.                                                                                      | Stage 0                                                                            |
 
 ---
 
@@ -652,3 +655,113 @@ letters, zero duplicates.
 artefact proves the deployment.* Every one of these four sat behind a boundary the in-process
 harness does not cross — packaging, a second database, a third party's relayed claim, and two
 nodes with different secrets.
+
+---
+
+### 2026-07-29 — Stage 0: closing what P2 left open, before P4 starts [P2 → P4]
+
+Four items carried from `P2-FEDERATION-PLAN.md` §5 and the client audit. Three of the six §5
+items are P3-owned (multi-hop community origin, federation TLS, per-hop cost accounting) and
+stay deferred with their owners recorded.
+
+**Built:**
+
+- **Peer tree heads have one home.** `WitnessLog.verifyPeerSth` is **removed** from the port
+  and all three implementations. It kept peer heads in a per-process `Map` while
+  `FederationLedger` already persisted them durably, and `FederationInbox.observePeerSth`
+  consulted both — with the in-process copy deciding. The comparison now happens once,
+  against the ledger. Dead `checkPeerGrowth` went with it.
+- **FD-05 vouches actually circulate.** They were stored, weighed by `evaluateTrust` and
+  enforced, but nothing could create or receive one — `recordVouch` had no callers.
+  `AnnounceResponse.vouches` now carries the answering node's own assertions (capped at 64),
+  `FederationSync.handshake` ingests them, and `POST /v1/admin/federation/vouches` (ADM-11)
+  is the operator action that mints one. `recordVouch` verifies the signature before storing.
+- **FD-15's byte grant is enforced.** `Quota.bytes_per_min` was granted in every handshake and
+  never spent. `consumePair` in the domain and one four-key Lua script in Redis now decide and
+  spend the envelope and byte buckets together, all or nothing, with the BR-04 reservation
+  applied to bytes as well as counts.
+- **The client verifies before it claims.** `sealStateFor` maps a provenance block to a Seal
+  state; `FeedPost.provenance` and `NodeComment.provenance` carry the full block rather than a
+  five-field subset that omitted everything verification needs; the proof vault recomputes
+  `verifyAuditCertificate` instead of asserting. `Seal` gained an `unsigned` state and lost its
+  default.
+
+**Verified:** lint 5/5 · typecheck 6/6 · build 5/5 · **374 workspace tests pass** (backend 268,
+sdk 65, frontend 39, audit-log 2) with 13 real-infrastructure tests skipped locally ·
+`pnpm vectors` 3 implementations agree on 16 vectors · `proto:check` in sync and `git diff`
+clean on all generated output · `pnpm smoke:local` passes · FG-01…FG-10 unchanged and green.
+Baseline before this block was 356 tests.
+
+**Broke:**
+
+1. **`MongoMerkleLog.verifyPeerSth` stored the new head BEFORE comparing**, so a forked head
+   presented twice reported `CONSISTENT` on the second call. `LocalMerkleLog` did not have the
+   bug, which is exactly how two implementations of one rule drift. Fixed by deleting both.
+2. **A test premise of mine was simply wrong** — I asserted a refusal at 30 s of a 10/min rate,
+   which refills 5 tokens and is therefore allowed. Rewritten against a 1 s window, where the
+   gain is real but still short of the cost, which is the case the assertion was actually about.
+3. **The frontend suite failed once and then passed 4/4 runs** on the same tree — a cold-cache
+   first-run flake in `app/__tests__/index.test.tsx`, not a regression. Recorded rather than
+   waved away; the Stage 1 restructure rewrites that suite and should not inherit it.
+
+**Learned:** **L-24**, **L-25**, **L-26** above. Each of the three backend items was the same
+shape: a mechanism fully built, wired at one end only, and green because nothing asserted the
+other end. The vouch loop existed as storage plus evaluation with no ingress; the byte quota as
+a grant with no spend; peer heads as a durable store nothing read. A test that makes the gate
+fail on purpose is what distinguishes these from working code — the FD-05 test was run against
+a deliberately disabled gossip path and observed to fail before being kept.
+
+**Next:** Stage 1 — the client restructure (real `expo-router` routes, `main.tsx` split, i18n,
+accessibility), which P4's Signal surfaces depend on.
+
+---
+
+### 2026-07-29 — Production frontend foundation and complete route pass
+
+The Expo client now uses Expo Router as the application boundary instead of a monolithic
+in-memory screen switcher. The root owns crash recovery, safe-area handling, persisted
+appearance, query state, node discovery and connection state; tabs and deep links are real
+routes. Forum, connectivity, capabilities and communities are grouped by product domain, while
+design tokens, primitives and scene composition live in a documented design-system package.
+
+**Built:**
+
+- A five-destination native tab shell plus post, audit, community, capability, search, network
+  and proof-vault routes, all safe-area aware and deep-linkable.
+- A responsive field-forum visual system with semantic light/dark tokens, Poppins and JetBrains
+  Mono typography, accessible touch targets, restrained motion and a two-colour native app icon.
+- Live community detail, authenticated messaging/notifications, signed vote and signed reply
+  actions, optimistic rollback, retry/empty/offline states, and audit-certificate forwarding to
+  the node-advertised ALS.
+- A resilient application provider, error boundary, persisted home-node and theme preferences,
+  request cancellation/timeouts, cache fallback and debounced discovery/search.
+- Expo SDK 52 dependency alignment and additive Metro workspace watching so monorepo packages
+  remain resolvable on Android and iOS.
+
+**Verified:** frontend lint, typecheck and 39 Jest tests pass; Expo Doctor reports 18/18 checks;
+production `expo export` succeeds for Android (1,078 modules) and iOS (1,130 modules), producing
+3.79 MB Hermes bundles for each platform. Export emits only upstream `@noble/hashes` subpath
+fallback warnings.
+
+---
+
+### 2026-07-29 — Later-stage reconciliation before P4 [Stage 1 → P4]
+
+**Built:** Recorded the previously missing `CLIENT-RESTRUCTURE-PLAN.md` against the implementation,
+created `P4-SIGNAL-PLAN.md`, and accepted ADR-012 before introducing Signal state. The handoff's
+authoritative boundary is now explicit: Stage 0 and the client restructure are complete; P4, P5 and
+P6 remain. The existing Bangla catalogue is not counted as a completed localisation pass until the
+new Signal and offline routes consume it.
+
+**Verified:** the Stage 1 frontend evidence was rerun on the post-restructure tree: lint and
+typecheck pass, 39/39 Jest tests pass, Expo Doctor reports 18/18, and Android/iOS production export
+succeeds.
+
+**Broke:** Documentation claimed the next action was to write the client plan after the client had
+already shipped, while `CLAUDE.md` still described Signal as nonexistent. The root cause was doing
+the implementation block without first materialising its phase plan.
+
+**Learned:** A completed implementation without an updated phase boundary is indistinguishable from
+untracked partial work to the next session. Reconcile the checklist before extending the system.
+
+**Next:** P4 steps 1–3: plane-aware certificates, isolated Signal signer, channel lifecycle.

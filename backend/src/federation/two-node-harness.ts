@@ -61,6 +61,7 @@ import { FederationService } from '../adapters/inbound/grpc/federation.service.j
 import { FederationGrpcServer } from '../adapters/inbound/grpc/federation.server.js';
 import { GrpcFederationSender } from '../adapters/outbound/grpc/federation-client.js';
 import { forumHandlers } from '../features/forum/index.js';
+import { signalHandlers } from '../features/signal/index.js';
 import { NOW_MS } from '../testing/harness.js';
 
 export interface FederatedNode {
@@ -105,6 +106,7 @@ export async function startNode(options: NodeOptions): Promise<FederatedNode> {
   const witness = new LocalMerkleLog(signer, clock);
   const registry = new DomainRegistry();
   for (const handler of forumHandlers(projections, signer)) registry.register(handler);
+  for (const handler of signalHandlers(projections)) registry.register(handler);
 
   const peers = new InMemoryPeerDirectory();
   const ledger = new InMemoryFederationLedger();
@@ -126,7 +128,7 @@ export async function startNode(options: NodeOptions): Promise<FederatedNode> {
     software: 'jagoo-bahee',
     version: '2.0.0',
     endpoints: options.outboundOnly ? [] : endpoints,
-    planes: [Plane.FORUM],
+    planes: [Plane.FORUM, Plane.SIGNAL],
     acceptedClasses: [Priority.BROADCAST, Priority.DIRECT, Priority.CHECKIN, Priority.BULK],
     communities: [],
     channels: [],
@@ -266,7 +268,7 @@ export async function introduce(
     displayName: to.name,
     endpoints: [{ address: `grpc://127.0.0.1:${to.port}`, scope: 'LAN', inboundCapable: true }],
     trust,
-    planes: [Plane.FORUM],
+    planes: [Plane.FORUM, Plane.SIGNAL],
     acceptedClasses: [Priority.BROADCAST, Priority.DIRECT, Priority.CHECKIN, Priority.BULK],
     firstSeenMs: from.clock.nowMs(),
     lastSeenMs: from.clock.nowMs(),

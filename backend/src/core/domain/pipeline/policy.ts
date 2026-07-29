@@ -40,7 +40,9 @@ const KEY_ALG_BY_NAME: Record<string, number> = {
  */
 export const CLASS_SIZE_BUDGET: Record<number, number> = {
   1: 512, // BROADCAST
-  2: 1024, // DIRECT
+  // ADR-013: the registry keeps ordinary DIRECT rows at 1024; the 2048 class ceiling
+  // permits the one ML-KEM-768 session-init row whose own generated maxBytes is 2048.
+  2: 2048, // DIRECT
   3: 512, // CHECKIN
   4: 65536, // BULK — the registry row may lower this further
 };

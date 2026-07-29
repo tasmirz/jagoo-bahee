@@ -613,7 +613,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     idempotent: true,
     scopeKind: 'NONE',
     keyAlgs: ['ED25519'],
-    maxBytes: 1024,
+    maxBytes: 2048,
     creditCost: 1,
     requires: [],
     requiresCertificate: true,

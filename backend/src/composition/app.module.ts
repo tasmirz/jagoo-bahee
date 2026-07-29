@@ -104,11 +104,13 @@ import { OperatorConfig } from '../core/ports/operator-config.port.js';
 import { InMemoryOperatorConfig } from '../adapters/outbound/in-memory/in-memory-operator-config.js';
 import { RedisOperatorConfig } from '../adapters/outbound/redis/redis-operator-config.js';
 import { forumHandlers } from '../features/forum/index.js';
+import { signalHandlers } from '../features/signal/index.js';
 import { MONGO_RUNTIME, REDIS_RUNTIME, S3_RUNTIME, type MongoRuntime } from './runtime.js';
 import { ServiceDirectory } from '../core/ports/service-directory.port.js';
 import { ConfiguredServiceDirectory } from '../adapters/outbound/configured-service-directory.js';
 import { serverId as serverIdOf } from '@jagoo/sdk/core';
 import { FederationController } from '../adapters/inbound/http/federation.controller.js';
+import { SignalReadController } from '../adapters/inbound/http/signal-read.controller.js';
 import {
   FederationLedger,
   FederationOut,
@@ -179,6 +181,7 @@ class RuntimeLifecycle implements OnApplicationShutdown {
     EvidenceController,
     AdminController,
     FederationController,
+    SignalReadController,
   ],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: SecurityHeadersInterceptor },
@@ -431,8 +434,20 @@ class RuntimeLifecycle implements OnApplicationShutdown {
         operatorConfig: OperatorConfig,
       ) => {
         const registry = new DomainRegistry();
-        for (const handler of forumHandlers(projections, nodeSigner, blobs, operatorConfig)) {
-          registry.register(handler);
+        const enabledPlanes = new Set(
+          (process.env.NODE_PLANES ?? 'FORUM,SIGNAL')
+            .split(',')
+            .map((value) => value.trim().toUpperCase()),
+        );
+        if (enabledPlanes.has('FORUM')) {
+          for (const handler of forumHandlers(projections, nodeSigner, blobs, operatorConfig)) {
+            registry.register(handler);
+          }
+        }
+        if (enabledPlanes.has('SIGNAL')) {
+          for (const handler of signalHandlers(projections)) {
+            registry.register(handler);
+          }
         }
         return registry;
       },

@@ -8,7 +8,7 @@
  */
 
 import type { Tx } from '../../../core/domain/domain-handler.js';
-import type { KeyAlg, ParsedEnvelope } from '../../../core/domain/envelope.js';
+import { Plane, type KeyAlg, type ParsedEnvelope } from '../../../core/domain/envelope.js';
 import {
   CertificateStore,
   SignatureVerifier,
@@ -26,7 +26,6 @@ import {
   type PowSolution,
 } from '../../../core/ports/anti-abuse.port.js';
 import {
-  PeerLogStatus,
   WitnessLog,
   type InclusionProof,
   type SignedTreeHead,
@@ -69,26 +68,33 @@ export class InMemoryCertificateStore extends CertificateStore {
   private readonly certs = new Map<string, KeyCertificate>();
   private readonly revocations = new Map<string, KeyRevocation>();
 
-  private static hex(k: Uint8Array): string {
-    return Buffer.from(k).toString('hex');
+  private static hex(plane: Plane, k: Uint8Array): string {
+    return `${plane}:${Buffer.from(k).toString('hex')}`;
   }
 
   add(cert: KeyCertificate): void {
-    this.certs.set(InMemoryCertificateStore.hex(cert.key), cert);
+    this.certs.set(InMemoryCertificateStore.hex(cert.plane ?? Plane.FORUM, cert.key), cert);
   }
 
   revoke(revocation: KeyRevocation): void {
-    this.revocations.set(InMemoryCertificateStore.hex(revocation.key), revocation);
+    this.revocations.set(
+      InMemoryCertificateStore.hex(revocation.plane ?? Plane.FORUM, revocation.key),
+      revocation,
+    );
   }
 
-  async certificateAt(key: Uint8Array, atMs: number): Promise<KeyCertificate | null> {
-    const cert = this.certs.get(InMemoryCertificateStore.hex(key));
+  async certificateAt(
+    plane: Plane,
+    key: Uint8Array,
+    atMs: number,
+  ): Promise<KeyCertificate | null> {
+    const cert = this.certs.get(InMemoryCertificateStore.hex(plane, key));
     if (!cert || cert.issuedAtMs > atMs) return null;
     return cert;
   }
 
-  async revocationFor(key: Uint8Array): Promise<KeyRevocation | null> {
-    return this.revocations.get(InMemoryCertificateStore.hex(key)) ?? null;
+  async revocationFor(plane: Plane, key: Uint8Array): Promise<KeyRevocation | null> {
+    return this.revocations.get(InMemoryCertificateStore.hex(plane, key)) ?? null;
   }
 }
 
@@ -211,10 +217,6 @@ export class InMemoryWitnessLog extends WitnessLog {
 
   async consistencyProof(_from: number, _to: number): Promise<readonly Uint8Array[]> {
     return [];
-  }
-
-  async verifyPeerSth(_peerKey: Uint8Array, _sth: SignedTreeHead): Promise<PeerLogStatus> {
-    return PeerLogStatus.UNKNOWN;
   }
 
   get size(): number {

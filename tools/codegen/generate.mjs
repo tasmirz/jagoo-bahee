@@ -64,6 +64,10 @@ const KEY_ALGS = new Set(['ED25519', 'ML_DSA_44', 'FALCON_512']);
 
 /** PC-01: class 0–2 budgets are hard ceilings, enforced at construction. */
 const CLASS_BUDGET = { BROADCAST: 512, DIRECT: 1024, CHECKIN: 512 };
+// ADR-013: ML-KEM-768's 1088-byte encapsulation makes the frozen session-init body
+// physically impossible inside the ordinary DIRECT ceiling. Only this bootstrap domain
+// receives the exception; every subsequent Signal message stays within 1024 bytes.
+const DOMAIN_BUDGET = { 'jb:message:session:v1': 2048 };
 
 function validate(rows) {
   const seen = new Set();
@@ -102,7 +106,7 @@ function validate(rows) {
     }
 
     // PC-01: the declared ceiling may not exceed the class budget.
-    const budget = CLASS_BUDGET[r.priority];
+    const budget = DOMAIN_BUDGET[r.domain] ?? CLASS_BUDGET[r.priority];
     if (budget && r.max_bytes > budget) {
       errors.push(
         `${at}: PC-01 — max_bytes ${r.max_bytes} exceeds the ${r.priority} budget of ${budget}`,

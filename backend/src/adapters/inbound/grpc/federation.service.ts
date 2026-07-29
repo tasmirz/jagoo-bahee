@@ -31,7 +31,7 @@ import {
   DeliverAck,
   DirectoryExchange,
   TreeHeadExchange,
-  TrustLevel,
+  type TrustLevel,
   type PeerEndpoint as WireEndpoint,
 } from '@jagoo/sdk/proto';
 import {
@@ -47,12 +47,14 @@ import {
   type FederationInbox,
   type NodeIdentity,
 } from '../../../core/app/federation-inbox.js';
+import { TRUST_LEVEL_WIRE } from '../../../core/domain/federation/trust.js';
 import {
   PeerTrust,
   type FederationLedger,
   type PeerDirectory,
   type PeerEndpoint,
   type PeerRecord,
+  type PeerVouch,
   type StreamFilter,
 } from '../../../core/ports/network.port.js';
 import type { NodeSigner } from '../../../core/ports/node-signer.port.js';
@@ -64,6 +66,15 @@ import { verifyCallMetadata } from './peer-auth.js';
 /** How many envelopes one `StreamActivities` / `Backfill` response may carry per pass. */
 const DEFAULT_STREAM_LIMIT = 500;
 const MAX_BACKFILL = 5_000;
+
+/**
+ * FD-05 — how many of our own vouches one handshake may carry.
+ *
+ * Bounded because the receiver stores what it ingests: an unbounded list would let a peer
+ * grow another node's directory for free by handshaking repeatedly. Vouches are operator
+ * assertions and are few by nature, so this ceiling is generous rather than restrictive.
+ */
+const MAX_GOSSIPED_VOUCHES = 64;
 
 export interface FederationServiceDeps {
   readonly inbox: FederationInbox;
@@ -77,13 +88,14 @@ export interface FederationServiceDeps {
   readonly outboundOnly?: boolean;
 }
 
-const TRUST_TO_WIRE: Readonly<Record<PeerTrust, TrustLevel>> = {
-  [PeerTrust.UNSPECIFIED]: TrustLevel.TRUST_LEVEL_UNSPECIFIED,
-  [PeerTrust.BLOCKED]: TrustLevel.TRUST_LEVEL_BLOCKED,
-  [PeerTrust.PROBATION]: TrustLevel.TRUST_LEVEL_PROBATION,
-  [PeerTrust.NORMAL]: TrustLevel.TRUST_LEVEL_NORMAL,
-  [PeerTrust.TRUSTED]: TrustLevel.TRUST_LEVEL_TRUSTED,
-};
+/**
+ * The wire integer for a trust level, as the generated enum type.
+ *
+ * Values come from `TRUST_LEVEL_WIRE` in the domain rather than being restated here: the
+ * same integers are covered by `ServerVouch` signatures, so a second table that drifted by
+ * one would invalidate every vouch silently instead of failing to compile.
+ */
+const TRUST_TO_WIRE = TRUST_LEVEL_WIRE as Readonly<Record<PeerTrust, TrustLevel>>;
 
 export class FederationService {
   constructor(private readonly deps: FederationServiceDeps) {}
@@ -127,12 +139,13 @@ export class FederationService {
     const identity = this.deps.identity();
     const sth = await this.deps.witness.currentSth();
     const endpoints = this.deps.outboundOnly ? [] : identity.endpoints;
+    const vouches = await this.ownVouches();
 
     const fields = {
       serverKey: identity.publicKey,
       assigned: TRUST_TO_WIRE[admission.assigned],
       endpoints: endpoints.map(toSignableEndpoint),
-      vouches: [],
+      vouches: vouches.map(toSignableVouch),
       grantedQuota: {
         envelopesPerMin: admission.quota.envelopesPerMin,
         bytesPerMin: BigInt(admission.quota.bytesPerMin),
@@ -146,7 +159,7 @@ export class FederationService {
       server_key: identity.publicKey,
       assigned: TRUST_TO_WIRE[admission.assigned],
       endpoints: endpoints.map(toWireEndpoint),
-      vouches: [],
+      vouches: vouches.map(toWireVouch),
       granted_quota: {
         envelopes_per_min: admission.quota.envelopesPerMin,
         bytes_per_min: BigInt(admission.quota.bytesPerMin),
@@ -157,6 +170,27 @@ export class FederationService {
       signature: this.deps.signer.sign(announceResponseSigningBytes(fields)),
     });
   };
+
+  /**
+   * The vouches THIS node asserts, for the handshake to carry (FD-05).
+   *
+   * Only our own. Relaying a third party's vouch would be unattributable: `ServerVouch`
+   * has no asserter field, so the asserter is contextual — it is whoever signed the
+   * response. Passing someone else's signed vouch through would present it as ours, which
+   * is both a lie and unverifiable by the recipient.
+   */
+  private async ownVouches(): Promise<readonly PeerVouch[]> {
+    const ours = Buffer.from(this.deps.identity().publicKey);
+    const collected: PeerVouch[] = [];
+    for (const peer of await this.deps.peers.all()) {
+      for (const vouch of peer.vouches ?? []) {
+        if (!ours.equals(Buffer.from(vouch.asserterKey))) continue;
+        collected.push(vouch);
+        if (collected.length >= MAX_GOSSIPED_VOUCHES) return collected;
+      }
+    }
+    return collected;
+  }
 
   // ── T2.4 — Deliver (FG-05, FG-06, FG-09, FG-10) ───────────────────────────────────
 
@@ -507,6 +541,25 @@ function toWireEndpoint(endpoint: PeerEndpoint) {
     last_ok_at_ms: BigInt(endpoint.lastOkAtMs ?? 0),
     rtt_ms: endpoint.rttMs ?? 0,
     consecutive_failures: endpoint.consecutiveFailures ?? 0,
+  };
+}
+
+function toSignableVouch(vouch: PeerVouch) {
+  return {
+    peerKey: vouch.peerKey,
+    level: TRUST_LEVEL_WIRE[vouch.level],
+    note: vouch.note,
+    assertedAtMs: BigInt(vouch.assertedAtMs),
+  };
+}
+
+function toWireVouch(vouch: PeerVouch) {
+  return {
+    peer_key: vouch.peerKey,
+    level: TRUST_TO_WIRE[vouch.level],
+    note: vouch.note,
+    asserted_at_ms: BigInt(vouch.assertedAtMs),
+    signature: vouch.signature,
   };
 }
 

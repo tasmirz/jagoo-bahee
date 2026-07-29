@@ -103,6 +103,34 @@ function parseReceipt(
   };
 }
 
+/**
+ * What the Seal is allowed to claim about a piece of content.
+ *
+ * `unsigned` is not the same as `failed`: content with no provenance block at all is
+ * content the node did not vouch for, whereas `failed` means it presented evidence that
+ * did not hold. Collapsing the two would either accuse an honest cache entry of forgery or
+ * excuse a real one.
+ */
+export type SealState = 'synced' | 'queued' | 'failed' | 'unsigned';
+
+/**
+ * Verify a provenance block and say what the Seal should show.
+ *
+ * This is the whole point of the client: `THR-01` says content validity must be checkable
+ * with no network and no trusted server, and a Seal wired to a hardcoded prop — which is
+ * what shipped before this — asserts exactly the thing it is supposed to prove. Every
+ * badge in the UI now derives from this function or shows nothing.
+ */
+export function sealStateFor(value: ProvenanceJson | null | undefined): SealState {
+  if (!value) return 'unsigned';
+  const result = verifyProvenance(value);
+  if (result.verified) return 'synced';
+  // Authorship holds; the node has not witnessed it yet. That is the offline-authored and
+  // awaiting-receipt case (VIS-08), not a failure.
+  if (result.contentId && result.authorSignature && !value.receipt) return 'queued';
+  return 'failed';
+}
+
 /** Verifies the complete provenance block with no network access (T1.36/T1.37). */
 export function verifyProvenance(value: ProvenanceJson): VerificationResult {
   try {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Pressable,
   ScrollView,
   Share,
   StyleSheet,
@@ -11,7 +12,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { verifyAuditCertificate } from '@jagoo/sdk';
-import { featureDestinations, type FeatureDestination } from '../features/catalog';
+import { featureDestinations, type FeatureDestination } from '../catalog';
 import {
   useNodeCommunities,
   useNodeComments,
@@ -19,20 +20,22 @@ import {
   useNodePost,
   useNodeSearch,
   type FeedPost,
-} from '../data/node';
-import type { HomeNode } from '../data/node-config';
+} from '../../data/node';
+import type { HomeNode } from '../../data/node-config';
 import {
   createForumIdentity,
   forumSessionSummary,
   importForumIdentity,
   lockForumIdentity,
+  publishForumComment,
   publishForumPost,
+  publishForumVote,
   registerForumIdentity,
   unlockForumIdentity,
   type ForumSessionSummary,
-} from '../signer';
-import type { AppPalette, ThemeMode } from '../theme';
-import { radius, spacing, type as typography } from '../theme';
+} from '../../signer';
+import type { AppPalette, ThemeMode } from '../../theme';
+import { radius, spacing, type as typography } from '../../theme';
 import {
   AppHeader,
   Button,
@@ -47,9 +50,15 @@ import {
   SectionHeader,
   StatusBanner,
   type ReachState,
-} from '../ui/primitives';
-import { certificateStatus, listAuditCertificates, type StoredAuditCertificate } from '../audit';
-import { FeatureWorkspace } from './feature-workspace';
+} from '../../ui/primitives';
+import { certificateStatus, listAuditCertificates, type StoredAuditCertificate } from '../../audit';
+import { sealStateFor } from '../../verify';
+import { useDebouncedValue } from '../../hooks/use-debounced-value';
+import {
+  FeatureWorkspace,
+  MessagingWorkspace,
+  NotificationsWorkspace,
+} from '../capabilities/workspace';
 
 interface CommonProps {
   readonly colors: AppPalette;
@@ -64,12 +73,28 @@ function ContentColumn({ children }: { readonly children: React.ReactNode }) {
 
 function VoteControl({
   colors,
+  onVote,
   score = 128,
 }: {
   readonly colors: AppPalette;
+  readonly onVote?: (value: -1 | 0 | 1) => Promise<void>;
   readonly score?: number;
 }) {
   const [vote, setVote] = useState<-1 | 0 | 1>(0);
+  const [busy, setBusy] = useState(false);
+  const changeVote = async (next: -1 | 0 | 1) => {
+    const previous = vote;
+    setVote(next);
+    if (!onVote) return;
+    setBusy(true);
+    try {
+      await onVote(next);
+    } catch {
+      setVote(previous);
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <View
       accessibilityLabel={`Vote score ${score + vote}`}
@@ -80,7 +105,8 @@ function VoteControl({
         icon={vote === 1 ? 'arrow-up-circle' : 'arrow-up-outline'}
         label="Upvote"
         active={vote === 1}
-        onPress={() => setVote(vote === 1 ? 0 : 1)}
+        disabled={busy}
+        onPress={() => void changeVote(vote === 1 ? 0 : 1)}
       />
       <Text style={[typography.label, { color: vote ? colors.ember : colors.text }]}>
         {score + vote}
@@ -90,7 +116,8 @@ function VoteControl({
         icon={vote === -1 ? 'arrow-down-circle' : 'arrow-down-outline'}
         label="Downvote"
         active={vote === -1}
-        onPress={() => setVote(vote === -1 ? 0 : -1)}
+        disabled={busy}
+        onPress={() => void changeVote(vote === -1 ? 0 : -1)}
       />
     </View>
   );
@@ -100,11 +127,13 @@ function PostCard({
   colors,
   onPress,
   compact = false,
+  onVote,
   post,
 }: {
   readonly colors: AppPalette;
   readonly onPress: () => void;
   readonly compact?: boolean;
+  readonly onVote?: (value: -1 | 0 | 1) => Promise<void>;
   readonly post: FeedPost;
 }) {
   const title = post.title;
@@ -113,6 +142,10 @@ function PostCard({
   const author = `${post.authorKey.slice(0, 8)}…`;
   const score = post.score;
   const comments = post.commentCount;
+  // THR-01 — recomputed on this device from the provenance block, with no network and no
+  // trust in what the node said about it. Memoised per content ID because the check is a
+  // SHA-256, an Ed25519 verify and a Merkle path walk, and a feed renders 25 of them.
+  const seal = useMemo(() => sealStateFor(post.provenance), [post.provenance]);
   return (
     <PressScale label={`Open post: ${title}`} onPress={onPress}>
       <View style={[styles.post, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -126,14 +159,14 @@ function PostCard({
               u/{author} · {new Date(post.createdAtMs).toLocaleDateString()}
             </Text>
           </View>
-          <Seal colors={colors} />
+          <Seal colors={colors} state={seal} />
         </View>
         <Text style={[typography.h1, { color: colors.text }]}>{title}</Text>
         <Text numberOfLines={compact ? 2 : 3} style={[typography.body, { color: colors.text2 }]}>
           {body}
         </Text>
         <View style={styles.postActions}>
-          <VoteControl colors={colors} score={score} />
+          <VoteControl colors={colors} onVote={onVote} score={score} />
           <View style={styles.inlineActions}>
             <IconButton
               colors={colors}
@@ -166,16 +199,18 @@ function PostCard({
 export function FeedScreen({
   colors,
   reach,
-  baseUrl,
+  homeNode,
   onOpenPost,
   onOpenNetwork,
   onSearch,
 }: CommonProps & {
-  readonly baseUrl: string;
+  readonly homeNode: HomeNode;
   readonly onOpenPost: (contentId: string) => void;
   readonly onSearch: () => void;
 }) {
+  const baseUrl = homeNode.baseUrl;
   const [sort, setSort] = useState('For you');
+  const [actionError, setActionError] = useState('');
   const querySort =
     sort === 'Popular' ? 'top' : sort === 'Local' || sort === 'Following' ? 'new' : 'hot';
   const feed = useNodeFeed(baseUrl, querySort);
@@ -214,11 +249,24 @@ export function FeedScreen({
         </ScrollView>
         {feed.isError ? (
           <StatusBanner
+            action="Try again"
             colors={colors}
             icon="cloud-offline-outline"
             title="Node is unavailable"
             body="No saved feed is available yet. Start the local node or check the configured address."
+            onAction={() => void feed.refetch()}
             tone="danger"
+          />
+        ) : null}
+        {actionError ? (
+          <StatusBanner
+            action="Dismiss"
+            body={actionError}
+            colors={colors}
+            icon="alert-circle-outline"
+            onAction={() => setActionError('')}
+            title="Signed action was not accepted"
+            tone="warning"
           />
         ) : null}
         {posts.length > 0 ? (
@@ -228,6 +276,24 @@ export function FeedScreen({
               colors={colors}
               onPress={() => onOpenPost(post.contentId)}
               compact={index > 0}
+              onVote={async (value) => {
+                try {
+                  await publishForumVote(
+                    homeNode.baseUrl,
+                    {
+                      communityId: post.community,
+                      target: post.contentId,
+                      targetKind: 'post',
+                      value,
+                    },
+                    homeNode.discovery.services.auditLogs,
+                  );
+                  await feed.refetch();
+                } catch (error) {
+                  setActionError((error as Error).message);
+                  throw error;
+                }
+              }}
               post={post}
             />
           ))
@@ -247,19 +313,23 @@ export function FeedScreen({
 export function PostDetailScreen({
   colors,
   reach,
-  baseUrl,
+  homeNode,
   contentId,
   onBack,
   onAudit,
   onOpenNetwork,
 }: CommonProps & {
-  readonly baseUrl: string;
+  readonly homeNode: HomeNode;
   readonly contentId: string;
   readonly onBack: () => void;
   readonly onAudit: () => void;
 }) {
+  const baseUrl = homeNode.baseUrl;
   const post = useNodePost(baseUrl, contentId);
   const comments = useNodeComments(baseUrl, contentId);
+  const [reply, setReply] = useState('');
+  const [replying, setReplying] = useState(false);
+  const [replyNotice, setReplyNotice] = useState('');
   const item = post.data?.value;
   const rows = comments.data?.value.items ?? [];
   return (
@@ -271,7 +341,24 @@ export function PostDetailScreen({
       </View>
       <ContentColumn>
         {item ? (
-          <PostCard colors={colors} onPress={onAudit} post={item} />
+          <PostCard
+            colors={colors}
+            onPress={onAudit}
+            onVote={async (value) => {
+              await publishForumVote(
+                homeNode.baseUrl,
+                {
+                  communityId: item.community,
+                  target: item.contentId,
+                  targetKind: 'post',
+                  value,
+                },
+                homeNode.discovery.services.auditLogs,
+              );
+              await post.refetch();
+            }}
+            post={item}
+          />
         ) : post.isError ? (
           <StatusBanner
             body="The node could not return this post. Its acknowledgement may still be in your proof vault."
@@ -287,6 +374,57 @@ export function PostDetailScreen({
           action="Audit proof"
           onAction={onAudit}
         />
+        {item ? (
+          <View style={styles.replyComposer}>
+            <Text style={[typography.label, { color: colors.text }]}>Write a signed reply</Text>
+            <TextInput
+              accessibilityLabel="Reply"
+              maxLength={10_000}
+              multiline
+              onChangeText={setReply}
+              placeholder="Add to the conversation"
+              placeholderTextColor={colors.text3}
+              style={[
+                styles.input,
+                styles.replyInput,
+                typography.body,
+                { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text },
+              ]}
+              value={reply}
+            />
+            <Button
+              colors={colors}
+              disabled={!reply.trim() || replying || reach !== 'connected'}
+              icon="send-outline"
+              label={replying ? 'Signing reply…' : 'Publish reply'}
+              onPress={() => {
+                setReplying(true);
+                setReplyNotice('');
+                void publishForumComment(
+                  homeNode.baseUrl,
+                  {
+                    bodyMarkdown: reply,
+                    communityId: item.community,
+                    postId: item.contentId,
+                  },
+                  homeNode.discovery.services.auditLogs,
+                )
+                  .then(async () => {
+                    setReply('');
+                    setReplyNotice('Reply acknowledged, saved, and forwarded to audit services.');
+                    await comments.refetch();
+                  })
+                  .catch((error: Error) => setReplyNotice(error.message))
+                  .finally(() => setReplying(false));
+              }}
+            />
+            {replyNotice ? (
+              <Text accessibilityLiveRegion="polite" style={[typography.caption, { color: colors.text2 }]}>
+                {replyNotice}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
         {rows.map((comment) => (
           <View
             key={comment.contentId}
@@ -302,7 +440,7 @@ export function PostDetailScreen({
               <Text style={[typography.caption, { color: colors.text2 }]}>
                 {comment.authorKey.slice(0, 10)}… · {new Date(comment.createdAtMs).toLocaleString()}
               </Text>
-              <Seal colors={colors} state="synced" />
+              <Seal colors={colors} state={sealStateFor(comment.provenance)} />
             </View>
             <Text style={[typography.body, { color: colors.text }]}>
               {comment.bodyMarkdown ?? 'Hidden with a public tombstone.'}
@@ -479,12 +617,15 @@ export function CommunitiesScreen({
   baseUrl,
   onOpenNetwork,
   onOpenFeature,
+  onOpenCommunity,
 }: CommonProps & {
   readonly baseUrl: string;
   readonly onOpenFeature: (feature: FeatureDestination) => void;
+  readonly onOpenCommunity: (communityId: string) => void;
 }) {
   const [query, setQuery] = useState('');
-  const communities = useNodeCommunities(baseUrl, query);
+  const debouncedQuery = useDebouncedValue(query);
+  const communities = useNodeCommunities(baseUrl, debouncedQuery);
   const items = communities.data?.value.items ?? [];
   return (
     <Screen colors={colors}>
@@ -511,7 +652,7 @@ export function CommunitiesScreen({
           <PressScale
             key={community.id}
             label={`Open r/${community.name}`}
-            onPress={() => onOpenFeature(featureDestinations[2]!)}
+            onPress={() => onOpenCommunity(community.id)}
           >
             <View style={[styles.communityRow, { borderBottomColor: colors.border }]}>
               <View style={[styles.communityAvatar, { backgroundColor: colors.ember }]}>
@@ -711,42 +852,51 @@ export function InboxScreen({
   colors,
   reach,
   onOpenNetwork,
-  onOpenFeature,
-}: CommonProps & { readonly onOpenFeature: (feature: FeatureDestination) => void }) {
+  homeNode,
+  onOpenSignal,
+}: CommonProps & { readonly homeNode: HomeNode; readonly onOpenSignal: () => void }) {
+  const [tab, setTab] = useState<'Messages' | 'Notifications'>('Messages');
   return (
     <Screen colors={colors}>
       <AppHeader colors={colors} reach={reach} onReach={onOpenNetwork} title="Inbox" />
       <ContentColumn>
         <View style={styles.inboxTabs}>
-          {['All', 'Messages', 'Mentions'].map((tab, index) => (
-            <View
-              key={tab}
-              style={[styles.inboxTab, index === 0 ? { borderBottomColor: colors.signal } : null]}
+          {(['Messages', 'Notifications'] as const).map((item) => (
+            <Pressable
+              key={item}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: tab === item }}
+              onPress={() => setTab(item)}
+              style={[
+                styles.inboxTab,
+                tab === item ? { borderBottomColor: colors.signal } : null,
+              ]}
             >
               <Text
-                style={[typography.label, { color: index === 0 ? colors.signal : colors.text2 }]}
+                style={[
+                  typography.label,
+                  { color: tab === item ? colors.signal : colors.text2 },
+                ]}
               >
-                {tab}
+                {item}
               </Text>
-            </View>
+            </Pressable>
           ))}
         </View>
         <StatusBanner
+          action="Open Signal"
           colors={colors}
           icon="lock-closed-outline"
-          title="End-to-end encrypted"
-          body="Message plaintext and your Forum keys never reach the node."
+          onAction={onOpenSignal}
+          title="Forum inbox"
+          body="Pseudonymous Forum messages stay here. Identified crisis coordination has a separate Signal vault."
           tone="verified"
         />
-        <EmptyState
-          action="Set up private messages"
-          body="No encrypted conversations are stored on this device. Forum posts and message identities stay separate."
-          colors={colors}
-          icon="lock-closed-outline"
-          onAction={() => onOpenFeature(featureDestinations[10]!)}
-          system="signal"
-          title="Your inbox is private"
-        />
+        {tab === 'Messages' ? (
+          <MessagingWorkspace colors={colors} homeNode={homeNode} />
+        ) : (
+          <NotificationsWorkspace colors={colors} homeNode={homeNode} />
+        )}
       </ContentColumn>
     </Screen>
   );
@@ -1044,20 +1194,25 @@ export function FeatureScreen({
     <Screen colors={colors}>
       <View style={[styles.detailHeader, { borderBottomColor: colors.border }]}>
         <IconButton colors={colors} icon="arrow-back" label="Back" onPress={onBack} />
-        <Text accessibilityRole="header" style={[typography.h2, { color: colors.text }]}>
-          {feature.title}
+        <Text style={[typography.overline, { color: colors.text2 }]}>
+          {feature.area}
         </Text>
         <View style={{ width: 44 }} />
       </View>
       <ContentColumn>
-        <View style={styles.featureHero}>
-          <View style={[styles.featureHeroIcon, { backgroundColor: accent }]}>
-            <Ionicons name={feature.icon} size={28} color={colors.onAccent} />
+        <View style={[styles.featureHero, { borderBottomColor: colors.border }]}>
+          <View style={styles.flex}>
+            <Text style={[typography.overline, { color: accent }]}>
+              {signal ? 'Private identity plane' : 'Pseudonymous Forum plane'}
+            </Text>
+            <Text accessibilityRole="header" style={[typography.h1, { color: colors.text }]}>
+              {feature.title}
+            </Text>
+            <Text style={[typography.body, { color: colors.text2 }]}>
+              {feature.description}
+            </Text>
           </View>
-          <Text style={[typography.h1, { color: colors.text }]}>{feature.title}</Text>
-          <Text style={[typography.body, styles.center, { color: colors.text2 }]}>
-            {feature.description}
-          </Text>
+          <Ionicons name={feature.icon} size={26} color={accent} />
         </View>
         {feature.id === 'identity' ? <IdentityPanel colors={colors} homeNode={homeNode} /> : null}
         {feature.id !== 'identity' ? (
@@ -1092,13 +1247,14 @@ export function SearchScreen({
 }) {
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState('All');
+  const debouncedQuery = useDebouncedValue(query);
   const kindParameter = {
     Posts: 'post',
     Comments: 'comment',
     Communities: 'community',
     People: 'identity',
   }[kind];
-  const results = useNodeSearch(baseUrl, query, kindParameter);
+  const results = useNodeSearch(baseUrl, debouncedQuery, kindParameter);
   const items = results.data?.value.items ?? [];
   return (
     <Screen colors={colors}>
@@ -1224,6 +1380,8 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   commentMeta: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm },
+  replyComposer: { padding: spacing.md, gap: spacing.sm },
+  replyInput: { minHeight: 112, textAlignVertical: 'top' },
   auditHero: { padding: spacing.xl, alignItems: 'center', gap: spacing.sm },
   auditSeal: {
     width: 64,
@@ -1322,28 +1480,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  featureHero: { padding: spacing.xl, alignItems: 'center', gap: spacing.sm },
-  featureHeroIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  featurePanel: { marginHorizontal: spacing.md, borderWidth: 1, borderRadius: radius.lg },
-  actionRow: {
-    minHeight: 58,
-    paddingHorizontal: spacing.md,
+  featureHero: {
+    marginHorizontal: spacing.md,
+    paddingVertical: spacing.xl,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  actionNumber: {
-    width: 28,
-    height: 28,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'flex-start',
+    gap: spacing.lg,
   },
   searchInput: { flex: 1, minHeight: 48 },
   searchResult: {

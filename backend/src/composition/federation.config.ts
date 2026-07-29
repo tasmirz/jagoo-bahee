@@ -136,6 +136,19 @@ export function loadFederationConfig(
   // Explicit opt-out wins; otherwise a node with no listen address IS outbound-only, which
   // is the honest reading of "I did not open a port".
   const outboundOnly = env.FEDERATION_OUTBOUND_ONLY === 'true' || listen === null;
+  const requestedPlanes = new Set(
+    (env.NODE_PLANES ?? 'FORUM,SIGNAL')
+      .split(',')
+      .map((value) => value.trim().toUpperCase())
+      .filter(Boolean),
+  );
+  const planes = [
+    ...(requestedPlanes.has('FORUM') ? [Plane.FORUM] : []),
+    ...(requestedPlanes.has('SIGNAL') ? [Plane.SIGNAL] : []),
+  ];
+  if (planes.length === 0) {
+    throw new Error('NODE_PLANES must enable FORUM, SIGNAL, or both');
+  }
 
   return {
     enabled: peers.length > 0 || listen !== null,
@@ -144,9 +157,8 @@ export function loadFederationConfig(
     outboundOnly,
     endpoints: outboundOnly ? [] : endpoints,
     peers,
-    // FD-07 — a node MAY serve Forum only, Signal only, or both. Only Forum domains exist
-    // in this build, so advertising SIGNAL would be a claim this node cannot honour.
-    planes: [Plane.FORUM],
+    // FD-07 / ADR-012: operators may run Forum-only, Signal-only or dual-plane nodes.
+    planes,
     acceptedClasses: [Priority.BROADCAST, Priority.DIRECT, Priority.CHECKIN, Priority.BULK],
     openRegistrations: env.REGISTRATIONS_OPEN !== 'false',
     drainIntervalMs: Number(env.FEDERATION_DRAIN_INTERVAL_MS ?? DEFAULT_DRAIN_MS),

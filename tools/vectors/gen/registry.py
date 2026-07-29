@@ -482,7 +482,7 @@ DOMAIN_SPECS: list[DomainSpec] = [
         priority="DIRECT",
         idempotent=True,
         scope_kind="NONE",
-        max_bytes=1024,
+        max_bytes=2048,
         credit_cost=1,
         requires_certificate=True,
     ),

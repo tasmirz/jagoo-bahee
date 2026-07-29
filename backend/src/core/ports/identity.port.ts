@@ -6,7 +6,7 @@
  * noticing (AR-11).
  */
 
-import type { KeyAlg } from '../domain/envelope.js';
+import type { KeyAlg, Plane } from '../domain/envelope.js';
 
 export abstract class SignatureVerifier {
   /**
@@ -19,6 +19,8 @@ export abstract class SignatureVerifier {
 
 export interface KeyCertificate {
   readonly key: Uint8Array;
+  /** ADR-012: identical key bytes in different planes are independent identities. */
+  readonly plane?: Plane;
   readonly issuedAtMs: number;
   /** ML-DSA-44 attestation — signed once per identity, never per message (ADR-003 §3). */
   readonly pqAttestation?: Uint8Array;
@@ -26,6 +28,7 @@ export interface KeyCertificate {
 
 export interface KeyRevocation {
   readonly key: Uint8Array;
+  readonly plane?: Plane;
   /**
    * KY-01: content signed BEFORE this instant stays valid. Revocation is not retroactive,
    * or every post a person ever made would vanish the moment they rotated a key.
@@ -35,6 +38,10 @@ export interface KeyRevocation {
 }
 
 export abstract class CertificateStore {
-  abstract certificateAt(key: Uint8Array, atMs: number): Promise<KeyCertificate | null>;
-  abstract revocationFor(key: Uint8Array): Promise<KeyRevocation | null>;
+  abstract certificateAt(
+    plane: Plane,
+    key: Uint8Array,
+    atMs: number,
+  ): Promise<KeyCertificate | null>;
+  abstract revocationFor(plane: Plane, key: Uint8Array): Promise<KeyRevocation | null>;
 }

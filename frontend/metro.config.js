@@ -29,7 +29,7 @@ const config = getDefaultConfig(projectRoot);
 
 // pnpm with node-linker=hoisted puts the real modules at the workspace root (build log
 // L-04). Metro must watch there or workspace packages resolve to stale copies.
-config.watchFolders = [workspaceRoot];
+config.watchFolders = [...new Set([...config.watchFolders, workspaceRoot])];
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
   path.resolve(workspaceRoot, 'node_modules'),

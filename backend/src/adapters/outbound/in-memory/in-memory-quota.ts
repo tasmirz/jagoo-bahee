@@ -11,29 +11,37 @@
  * The Redis adapter has to buy that with a Lua script.
  */
 
-import type { Priority } from '../../../core/domain/envelope.js';
-import { consume, newBucket, type BucketState } from '../../../core/domain/federation/quota.js';
-import { PeerQuotaLimiter, type QuotaVerdict } from '../../../core/ports/network.port.js';
+import { consumePair, newBucket, type BucketState } from '../../../core/domain/federation/quota.js';
+import {
+  PeerQuotaLimiter,
+  type QuotaRequest,
+  type QuotaVerdict,
+} from '../../../core/ports/network.port.js';
 import { OperatorAlerts, type OperatorAlert } from '../../../core/ports/alerts.port.js';
 
 export class InMemoryPeerQuotaLimiter extends PeerQuotaLimiter {
-  private readonly buckets = new Map<string, BucketState>();
+  private readonly envelopeBuckets = new Map<string, BucketState>();
+  private readonly byteBuckets = new Map<string, BucketState>();
 
-  async consume(
-    peerId: string,
-    priority: Priority,
-    cost: number,
-    perMinute: number,
-    nowMs: number,
-  ): Promise<QuotaVerdict> {
+  async consume(request: QuotaRequest): Promise<QuotaVerdict> {
     // A class the peer may not send has a zero rate. Refusing it here rather than treating
     // zero as "unlimited" is the difference between FG-09 passing and being inverted.
-    if (perMinute <= 0) return { allowed: false, overBy: cost };
+    if (request.perMinute <= 0) return { allowed: false, overBy: request.cost };
+    if (request.bytesPerMinute <= 0) return { allowed: false, overBy: request.bytes };
 
-    const key = `${peerId}|${priority}`;
-    const state = this.buckets.get(key) ?? newBucket(perMinute, nowMs);
-    const decision = consume(state, cost, perMinute, nowMs);
-    this.buckets.set(key, decision.state);
+    const key = `${request.peerId}|${request.priority}`;
+    const decision = consumePair({
+      envelopes: this.envelopeBuckets.get(key) ?? newBucket(request.perMinute, request.nowMs),
+      bytes: this.byteBuckets.get(key) ?? newBucket(request.bytesPerMinute, request.nowMs),
+      envelopeCost: request.cost,
+      envelopesPerMinute: request.perMinute,
+      byteCost: request.bytes,
+      bytesPerMinute: request.bytesPerMinute,
+      nowMs: request.nowMs,
+    });
+
+    this.envelopeBuckets.set(key, decision.envelopes);
+    this.byteBuckets.set(key, decision.bytes);
     return { allowed: decision.allowed, overBy: decision.overBy };
   }
 }

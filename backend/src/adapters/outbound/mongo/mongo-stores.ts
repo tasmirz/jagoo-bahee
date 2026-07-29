@@ -36,7 +36,6 @@ import {
   type EnvelopeReader,
 } from '../../../core/ports/storage.port.js';
 import {
-  PeerLogStatus,
   WitnessLog,
   type InclusionProof,
   type SignedTreeHead,
@@ -358,8 +357,6 @@ interface MerkleLeafDocument {
 
 /** Persisted Merkle leaves. The canonical math remains in core/domain/merkle.ts. */
 export class MongoMerkleLog extends WitnessLog {
-  private readonly peerHeads = new Map<string, SignedTreeHead>();
-
   constructor(
     private readonly db: Db,
     private readonly signer: NodeSigner,
@@ -477,17 +474,4 @@ export class MongoMerkleLog extends WitnessLog {
     return consistencyPath((await this.leaves()).slice(0, to), from);
   }
 
-  async verifyPeerSth(peerKey: Uint8Array, sth: SignedTreeHead): Promise<PeerLogStatus> {
-    const key = Buffer.from(peerKey).toString('hex');
-    const previous = this.peerHeads.get(key);
-    this.peerHeads.set(key, sth);
-    if (!previous) return PeerLogStatus.UNKNOWN;
-    if (sth.treeSize < previous.treeSize) return PeerLogStatus.FORKED;
-    if (sth.treeSize === previous.treeSize) {
-      return Buffer.from(sth.rootHash).equals(Buffer.from(previous.rootHash))
-        ? PeerLogStatus.CONSISTENT
-        : PeerLogStatus.FORKED;
-    }
-    return PeerLogStatus.UNKNOWN;
-  }
 }

@@ -33,7 +33,8 @@ import {
   FederationDirection,
   PeerTrust,
 } from '../core/ports/network.port.js';
-import { PROBATION_PERIOD_MS } from '../core/domain/federation/trust.js';
+import { PROBATION_PERIOD_MS, TRUST_LEVEL_WIRE } from '../core/domain/federation/trust.js';
+import { serverVouchSigningBytes } from '@jagoo/sdk';
 import { POSTS_COLLECTION, type PostDoc } from '../features/forum/post/post.projection.js';
 import { COMMENTS_COLLECTION, type CommentDoc } from '../features/forum/comment/comment-create.handler.js';
 import {
@@ -572,6 +573,100 @@ describe('FG-07 — an outbound-only node federates fully in both directions', (
     } finally {
       await stopNode(nat);
     }
+  });
+});
+
+// ── FD-05 — web-of-trust vouches ─────────────────────────────────────────────────────
+
+describe('FD-05 — vouches are asserted, gossiped in the handshake, and weighed on arrival', () => {
+  /** Sign a vouch the way the admin route does, so the test exercises the real bytes. */
+  const assertVouch = (
+    asserter: FederatedNode,
+    subject: Uint8Array,
+    level: PeerTrust,
+    note = 'verified out of band',
+  ) => {
+    const assertedAtMs = asserter.clock.nowMs();
+    return {
+      asserterKey: asserter.signer.publicKey,
+      peerKey: subject,
+      level,
+      note,
+      assertedAtMs,
+      signature: asserter.signer.sign(
+        serverVouchSigningBytes({
+          peerKey: subject,
+          level: TRUST_LEVEL_WIRE[level],
+          note,
+          assertedAtMs: BigInt(assertedAtMs),
+        }),
+      ),
+    };
+  };
+
+  it('carries A’s own vouch to B, where it is stored against the right peer', async () => {
+    // A vouches for C. B knows both A and C, and trusts A.
+    const c = await startNode({ name: 'node-c', seed: 0x5c });
+    try {
+      await introduce(a, c);
+      await introduce(b, c);
+      await introduce(b, a, PeerTrust.TRUSTED);
+      await a.inbox.recordVouch(assertVouch(a, c.signer.publicKey, PeerTrust.TRUSTED));
+
+      await b.sync.handshake((await b.peers.get(peerIdOf(a)))!);
+
+      const seen = (await b.peers.get(peerIdOf(c)))!.vouches ?? [];
+      expect(seen).toHaveLength(1);
+      // Attributed to whoever SIGNED the response, not to anything in the payload.
+      expect(Buffer.from(seen[0]!.asserterKey)).toEqual(Buffer.from(a.signer.publicKey));
+      expect(seen[0]!.level).toBe(PeerTrust.TRUSTED);
+    } finally {
+      await stopNode(c);
+    }
+  });
+
+  /**
+   * The whole reason accepting vouches from any peer is safe.
+   *
+   * `evaluateTrust` weighs each vouch by how much WE trust the asserter, so an untrusted
+   * node's opinion is recorded and counts for nothing. Without this, a single PROBATION
+   * peer could promote itself or anyone else simply by asserting it.
+   */
+  it('does not let a vouch from an untrusted asserter change anything', async () => {
+    const c = await startNode({ name: 'node-c', seed: 0x5d });
+    try {
+      await introduce(a, c);
+      await introduce(b, c);
+      await introduce(b, a, PeerTrust.PROBATION); // B does NOT trust A
+      await a.inbox.recordVouch(assertVouch(a, c.signer.publicKey, PeerTrust.TRUSTED));
+
+      await b.sync.handshake((await b.peers.get(peerIdOf(a)))!);
+
+      expect((await b.peers.get(peerIdOf(c)))!.trust).toBe(PeerTrust.PROBATION);
+    } finally {
+      await stopNode(c);
+    }
+  });
+
+  it('refuses a vouch whose signature does not verify', async () => {
+    const c = await startNode({ name: 'node-c', seed: 0x5e });
+    try {
+      await introduce(b, c);
+      const forged = {
+        ...assertVouch(b, c.signer.publicKey, PeerTrust.TRUSTED),
+        // Claims A said it. A did not.
+        asserterKey: a.signer.publicKey,
+      };
+      expect(await b.inbox.recordVouch(forged)).toBeNull();
+      expect((await b.peers.get(peerIdOf(c)))!.vouches ?? []).toHaveLength(0);
+    } finally {
+      await stopNode(c);
+    }
+  });
+
+  it('refuses a vouch about a peer it has never met, rather than inventing a record', async () => {
+    const stranger = new Uint8Array(32).fill(0x7a);
+    expect(await b.inbox.recordVouch(assertVouch(b, stranger, PeerTrust.TRUSTED))).toBeNull();
   });
 });
 

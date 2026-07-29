@@ -318,13 +318,26 @@ export interface QuotaVerdict {
  * is single-threaded and applies the same pure transition from `core/domain/federation/quota.ts`.
  */
 export abstract class PeerQuotaLimiter {
-  abstract consume(
-    peerId: string,
-    priority: Priority,
-    cost: number,
-    perMinute: number,
-    nowMs: number,
-  ): Promise<QuotaVerdict>;
+  abstract consume(request: QuotaRequest): Promise<QuotaVerdict>;
+}
+
+/**
+ * One admission decision, covering both grants FD-15 issues.
+ *
+ * An object rather than positional arguments because the envelope and byte allowances are
+ * two similar-looking numbers side by side, and transposing them would produce a limiter
+ * that compiles, runs, and enforces the wrong thing.
+ */
+export interface QuotaRequest {
+  readonly peerId: string;
+  readonly priority: Priority;
+  /** Envelope-bucket cost — one unit per envelope of its class. */
+  readonly cost: number;
+  readonly perMinute: number;
+  /** Byte-bucket cost — the encoded size of this envelope. */
+  readonly bytes: number;
+  readonly bytesPerMinute: number;
+  readonly nowMs: number;
 }
 
 export interface AnnounceOutcome {
@@ -333,6 +346,15 @@ export interface AnnounceOutcome {
   readonly endpoints: readonly PeerEndpoint[];
   readonly sth: SignedTreeHead | null;
   readonly quota: PeerQuota | null;
+  /**
+   * FD-05 — the vouches the ANSWERING peer asserts, about whichever peers it knows.
+   *
+   * Not vouches about us: an opinion about ourselves is worth nothing to our own trust
+   * computation. These are the answering node's opinions, and `evaluateTrust` weights each
+   * by how much *we* trust the node that asserted it, so a vouch from a peer we do not
+   * trust counts for nothing. That weighting is what makes this safe to accept from anyone.
+   */
+  readonly vouches: readonly PeerVouch[];
 }
 
 export interface PeerQuota {

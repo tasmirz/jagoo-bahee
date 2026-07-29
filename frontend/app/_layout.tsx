@@ -4,6 +4,8 @@ import { JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono/400R
 import { Poppins_400Regular } from '@expo-google-fonts/poppins/400Regular';
 import { Poppins_500Medium } from '@expo-google-fonts/poppins/500Medium';
 import { Poppins_600SemiBold } from '@expo-google-fonts/poppins/600SemiBold';
+import { AppErrorBoundary } from '../src/application/app-error-boundary';
+import { AppProvider } from '../src/application/app-provider';
 
 export default function RootLayout() {
   const [loaded] = useFonts({
@@ -13,5 +15,18 @@ export default function RootLayout() {
     JetBrainsMono_400Regular,
   });
   if (!loaded) return null;
-  return <Stack screenOptions={{ headerShown: false, animation: 'fade' }} />;
+  return (
+    <AppErrorBoundary>
+      <AppProvider>
+        <Stack
+          screenOptions={{
+            animation: 'fade',
+            animationDuration: 180,
+            contentStyle: { backgroundColor: 'transparent' },
+            headerShown: false,
+          }}
+        />
+      </AppProvider>
+    </AppErrorBoundary>
+  );
 }

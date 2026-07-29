@@ -121,9 +121,9 @@ mistaken for working.
 | Open | Why it is acceptable now | Who must close it |
 |---|---|---|
 | **Multi-hop community origin.** `originServerId` is the delivering peer, which equals the origin for a direct delivery and diverges under relay. | Every path this build exercises fetches a peer's own content from that peer: `Deliver` is push-from-origin, `StreamActivities`/`Backfill` are pull-from-origin. | **T3.11 `BridgeRelay`** — relay is exactly where the two stop coinciding. Fix is `origin_server_key` in a `jb:community:create:v2` row (ADR-010). |
-| **`WitnessLog.verifyPeerSth` keeps peer heads in an in-process `Map`** in both `LocalMerkleLog` and `MongoMerkleLog`. | The `MongoFederationLedger` persists peer tree heads and is what `FederationInbox.observePeerSth` actually compares against in production — that path IS durable and is asserted by `federation.integration.spec.ts`. The witness log's copy is a second, weaker signal. | Fold the witness log's copy into the ledger, or delete it. |
-| **`AnnounceResponse.vouches` is always empty.** Vouches are stored, weighed and enforced (`recordVouch`, `evaluateTrust`), but not yet gossiped in the handshake. | Trust still derives correctly from vouches this node holds; it simply does not yet learn a third party's vouches from a handshake. | T2.13's directory exchange is the natural carrier. |
-| **`bytes_per_min` is granted but not enforced.** Envelope-per-minute buckets are enforced per class; the byte budget is advertised in `Quota` and not spent. | Per-domain `max_bytes` already bounds a single envelope, and the envelope rate bounds the aggregate within an order of magnitude. | A second Lua bucket in `RedisPeerQuotaLimiter`, same shape as the first. |
+| ~~`WitnessLog.verifyPeerSth` keeps peer heads in an in-process `Map`.~~ | **Closed, Stage 0.** The port method is removed and the comparison happens once, against the durable ledger. It also carried a real defect: `MongoMerkleLog` stored the new head before comparing, so a forked head presented twice reported `CONSISTENT`. | — |
+| ~~`AnnounceResponse.vouches` is always empty.~~ | **Closed, Stage 0.** The handshake carries this node's own vouches (capped at 64), `FederationSync` ingests them weighted by `evaluateTrust`, `recordVouch` verifies the signature first, and `POST /v1/admin/federation/vouches` (ADM-11) mints them. | — |
+| ~~`bytes_per_min` is granted but not enforced.~~ | **Closed, Stage 0.** `consumePair` decides and spends the envelope and byte buckets together, all or nothing, in one four-key Lua script, with the BR-04 reservation applied to bytes. | — |
 | **No TLS on the federation port.** `ChannelCredentials.createInsecure()` is the default. | Operators terminate TLS at their own proxy today, and every payload is independently signed — an interceptor can read but cannot forge. | P3, alongside uplink and source-IP work. |
 | **Admission cost is charged at origin, not per hop** (ADR-011). A peer could relay envelopes whose origin never paid. | Every anti-abuse gate is keyed to one node by design, so re-charging makes 29 of 30 Forum rows unfederatable. The peer's quota bounds the volume, its trust bounds the classes, FD-16 demotes it for repeated breach. | P4, if cross-node cost accounting becomes necessary: an origin-signed cost attestation, verifiable by any peer holding that node's key. |
 
@@ -143,8 +143,9 @@ Per `Plans/10` §9 and CLAUDE.md §7.3. A federation RPC is done when it satisfi
 full pipeline on inbound, has an in-memory double alongside its production adapter, and is exercised by
 a test citing its FG or FD identifier. The phase closes when the FG criteria pass **in CI**, not by hand.
 
-All six RPCs satisfy that. `pnpm test` runs 356 workspace tests; the `federation` CI job runs
-FG-01…FG-10 as a dedicated blocking gate; the `build` job runs the real-Mongo half of FG-05.
+All six RPCs satisfy that. `pnpm test` runs 374 workspace tests; the `federation` CI job runs
+FG-01…FG-10 as a dedicated blocking gate; the `build` job runs the real-Mongo half of FG-05 and the
+real-Redis half of the FD-15 byte quota.
 
 ## 7. The demo (`Plans/08` §P2)
 

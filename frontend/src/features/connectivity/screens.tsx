@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { certificateStatus, listAuditCertificates, type StoredAuditCertificate } from '../audit';
+import { verifyAuditCertificate } from '@jagoo/sdk';
+import { certificateStatus, listAuditCertificates, type StoredAuditCertificate } from '../../audit';
 import {
   sortByScope,
   useFederationAlerts,
@@ -18,11 +19,11 @@ import {
   useFederations,
   useNodeTreeHead,
   type FederationPeer,
-} from '../data/node';
-import { translate, type Locale, type MessageKey } from '../i18n';
-import type { HomeNode } from '../data/node-config';
-import type { AppPalette } from '../theme';
-import { radius, spacing, type as typography } from '../theme';
+} from '../../data/node';
+import { translate, type Locale, type MessageKey } from '../../i18n';
+import type { HomeNode } from '../../data/node-config';
+import type { AppPalette } from '../../theme';
+import { radius, spacing, type as typography } from '../../theme';
 import {
   Button,
   Divider,
@@ -33,7 +34,7 @@ import {
   Seal,
   StatusBanner,
   type ReachState,
-} from '../ui/primitives';
+} from '../../ui/primitives';
 
 export function HomeServerSetupScreen({
   colors,
@@ -545,6 +546,7 @@ export function ProofVaultScreen({
             const identifier = record.certificate.identifier;
             const delivered = record.deliveries.filter((item) => item.delivered).length;
             const status = results[identifier];
+            const held = verifyAuditCertificate(record.certificate).valid;
             return (
               <View
                 key={identifier}
@@ -554,7 +556,17 @@ export function ProofVaultScreen({
                 ]}
               >
                 <View style={styles.proofCardHeader}>
-                  <Seal colors={colors} label="node receipt verified" />
+                  {/*
+                   * Recomputed here, offline, from the stored certificate — not asserted.
+                   * A proof vault whose badges are decorative is the one place in the app
+                   * where a false claim does the most damage, because this screen is what
+                   * a person opens to check whether their evidence still holds.
+                   */}
+                  <Seal
+                    colors={colors}
+                    state={held ? 'synced' : 'failed'}
+                    label={held ? 'node receipt verified' : 'receipt did not verify'}
+                  />
                   <Text style={[typography.caption, { color: colors.text2 }]}>
                     {new Date(record.storedAtMs).toLocaleString()}
                   </Text>

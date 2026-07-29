@@ -45,7 +45,13 @@ import {
   type SignedEnvelope,
 } from '@jagoo/sdk';
 import { KeyCertificate, KeyRevocation, RevocationKind } from '@jagoo/sdk/proto';
-import { PostCreate, PostKind } from '@jagoo/sdk/proto';
+import {
+  CommentCreate,
+  PostCreate,
+  PostKind,
+  TargetKind,
+  VoteCast,
+} from '@jagoo/sdk/proto';
 import { solvePow, type PowChallengeJson } from '../data/pow';
 import type { DiscoveredService } from '../data/node-config';
 import { storeAndForwardCertificate } from '../audit';
@@ -174,6 +180,11 @@ export class SecureForumSigner implements ForumSigner {
 
   static async exists(): Promise<boolean> {
     return (await SecureStore.getItemAsync(ROOT_KEY, storeOptions)) !== null;
+  }
+
+  /** CRS-19: callable from the locked emergency surface. */
+  static async panicConfiguredVault(): Promise<void> {
+    await SecureStore.deleteItemAsync(ROOT_KEY, storeOptions);
   }
 
   configureCredentialKey(value: BlindCredentialPublicKey): void {
@@ -410,7 +421,7 @@ export class SecureForumSigner implements ForumSigner {
   }
 
   async panic(): Promise<void> {
-    await SecureStore.deleteItemAsync(ROOT_KEY, storeOptions);
+    await SecureForumSigner.panicConfiguredVault();
     this.wrappingKey.fill(0);
   }
 }
@@ -433,6 +444,8 @@ export interface PublishedPost {
   readonly auditCopies: number;
   readonly auditPending: number;
 }
+
+export type PublishedAction = PublishedPost;
 
 function authBytes(key: Uint8Array, challenge: Uint8Array): Uint8Array {
   return concat(text.encode('jb-auth-v1\0login\0'), key, challenge);
@@ -662,4 +675,110 @@ export async function publishForumPost(
     auditCopies: audited.auditCopies,
     auditPending: audited.auditPending,
   };
+}
+
+async function publishForumAction(
+  baseUrl: string,
+  input: {
+    readonly body: Uint8Array;
+    readonly domain: string;
+    readonly parent?: string;
+    readonly scope?: string;
+  },
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<PublishedAction> {
+  if (!activeSigner) throw new Error('Unlock your Forum identity first');
+  if (!activeAccessToken || !activeCredential) {
+    await registerForumIdentity(baseUrl, auditServices);
+  }
+  const epoch = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
+  const sealed = await activeSigner.seal(
+    { kind: 'device' },
+    {
+      domain: input.domain,
+      body: input.body,
+      parent: input.parent,
+      scope: input.scope,
+      antiAbuse: {
+        credential: activeCredential!.bytes,
+        nullifier: await activeSigner.nullifier(epoch, input.domain),
+        epoch,
+        pow: new Uint8Array(0),
+      },
+    },
+  );
+  const audited = await submitAuditedEnvelope(
+    baseUrl,
+    sealed.wireBytes,
+    auditServices,
+    activeAccessToken!,
+  );
+  return {
+    contentId: audited.receipt.content_id,
+    leafIndex: audited.receipt.leaf_index,
+    certificate: audited.certificate,
+    auditCopies: audited.auditCopies,
+    auditPending: audited.auditPending,
+  };
+}
+
+export async function publishForumVote(
+  baseUrl: string,
+  input: {
+    readonly communityId: string;
+    readonly target: string;
+    readonly targetKind: 'post' | 'comment';
+    readonly value: -1 | 0 | 1;
+  },
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<PublishedAction> {
+  return publishForumAction(
+    baseUrl,
+    {
+      domain: 'jb:vote:cast:v1',
+      body: VoteCast.encode(
+        VoteCast.fromPartial({
+          target: input.target,
+          target_kind:
+            input.targetKind === 'post'
+              ? TargetKind.TARGET_KIND_POST
+              : TargetKind.TARGET_KIND_COMMENT,
+          value: input.value,
+        }),
+      ).finish(),
+      parent: input.target,
+      scope: input.communityId,
+    },
+    auditServices,
+  );
+}
+
+export async function publishForumComment(
+  baseUrl: string,
+  input: {
+    readonly bodyMarkdown: string;
+    readonly communityId: string;
+    readonly parentComment?: string;
+    readonly postId: string;
+  },
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<PublishedAction> {
+  const bodyMarkdown = input.bodyMarkdown.trim();
+  if (!bodyMarkdown) throw new Error('Write a reply before publishing it');
+  return publishForumAction(
+    baseUrl,
+    {
+      domain: 'jb:comment:create:v1',
+      body: CommentCreate.encode(
+        CommentCreate.fromPartial({
+          post: input.postId,
+          parent_comment: input.parentComment ?? '',
+          body_markdown: bodyMarkdown,
+        }),
+      ).finish(),
+      parent: input.parentComment ?? input.postId,
+      scope: input.communityId,
+    },
+    auditServices,
+  );
 }

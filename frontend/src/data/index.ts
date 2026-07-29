@@ -19,9 +19,12 @@ export class OfflineApi {
   async get<T>(path: string): Promise<CachedValue<T>> {
     const requestUrl = new URL(path, this.baseUrl).toString();
     const key = `${CACHE_PREFIX}${encodeURIComponent(requestUrl)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12_000);
     try {
       const response = await fetch(requestUrl, {
         headers: { Accept: 'application/json' },
+        signal: controller.signal,
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const cached = {
@@ -38,6 +41,8 @@ export class OfflineApi {
         return { ...cached, source: 'cache' };
       }
       throw error;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 

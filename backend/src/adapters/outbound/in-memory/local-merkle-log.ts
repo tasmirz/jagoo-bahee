@@ -15,11 +15,9 @@ import {
   hashLeaf,
   inclusionPath,
   merkleRoot,
-  verifyConsistency,
 } from '../../../core/domain/merkle.js';
 import { registerRollback, type Tx } from '../../../core/domain/domain-handler.js';
 import {
-  PeerLogStatus,
   WitnessLog,
   type InclusionProof,
   type SignedTreeHead,
@@ -39,8 +37,6 @@ export function sthSigningBytes(treeSize: number, rootHash: Uint8Array, timestam
 export class LocalMerkleLog extends WitnessLog {
   private readonly leaves: Uint8Array[] = [];
   private readonly indexById = new Map<string, number>();
-  /** Last STH seen per peer, so a fork is detected against what they told us before. */
-  private readonly peerHeads = new Map<string, SignedTreeHead>();
 
   constructor(
     private readonly signer: NodeSigner,
@@ -89,52 +85,6 @@ export class LocalMerkleLog extends WitnessLog {
 
   async consistencyProof(from: number, to: number): Promise<readonly Uint8Array[]> {
     return consistencyPath(this.leaves.slice(0, to), from);
-  }
-
-  /**
-   * FG-08 — fork detection.
-   *
-   * A peer that presents a tree head inconsistent with one it previously gave us has
-   * rewritten history. That is not a transient error and must not be retried away: it is
-   * the single strongest signal that a node is being tampered with, and it surfaces to the
-   * operator rather than being swallowed.
-   */
-  async verifyPeerSth(peerKey: Uint8Array, sth: SignedTreeHead): Promise<PeerLogStatus> {
-    const key = Buffer.from(peerKey).toString('hex');
-    const previous = this.peerHeads.get(key);
-
-    if (!previous) {
-      this.peerHeads.set(key, sth);
-      return PeerLogStatus.UNKNOWN;
-    }
-
-    if (sth.treeSize < previous.treeSize) return PeerLogStatus.FORKED;
-
-    if (sth.treeSize === previous.treeSize) {
-      const same = Buffer.from(sth.rootHash).equals(Buffer.from(previous.rootHash));
-      return same ? PeerLogStatus.CONSISTENT : PeerLogStatus.FORKED;
-    }
-
-    // A growing tree needs a real consistency proof to be trusted; without one we can only
-    // say we have not yet checked, never that it is fine.
-    this.peerHeads.set(key, sth);
-    return PeerLogStatus.UNKNOWN;
-  }
-
-  /** Verify a peer's growth claim against a proof they supplied. */
-  async checkPeerGrowth(
-    previous: SignedTreeHead,
-    next: SignedTreeHead,
-    proof: readonly Uint8Array[],
-  ): Promise<PeerLogStatus> {
-    const ok = verifyConsistency(
-      previous.treeSize,
-      previous.rootHash,
-      next.treeSize,
-      next.rootHash,
-      proof,
-    );
-    return ok ? PeerLogStatus.CONSISTENT : PeerLogStatus.FORKED;
   }
 
   get size(): number {

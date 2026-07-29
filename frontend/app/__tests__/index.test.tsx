@@ -1,10 +1,28 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as mockReact from 'react';
+import { Text as mockTextComponent } from 'react-native';
 import renderer, { act } from 'react-test-renderer';
-import Home from '../index';
-import { featureDestinations } from '../../src/features/catalog';
-import type { HomeNode } from '../../src/data/node-config';
+import { QueryClientProvider } from '@tanstack/react-query';
+import BootstrapRoute from '../index';
+import { useApp } from '../../src/application/app-provider';
 import { queryClient } from '../../src/data';
+import type { HomeNode } from '../../src/data/node-config';
+import { featureDestinations } from '../../src/features/catalog';
+import { FeatureScreen } from '../../src/features/forum';
+import { palettes } from '../../src/theme';
 
+jest.mock('expo-router', () => ({
+  Redirect: ({ href }: { readonly href: string }) => {
+    return mockReact.createElement(mockTextComponent, {
+      accessibilityLabel: `Redirect to ${href}`,
+    });
+  },
+}));
+
+jest.mock('../../src/application/app-provider', () => ({
+  useApp: jest.fn(),
+}));
+
+const mockUseApp = useApp as jest.MockedFunction<typeof useApp>;
 const savedNode: HomeNode = {
   baseUrl: 'http://192.168.1.20:3000',
   savedAtMs: 1_700_000_000_000,
@@ -30,11 +48,7 @@ const savedNode: HomeNode = {
       ],
       mcaptcha: [],
     },
-    endpoints: {
-      federations: '/federations',
-      verify: '/verify',
-      status: '/status',
-    },
+    endpoints: { federations: '/federations', verify: '/verify', status: '/status' },
   },
 };
 
@@ -45,7 +59,6 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  queryClient.clear();
   globalThis.fetch = originalFetch;
 });
 
@@ -53,58 +66,68 @@ afterEach(() => {
   queryClient.clear();
 });
 
-async function renderHome(): Promise<renderer.ReactTestRenderer> {
-  let view!: renderer.ReactTestRenderer;
-  await act(async () => {
-    view = renderer.create(<Home />);
-    await Promise.resolve();
-  });
-  return view;
+function appValue(homeNode: HomeNode | null | undefined) {
+  return {
+    colors: palettes.light,
+    connectHomeNode: jest.fn(async () => undefined),
+    disconnectHomeNode: jest.fn(async () => undefined),
+    homeNode,
+    reach: 'constrained' as const,
+    refreshHomeNode: jest.fn(async () => undefined),
+    setThemePreference: jest.fn(async () => undefined),
+    themeMode: 'light' as const,
+    themePreference: 'system' as const,
+  };
 }
 
-beforeEach(async () => {
-  await AsyncStorage.clear();
-  await AsyncStorage.setItem('jb.home-node.v1', JSON.stringify(savedNode));
+describe('bootstrap route', () => {
+  it('asks for a home server on a new device', async () => {
+    mockUseApp.mockReturnValue(appValue(null));
+    let view!: renderer.ReactTestRenderer;
+    await act(async () => {
+      view = renderer.create(<BootstrapRoute />);
+    });
+    expect(view.root.findAllByProps({ accessibilityLabel: 'Home server address' })).not.toHaveLength(
+      0,
+    );
+    act(() => view.unmount());
+  });
+
+  it('enters the routed app when a home node is configured', async () => {
+    mockUseApp.mockReturnValue(appValue(savedNode));
+    let view!: renderer.ReactTestRenderer;
+    await act(async () => {
+      view = renderer.create(<BootstrapRoute />);
+    });
+    expect(
+      view.root.findAllByProps({ accessibilityLabel: 'Redirect to /(tabs)' }),
+    ).not.toHaveLength(0);
+    act(() => view.unmount());
+  });
 });
 
-describe('Home', () => {
-  it('asks for a home server when this device has none', async () => {
-    await AsyncStorage.clear();
-    const view = await renderHome();
+describe('feature destinations', () => {
+  it.each(featureDestinations)('renders the $title workspace', async (feature) => {
+    let view!: renderer.ReactTestRenderer;
+    await act(async () => {
+      view = renderer.create(
+        <QueryClientProvider client={queryClient}>
+          <FeatureScreen
+            colors={palettes.light}
+            feature={feature}
+            homeNode={savedNode}
+            onBack={() => undefined}
+          />
+        </QueryClientProvider>,
+      );
+      await Promise.resolve();
+    });
     expect(
-      view.root.findAllByProps({ accessibilityLabel: 'Home server address' }),
+      view.root.findAll(
+        (node) =>
+          node.props.accessibilityRole === 'header' && node.props.children === feature.title,
+      ),
     ).not.toHaveLength(0);
     act(() => view.unmount());
   });
-
-  it('renders the ambient trust and reach shell for a saved node', async () => {
-    const view = await renderHome();
-    expect(
-      view.root.findAllByProps({ accessibilityLabel: 'Network reach: Constrained' }),
-    ).not.toHaveLength(0);
-    expect(view.root.findAllByProps({ accessibilityLabel: 'Profile' })).not.toHaveLength(0);
-    act(() => view.unmount());
-  });
-
-  it.each(featureDestinations)(
-    'opens the $title destination from the app shell',
-    async ({ title, id }) => {
-      const view = await renderHome();
-      act(() => {
-        view.root.findByProps({ accessibilityLabel: 'Profile' }).props.onPress();
-      });
-      act(() => {
-        view.root.findByProps({ accessibilityLabel: `Open ${title}` }).props.onPress();
-      });
-      expect(
-        view.root.findAll(
-          (node) => node.props.accessibilityRole === 'header' && node.props.children === title,
-        ),
-      ).not.toHaveLength(0);
-      if (id === 'proofs') {
-        expect(view.root.findAllByProps({ accessibilityLabel: 'Back' })).not.toHaveLength(0);
-      }
-      act(() => view.unmount());
-    },
-  );
 });

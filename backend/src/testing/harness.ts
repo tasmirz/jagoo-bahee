@@ -185,6 +185,7 @@ export function certifyEnvelope(
     createdAtMs?: bigint;
     validFromMs?: bigint;
     validUntilMs?: bigint;
+    plane?: SdkPlane;
   } = {},
 ): Uint8Array {
   const seed = options.seed ?? AUTHOR_SEED;
@@ -195,13 +196,14 @@ export function certifyEnvelope(
   // that is not valid at its own publication time.
   const validFrom = options.validFromMs ?? createdAtMs - 60_000n;
   const validUntil = options.validUntilMs ?? createdAtMs + 365n * 24n * 60n * 60n * 1000n;
+  const plane = options.plane ?? SdkPlane.FORUM;
 
   // ML-DSA-44 keygen wants a 32-byte seed. Derived from the Ed25519 seed so the same test
   // identity always produces the same PQ key.
   const pq = mldsa.generateKeyPair(Uint8Array.from(seed, (b) => b ^ 0x5a));
 
   const fields = {
-    plane: SdkPlane.FORUM,
+    plane,
     deviceKey,
     pqKey: pq.publicKey,
     validFrom,
@@ -215,7 +217,7 @@ export function certifyEnvelope(
 
   const body = KeyCertificate.encode(
     KeyCertificate.fromPartial({
-      plane: ProtoPlane.PLANE_FORUM,
+      plane: plane === SdkPlane.SIGNAL ? ProtoPlane.PLANE_SIGNAL : ProtoPlane.PLANE_FORUM,
       device_key: deviceKey,
       pq_key: pq.publicKey,
       pq_attestation: attestation,
@@ -226,7 +228,11 @@ export function certifyEnvelope(
   ).finish();
 
   return signEnvelope({
-    domain: 'jb:key:certify:forum:v1',
+    domain:
+      plane === SdkPlane.SIGNAL
+        ? 'jb:key:certify:signal:v1'
+        : 'jb:key:certify:forum:v1',
+    plane,
     seed,
     scope: '',
     priority: 4,

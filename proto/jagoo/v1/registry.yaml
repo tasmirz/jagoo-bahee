@@ -579,7 +579,8 @@ domains:
     idempotent: true
     scope_kind: NONE
     key_algs: [ED25519]
-    max_bytes: 1024
+    # ADR-013: an ML-KEM-768 ciphertext alone is 1088 bytes.
+    max_bytes: 2048
     credit_cost: 1
     requires: []
     permission: authenticated

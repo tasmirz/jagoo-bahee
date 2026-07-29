@@ -4,8 +4,10 @@ import { PeerTrust } from '../../ports/network.port.js';
 import { EnvelopeRejected, RejectionCode } from '../errors.js';
 import { quotaFor } from './trust.js';
 import {
+  bytesPerMinuteFor,
   classPermitted,
   consume,
+  consumePair,
   costOf,
   envelopesPerMinuteFor,
   newBucket,
@@ -108,6 +110,92 @@ describe('stream filter', () => {
     expect(soleRequestedPlane({ planes: [Plane.FORUM] })).toBe(Plane.FORUM);
     expect(soleRequestedPlane({ planes: [] })).toBeNull();
     expect(soleRequestedPlane({ planes: [Plane.FORUM, Plane.SIGNAL] })).toBeNull();
+  });
+});
+
+describe('FD-15 — envelopes and bytes are one decision', () => {
+  const base = {
+    envelopeCost: 1,
+    envelopesPerMinute: 10,
+    byteCost: 100,
+    bytesPerMinute: 1000,
+    nowMs: 0,
+  };
+
+  it('spends both buckets when both allow', () => {
+    const decision = consumePair({
+      ...base,
+      envelopes: newBucket(10, 0),
+      bytes: newBucket(1000, 0),
+    });
+    expect(decision.allowed).toBe(true);
+    expect(decision.envelopes.tokens).toBe(9);
+    expect(decision.bytes.tokens).toBe(900);
+  });
+
+  /**
+   * The reason this is one function and not two calls.
+   *
+   * A peer sending oversized envelopes must not burn its envelope allowance on requests
+   * that were refused: that converts a byte-limit breach into an envelope-limit breach and
+   * tells the peer to slow down when it should be sending less.
+   */
+  it('debits NEITHER bucket when only the byte bucket refuses', () => {
+    const decision = consumePair({
+      ...base,
+      envelopes: newBucket(10, 0),
+      bytes: { tokens: 10, lastRefillMs: 0 },
+    });
+    expect(decision.allowed).toBe(false);
+    expect(decision.envelopes.tokens).toBe(10);
+    expect(decision.bytes.tokens).toBe(10);
+    expect(decision.overBy).toBe(90);
+  });
+
+  it('debits neither bucket when only the envelope bucket refuses', () => {
+    const decision = consumePair({
+      ...base,
+      envelopes: { tokens: 0, lastRefillMs: 0 },
+      bytes: newBucket(1000, 0),
+    });
+    expect(decision.allowed).toBe(false);
+    expect(decision.bytes.tokens).toBe(1000);
+    expect(decision.overBy).toBe(1);
+  });
+
+  it('keeps refilled timestamps on refusal, so a refused peer still accrues back', () => {
+    // One second of a 10/min rate is 1/6 of a token — a real gain, still short of the
+    // cost of 1. The refusal must bank it anyway, or a peer refused once can never
+    // accumulate its way back to allowed.
+    const decision = consumePair({
+      ...base,
+      envelopes: { tokens: 0, lastRefillMs: 0 },
+      bytes: newBucket(1000, 0),
+      nowMs: 1_000,
+    });
+    expect(decision.allowed).toBe(false);
+    expect(decision.envelopes.lastRefillMs).toBe(1_000);
+    expect(decision.envelopes.tokens).toBeCloseTo(10 / 60);
+  });
+
+  it('reports the LARGER shortfall, so the hint reflects the binding limit', () => {
+    const decision = consumePair({
+      ...base,
+      envelopes: { tokens: 0, lastRefillMs: 0 },
+      bytes: { tokens: 0, lastRefillMs: 0 },
+    });
+    expect(decision.overBy).toBe(100);
+  });
+
+  /** BR-04 — bulk may take half the byte grant, so volume cannot starve the alert channel. */
+  it('reserves byte capacity for classes 0–2 against bulk', () => {
+    const quota = quotaFor(PeerTrust.NORMAL);
+    expect(bytesPerMinuteFor(quota, Priority.BULK)).toBe(Math.floor(quota.bytesPerMin / 2));
+    expect(bytesPerMinuteFor(quota, Priority.BROADCAST)).toBe(quota.bytesPerMin);
+  });
+
+  it('gives a class the peer may not send a zero byte rate, not an unlimited one', () => {
+    expect(bytesPerMinuteFor(quotaFor(PeerTrust.PROBATION), Priority.BULK)).toBe(0);
   });
 });
 

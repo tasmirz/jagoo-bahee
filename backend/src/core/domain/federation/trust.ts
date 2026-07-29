@@ -211,3 +211,18 @@ export function quotaFor(level: PeerTrust): PeerQuota {
 export function isGossipPartner(level: PeerTrust): boolean {
   return level === PeerTrust.TRUSTED;
 }
+
+/**
+ * `PeerTrust` as the `jagoo.v1.TrustLevel` number the wire carries.
+ *
+ * Defined once, here, because it is part of what a `ServerVouch` signature covers: the
+ * signer and every verifier must agree on the integer, and two copies of this table that
+ * drift by one would silently invalidate every vouch rather than fail loudly.
+ */
+export const TRUST_LEVEL_WIRE: Readonly<Record<PeerTrust, number>> = {
+  [PeerTrust.UNSPECIFIED]: 0,
+  [PeerTrust.BLOCKED]: 1,
+  [PeerTrust.PROBATION]: 2,
+  [PeerTrust.NORMAL]: 3,
+  [PeerTrust.TRUSTED]: 4,
+};

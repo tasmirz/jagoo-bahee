@@ -79,6 +79,17 @@ export class FederationSync {
     await this.deps.peers.upsert(updated);
 
     if (outcome.sth) await this.deps.inbox.observePeerSth(updated, outcome.sth);
+
+    // FD-05 — ingest the answering node's own vouches.
+    //
+    // Each is weighed by how much WE trust the asserter (`evaluateTrust`), and
+    // `recordVouch` verifies the signature and drops vouches about peers we do not know.
+    // So this is safe to accept from any peer: an untrusted node's opinions arrive, are
+    // stored, and count for nothing until that node itself earns reach.
+    for (const vouch of outcome.vouches) {
+      await this.deps.inbox.recordVouch(vouch);
+    }
+
     return (await this.deps.peers.get(updated.serverId)) ?? updated;
   }
 

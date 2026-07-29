@@ -4,6 +4,7 @@
     "slug": "jagoo-bahee",
     "scheme": "jagoobahee",
     "version": "2.0.0",
+    "icon": "./assets/jagoo-app-icon.png",
     "orientation": "default",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -21,10 +22,24 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.jagoobahee.app"
+      "bundleIdentifier": "com.jagoobahee.app",
+      "requireFullScreen": false
     },
     "android": {
-      "package": "com.jagoobahee.app"
+      "package": "com.jagoobahee.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/jagoo-app-icon.png",
+        "backgroundColor": "#F6F5F2"
+      }
+    },
+    "splash": {
+      "image": "./assets/jagoo-app-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F6F5F2",
+      "dark": {
+        "image": "./assets/jagoo-app-icon.png",
+        "backgroundColor": "#0E0F11"
+      }
     },
     "experiments": {
       "typedRoutes": true

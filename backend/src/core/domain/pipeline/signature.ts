@@ -52,14 +52,14 @@ export async function acceptCertificate(
 
   const createdAt = Number(env.createdAtMs);
 
-  const certificate = await store.certificateAt(env.authorKey, createdAt);
+  const certificate = await store.certificateAt(env.plane, env.authorKey, createdAt);
   if (!certificate) {
     // ER-02: says nothing about whether this key is known to the node. Naming the key would
     // turn the write endpoint into an oracle for which identities exist here.
     throw new EnvelopeRejected(RejectionCode.NO_CERTIFICATE, 'author key is not certified');
   }
 
-  const revocation = await store.revocationFor(env.authorKey);
+  const revocation = await store.revocationFor(env.plane, env.authorKey);
   if (revocation && createdAt >= revocation.effectiveFromMs) {
     throw new EnvelopeRejected(RejectionCode.KEY_REVOKED, 'author key was revoked');
   }

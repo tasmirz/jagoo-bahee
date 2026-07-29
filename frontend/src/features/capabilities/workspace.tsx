@@ -9,17 +9,18 @@ import {
   useNodeFeed,
   useNodeSearch,
   type NodePage,
-} from '../data/node';
-import type { HomeNode } from '../data/node-config';
-import { listAuditCertificates } from '../audit';
+} from '../../data/node';
+import type { HomeNode } from '../../data/node-config';
+import { listAuditCertificates } from '../../audit';
 import {
   forumSessionRequest,
   forumSessionSummary,
   type ForumSessionSummary,
-} from '../signer';
-import type { AppPalette } from '../theme';
-import { radius, spacing, type as typography } from '../theme';
-import { EmptyState, StatusBanner } from '../ui/primitives';
+} from '../../signer';
+import type { AppPalette } from '../../theme';
+import { radius, spacing, type as typography } from '../../theme';
+import { EmptyState, StatusBanner } from '../../ui/primitives';
+import { useDebouncedValue } from '../../hooks/use-debounced-value';
 
 interface WorkspaceProps {
   readonly colors: AppPalette;
@@ -390,7 +391,7 @@ export function PostsWorkspace({ colors, homeNode }: WorkspaceProps) {
   const proved = items.filter((post) => post.provenance?.receipt).length;
   return (
     <>
-      <View style={styles.metrics}>
+      <View style={[styles.metrics, { borderColor: colors.border }]}>
         <Metric colors={colors} label="Visible posts" value={String(items.length)} />
         <Metric colors={colors} label="Comments" value={String(comments)} />
         <Metric colors={colors} label="Receipted" value={`${proved}/${items.length}`} />
@@ -428,7 +429,8 @@ export function PostsWorkspace({ colors, homeNode }: WorkspaceProps) {
 
 export function SearchWorkspace({ colors, homeNode }: WorkspaceProps) {
   const [query, setQuery] = useState('');
-  const search = useNodeSearch(homeNode.baseUrl, query);
+  const debouncedQuery = useDebouncedValue(query);
+  const search = useNodeSearch(homeNode.baseUrl, debouncedQuery);
   const items = search.data?.value.items ?? [];
   return (
     <Panel colors={colors} eyebrow="Node-wide" title="Search live projections">
@@ -718,7 +720,7 @@ export function OperationsWorkspace({ colors, homeNode }: WorkspaceProps) {
   const captchaServices = homeNode.discovery.services.mcaptcha;
   return (
     <>
-      <View style={styles.metrics}>
+      <View style={[styles.metrics, { borderColor: colors.border }]}>
         <Metric
           colors={colors}
           label="Node"
@@ -797,7 +799,7 @@ export function AdminWorkspace({ colors, homeNode }: WorkspaceProps) {
   }
   return (
     <>
-      <View style={styles.metrics}>
+      <View style={[styles.metrics, { borderColor: colors.border }]}>
         <Metric colors={colors} label="Identities" value={String(admin.data?.identities ?? 0)} />
         <Metric colors={colors} label="Communities" value={String(admin.data?.communities ?? 0)} />
         <Metric colors={colors} label="Posts" value={String(admin.data?.posts ?? 0)} />
@@ -853,7 +855,7 @@ function Metric({
   readonly value: string;
 }) {
   return (
-    <View style={[styles.metric, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <View style={styles.metric}>
       <Text style={[typography.h2, { color: colors.text }]}>{value}</Text>
       <Text style={[typography.caption, { color: colors.text2 }]}>{label}</Text>
     </View>
@@ -916,16 +918,16 @@ const styles = StyleSheet.create({
   metrics: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
+    marginHorizontal: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   metric: {
     minWidth: 100,
-    minHeight: 84,
+    minHeight: 76,
     flex: 1,
-    borderWidth: 1,
-    borderRadius: radius.lg,
-    padding: spacing.md,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
     justifyContent: 'center',
   },
   search: {

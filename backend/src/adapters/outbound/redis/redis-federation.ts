@@ -13,48 +13,70 @@
  */
 
 import type Redis from 'ioredis';
-import type { Priority } from '../../../core/domain/envelope.js';
-import { PeerQuotaLimiter, type QuotaVerdict } from '../../../core/ports/network.port.js';
+import {
+  PeerQuotaLimiter,
+  type QuotaRequest,
+  type QuotaVerdict,
+} from '../../../core/ports/network.port.js';
 import { OperatorAlerts, type OperatorAlert } from '../../../core/ports/alerts.port.js';
 
 /**
- * Continuous-refill token bucket.
+ * Two continuous-refill token buckets — envelopes and bytes — decided and spent together.
  *
- * KEYS[1] tokens · KEYS[2] last-refill timestamp
- * ARGV[1] perMinute · ARGV[2] cost · ARGV[3] nowMs · ARGV[4] ttlMs
+ * KEYS[1] envelope tokens · KEYS[2] envelope last-refill
+ * KEYS[3] byte tokens     · KEYS[4] byte last-refill
+ * ARGV[1] perMinute · ARGV[2] cost · ARGV[3] bytesPerMinute · ARGV[4] byteCost
+ * ARGV[5] nowMs     · ARGV[6] ttlMs
  *
- * Returns `{allowed, overByMilliTokens}`. Tokens are carried as thousandths because Lua
- * numbers are doubles and Redis returns integers — scaling keeps the fractional refill a
- * peer earns between two envelopes, which at 120/min is 0.5 tokens per second and would
- * otherwise round away to nothing.
+ * Returns `{allowed, overByMilliTokens}`.
+ *
+ * ── Why one script and not two ──────────────────────────────────────────────────────
+ * FD-15 grants both allowances and a peer is over quota if it exceeds either, so the two
+ * decisions are one decision. Running them as separate scripts would debit the envelope
+ * bucket before discovering the byte bucket refuses, and a peer sending oversized envelopes
+ * would burn its envelope allowance on requests that were never admitted — turning a byte
+ * breach into an envelope breach and telling the peer to slow down when it should be
+ * sending less. Nothing is debited unless both pass.
+ *
+ * Tokens are carried as thousandths because Lua numbers are doubles and Redis returns
+ * integers — scaling keeps the fractional refill a peer earns between two envelopes, which
+ * at 120/min is 0.5 tokens per second and would otherwise round away to nothing.
  */
 const QUOTA_LUA = `
-local perMinute = tonumber(ARGV[1])
-local cost = tonumber(ARGV[2]) * 1000
-local now = tonumber(ARGV[3])
-local ttl = tonumber(ARGV[4])
-local capacity = perMinute * 1000
+local now = tonumber(ARGV[5])
+local ttl = tonumber(ARGV[6])
 
-local tokens = tonumber(redis.call('GET', KEYS[1]))
-local last = tonumber(redis.call('GET', KEYS[2]))
-if tokens == nil then tokens = capacity end
-if last == nil then last = now end
-
-if now > last then
-  tokens = math.min(capacity, tokens + ((now - last) / 60000) * capacity)
+local function bucket(tokensKey, atKey, perMinute, cost)
+  local capacity = perMinute * 1000
+  local tokens = tonumber(redis.call('GET', tokensKey))
+  local last = tonumber(redis.call('GET', atKey))
+  if tokens == nil then tokens = capacity end
+  if last == nil then last = now end
+  if now > last then
+    tokens = math.min(capacity, tokens + ((now - last) / 60000) * capacity)
+  end
+  return tokens, math.max(0, cost - tokens)
 end
+
+local envCost = tonumber(ARGV[2]) * 1000
+local byteCost = tonumber(ARGV[4]) * 1000
+local envTokens, envShort = bucket(KEYS[1], KEYS[2], tonumber(ARGV[1]), envCost)
+local byteTokens, byteShort = bucket(KEYS[3], KEYS[4], tonumber(ARGV[3]), byteCost)
 
 local allowed = 0
-local overBy = 0
-if tokens >= cost then
+local overBy = math.max(envShort, byteShort)
+if envShort == 0 and byteShort == 0 then
   allowed = 1
-  tokens = tokens - cost
-else
-  overBy = cost - tokens
+  envTokens = envTokens - envCost
+  byteTokens = byteTokens - byteCost
 end
 
-redis.call('SET', KEYS[1], math.floor(tokens), 'PX', ttl)
+-- The refilled timestamps are written even on refusal: time passing is not something a
+-- refusal should undo, or a rejected peer would never accrue its way back to allowed.
+redis.call('SET', KEYS[1], math.floor(envTokens), 'PX', ttl)
 redis.call('SET', KEYS[2], now, 'PX', ttl)
+redis.call('SET', KEYS[3], math.floor(byteTokens), 'PX', ttl)
+redis.call('SET', KEYS[4], now, 'PX', ttl)
 return {allowed, math.floor(overBy)}
 `;
 
@@ -67,25 +89,25 @@ export class RedisPeerQuotaLimiter extends PeerQuotaLimiter {
     super();
   }
 
-  async consume(
-    peerId: string,
-    priority: Priority,
-    cost: number,
-    perMinute: number,
-    nowMs: number,
-  ): Promise<QuotaVerdict> {
+  async consume(request: QuotaRequest): Promise<QuotaVerdict> {
     // A class this peer may not send has a zero rate. Treating zero as "unlimited" would
     // invert FG-09 — a PROBATION peer's BULK envelopes would be admitted, not refused.
-    if (perMinute <= 0) return { allowed: false, overBy: cost };
+    if (request.perMinute <= 0) return { allowed: false, overBy: request.cost };
+    if (request.bytesPerMinute <= 0) return { allowed: false, overBy: request.bytes };
 
+    const prefix = `jb:fedquota:${request.peerId}:${request.priority}`;
     const result = (await this.redis.eval(
       QUOTA_LUA,
-      2,
-      `jb:fedquota:${peerId}:${priority}:tokens`,
-      `jb:fedquota:${peerId}:${priority}:at`,
-      String(perMinute),
-      String(cost),
-      String(nowMs),
+      4,
+      `${prefix}:tokens`,
+      `${prefix}:at`,
+      `${prefix}:bytes`,
+      `${prefix}:bytesat`,
+      String(request.perMinute),
+      String(request.cost),
+      String(request.bytesPerMinute),
+      String(request.bytes),
+      String(request.nowMs),
       String(this.ttlMs),
     )) as [number, number];
 

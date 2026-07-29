@@ -22,7 +22,7 @@
  */
 
 import { identityId, serverId as serverIdOf } from '@jagoo/sdk/core';
-import type { AnnounceRequestFields } from '@jagoo/sdk';
+import { serverVouchSigningBytes, type AnnounceRequestFields } from '@jagoo/sdk';
 import type { ParsedEnvelope, Plane, Priority } from '../domain/envelope.js';
 import { EnvelopeRejected, RejectionCode, isRejection } from '../domain/errors.js';
 import { parseEnvelope } from '../domain/pipeline/parse.js';
@@ -34,8 +34,14 @@ import {
   evaluateTrust,
   quotaFor,
   QUOTA_BREACH_LIMIT,
+  TRUST_LEVEL_WIRE,
 } from '../domain/federation/trust.js';
-import { classPermitted, costOf, envelopesPerMinuteFor } from '../domain/federation/quota.js';
+import {
+  bytesPerMinuteFor,
+  classPermitted,
+  costOf,
+  envelopesPerMinuteFor,
+} from '../domain/federation/quota.js';
 import {
   assertStreamPlane,
   matchesStreamFilter,
@@ -200,11 +206,35 @@ export class FederationInbox {
     }
   }
 
-  /** T2.3 — attach a signed vouch and re-derive the peer's level. */
+  /**
+   * T2.3 — attach a signed vouch and re-derive the peer's level.
+   *
+   * The signature is checked HERE rather than at the call site, because every ingress path
+   * — handshake gossip, directory exchange, an operator action — converges on this method,
+   * and a vouch is an input to `evaluateTrust`. An unverified vouch is an unauthenticated
+   * vote on another node's reach: accepting one would let any peer promote or block any
+   * other simply by asserting it in someone else's name.
+   *
+   * Returns `null` for an unknown peer, so a peer cannot conjure directory rows by
+   * vouching for keys we have never met.
+   */
   async recordVouch(vouch: PeerVouch): Promise<PeerRecord | null> {
     const peerId = serverIdOf(vouch.peerKey);
     const peer = await this.deps.peers.get(peerId);
     if (!peer) return null;
+
+    const signed = this.deps.verifier.verify(
+      1, // ED25519
+      vouch.asserterKey,
+      serverVouchSigningBytes({
+        peerKey: vouch.peerKey,
+        level: TRUST_LEVEL_WIRE[vouch.level],
+        note: vouch.note,
+        assertedAtMs: BigInt(vouch.assertedAtMs),
+      }),
+      vouch.signature,
+    );
+    if (!signed) return null;
 
     const kept = (peer.vouches ?? []).filter(
       (existing) => !sameKey(existing.asserterKey, vouch.asserterKey),
@@ -284,14 +314,17 @@ export class FederationInbox {
         continue;
       }
 
-      const perMinute = envelopesPerMinuteFor(quota, envelope.priority);
-      const verdict = await this.deps.quotas.consume(
+      // FD-15 — both grants, one decision. `raw.length` is the size as it arrived on the
+      // wire, not a re-encoded estimate: the peer is charged for the bytes it actually sent.
+      const verdict = await this.deps.quotas.consume({
         peerId,
-        envelope.priority,
-        costOf(envelope.priority),
-        perMinute,
-        this.deps.clock.nowMs(),
-      );
+        priority: envelope.priority,
+        cost: costOf(envelope.priority),
+        perMinute: envelopesPerMinuteFor(quota, envelope.priority),
+        bytes: raw.length,
+        bytesPerMinute: bytesPerMinuteFor(quota, envelope.priority),
+        nowMs: this.deps.clock.nowMs(),
+      });
       if (!verdict.allowed) {
         // FD-15 — a hint, never a closed connection. A dropped connection costs both sides
         // a handshake and returns the peer to the same over-quota state.
@@ -416,8 +449,14 @@ export class FederationInbox {
       return PeerLogStatus.UNKNOWN;
     }
 
+    // ── One source of truth for what this peer last attested ─────────────────────────
+    //
+    // The ledger, which is durable. This comparison used to run twice — here, and again
+    // inside `WitnessLog.verifyPeerSth`, which kept its own per-process `Map`. The two
+    // disagreed after any restart, and the in-process copy was the one whose verdict was
+    // honoured. Fork detection that forgets everything when the node restarts is not fork
+    // detection, so `verifyPeerSth` is gone and this is the only comparison left.
     const previous = await this.deps.ledger.lastPeerSth(peer.serverId);
-    const status = await this.deps.witness.verifyPeerSth(peer.publicKey, sth);
 
     const regressed = previous !== null && sth.treeSize < previous.treeSize;
     const rewritten =
@@ -425,7 +464,7 @@ export class FederationInbox {
       sth.treeSize === previous.treeSize &&
       !sameKey(sth.rootHash, previous.rootHash);
 
-    if (status === PeerLogStatus.FORKED || regressed || rewritten) {
+    if (regressed || rewritten) {
       const detail = regressed
         ? `tree shrank from ${previous?.treeSize} to ${sth.treeSize}`
         : 'presented a different root for a tree size it already attested';
@@ -445,7 +484,13 @@ export class FederationInbox {
     }
 
     await this.deps.ledger.recordPeerSth(peer.serverId, sth);
-    return status;
+
+    // Same size, same root: they told us the same thing twice, and it holds.
+    if (previous !== null && sth.treeSize === previous.treeSize) return PeerLogStatus.CONSISTENT;
+
+    // A grown tree needs a consistency proof before it can be called consistent. Nothing
+    // here supplies one yet, so the honest answer is "not checked" — never "fine".
+    return PeerLogStatus.UNKNOWN;
   }
 
   // ── Shared ────────────────────────────────────────────────────────────────────────
