@@ -31,6 +31,8 @@ import { ForumReadController } from '../adapters/inbound/http/forum-read.control
 import { EventsController } from '../adapters/inbound/http/events.controller.js';
 import { LabelsController } from '../adapters/inbound/http/labels.controller.js';
 import { HealthController } from '../adapters/inbound/http/health.controller.js';
+import { DiscoveryController } from '../adapters/inbound/http/discovery.controller.js';
+import { EvidenceController } from '../adapters/inbound/http/evidence.controller.js';
 import { SecurityHeadersInterceptor } from '../adapters/inbound/http/security-headers.interceptor.js';
 import { RequestSecurityInterceptor } from '../adapters/inbound/http/request-security.interceptor.js';
 import { ObservabilityInterceptor } from '../adapters/inbound/http/observability.interceptor.js';
@@ -103,6 +105,8 @@ import { InMemoryOperatorConfig } from '../adapters/outbound/in-memory/in-memory
 import { RedisOperatorConfig } from '../adapters/outbound/redis/redis-operator-config.js';
 import { forumHandlers } from '../features/forum/index.js';
 import { MONGO_RUNTIME, REDIS_RUNTIME, S3_RUNTIME, type MongoRuntime } from './runtime.js';
+import { ServiceDirectory } from '../core/ports/service-directory.port.js';
+import { ConfiguredServiceDirectory } from '../adapters/outbound/configured-service-directory.js';
 
 export const NONCE_STORE = Symbol('NonceStore');
 export const NODE_ENVELOPE_STORE = Symbol('NodeEnvelopeStore');
@@ -132,6 +136,8 @@ class RuntimeLifecycle implements OnApplicationShutdown {
     EventsController,
     LabelsController,
     HealthController,
+    DiscoveryController,
+    EvidenceController,
     AdminController,
   ],
   providers: [
@@ -142,6 +148,7 @@ class RuntimeLifecycle implements OnApplicationShutdown {
     { provide: Clock, useClass: SystemClock },
     { provide: RandomSource, useClass: SequentialRandom },
     { provide: EventBus, useClass: InMemoryEventBus },
+    { provide: ServiceDirectory, useClass: ConfiguredServiceDirectory },
     { provide: LabelProvider, useClass: NullLabelProvider },
     {
       provide: NodeSigner,
@@ -207,10 +214,7 @@ class RuntimeLifecycle implements OnApplicationShutdown {
         }
         const accessKeyId = process.env.S3_ACCESS_KEY;
         const secretAccessKey = process.env.S3_SECRET_KEY;
-        if (
-          process.env.NODE_ENV === 'production' &&
-          (!accessKeyId || !secretAccessKey)
-        ) {
+        if (process.env.NODE_ENV === 'production' && (!accessKeyId || !secretAccessKey)) {
           throw new Error('S3_ACCESS_KEY and S3_SECRET_KEY are required in production');
         }
         return new S3Client({
@@ -259,10 +263,7 @@ class RuntimeLifecycle implements OnApplicationShutdown {
       provide: RequestSecurity,
       useFactory: (redis: Redis | null) =>
         redis
-          ? new RedisRequestSecurity(
-              redis,
-              Number(process.env.REQUEST_LIMIT_PER_MINUTE ?? 300),
-            )
+          ? new RedisRequestSecurity(redis, Number(process.env.REQUEST_LIMIT_PER_MINUTE ?? 300))
           : new InMemoryRequestSecurity(Number(process.env.REQUEST_LIMIT_PER_MINUTE ?? 300)),
       inject: [REDIS_RUNTIME],
     },

@@ -22,6 +22,14 @@ services:
     image: mongo:7
     container_name: jb-mongo
     command: ['--replSet', 'rs0', '--bind_ip_all', '--quiet']
+    # ── Connecting from OUTSIDE this network ────────────────────────────────────────
+    # `mongo-init` initiates the set with member host `mongo:27017`. In-network services
+    # resolve that name; a client on the host does not. A host-side URL carrying
+    # `?replicaSet=rs0` is therefore a seed the driver immediately discards in favour of
+    # the advertised `mongo:27017`, which it then cannot resolve — server selection never
+    # completes and the caller simply hangs. Host-side clients (CI's integration gates,
+    # `pnpm dev:backend` against `ops:up`) MUST use `?directConnection=true` instead. The
+    # server is still a replica-set member, so transactions are unaffected. L-16.
     ports:
       - '27017:27017'
     volumes:
@@ -119,6 +127,28 @@ services:
       - -c
       - mc alias set local http://minio:9000 jagoo jagoo-dev-only && mc mb --ignore-existing local/jagoo
 
+  audit-log:
+    build:
+      context: ..
+      dockerfile: ops/audit-log.Dockerfile
+    container_name: jb-audit-log
+    environment:
+      PORT: '3100'
+      ALS_DATA_FILE: '/data/audit-log.jsonl'
+    ports:
+      - '3100:3100'
+    volumes:
+      - audit-log-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   node:
     build:
       context: ..
@@ -131,6 +161,8 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+      audit-log:
+        condition: service_healthy
     environment:
       # This is a disposable local deployment; production also requires an externally
       # managed persistent blind-credential key.
@@ -148,6 +180,8 @@ services:
       S3_ACCESS_KEY: 'jagoo'
       S3_SECRET_KEY: 'jagoo-dev-only'
       TRUSTED_PROXY_HOPS: '0'
+      AUDIT_LOG_SERVICES: 'http://127.0.0.1:3100'
+      SERVICE_DISCOVERY_PROBE: 'false'
     ports:
       - '3000:3000'
     healthcheck:
@@ -225,3 +259,4 @@ volumes:
   mongo-data:
   redis-data:
   minio-data:
+  audit-log-data:

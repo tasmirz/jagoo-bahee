@@ -9,7 +9,7 @@
     "build": "expo export --platform ios --platform android",
     "typecheck": "tsc --noEmit",
     "lint": "eslint app src",
-    "test": "jest",
+    "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "clean": "rimraf dist .expo",
     "android": "expo run:android",

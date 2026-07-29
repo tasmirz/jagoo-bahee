@@ -48,7 +48,7 @@ export function Screen({
 export function AppHeader({
   colors,
   reach,
-  title = 'Jago',
+  title = 'Jagoo',
   onReach,
   onSearch,
 }: {
@@ -73,7 +73,7 @@ export function AppHeader({
         </Text>
       </View>
       <View style={styles.headerActions}>
-        <ReachPill colors={colors} state={reach} onPress={onReach} compact />
+        <ReachPill colors={colors} state={reach} onPress={onReach} />
         {onSearch ? (
           <IconButton colors={colors} icon="search-outline" label="Search" onPress={onSearch} />
         ) : null}
@@ -144,15 +144,24 @@ export function Seal({
   readonly label?: string;
 }) {
   const setting = {
-    synced: { color: colors.verified, icon: 'shield-checkmark' as IconName, text: 'verified · synced' },
-    queued: { color: colors.constrained, icon: 'shield-outline' as IconName, text: 'verified · queued' },
-    failed: { color: colors.blackout, icon: 'shield-outline' as IconName, text: 'verification failed' },
+    synced: {
+      color: colors.verified,
+      icon: 'shield-checkmark' as IconName,
+      text: 'verified · synced',
+    },
+    queued: {
+      color: colors.constrained,
+      icon: 'shield-outline' as IconName,
+      text: 'verified · queued',
+    },
+    failed: {
+      color: colors.blackout,
+      icon: 'shield-outline' as IconName,
+      text: 'verification failed',
+    },
   }[state];
   return (
-    <View
-      accessibilityLabel={label ?? setting.text}
-      style={styles.seal}
-    >
+    <View accessibilityLabel={label ?? setting.text} style={styles.seal}>
       <Ionicons name={setting.icon} size={14} color={setting.color} />
       <Text style={[typography.mono, { color: setting.color }]}>{label ?? setting.text}</Text>
     </View>
@@ -166,6 +175,7 @@ export function IconButton({
   onPress,
   active = false,
   signal = false,
+  disabled = false,
 }: {
   readonly colors: AppPalette;
   readonly icon: IconName;
@@ -173,15 +183,21 @@ export function IconButton({
   readonly onPress?: () => void;
   readonly active?: boolean;
   readonly signal?: boolean;
+  readonly disabled?: boolean;
 }) {
   const tint = signal ? colors.signal : active ? colors.ember : colors.text2;
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={onPress}
       hitSlop={8}
-      style={({ pressed }) => [styles.iconButton, { opacity: pressed ? 0.55 : 1 }]}
+      style={({ pressed }) => [
+        styles.iconButton,
+        { opacity: disabled ? 0.4 : pressed ? 0.55 : 1 },
+      ]}
     >
       <Ionicons name={icon} size={21} color={tint} />
     </Pressable>
@@ -325,9 +341,7 @@ export function EmptyState({
       </View>
       <Text style={[typography.h2, { color: colors.text }]}>{title}</Text>
       <Text style={[typography.body, styles.centerText, { color: colors.text2 }]}>{body}</Text>
-      {action ? (
-        <Button colors={colors} label={action} onPress={onAction} system={system} />
-      ) : null}
+      {action ? <Button colors={colors} label={action} onPress={onAction} system={system} /> : null}
     </View>
   );
 }
@@ -406,7 +420,9 @@ export function BottomNavigation({
               ]}
             >
               <Ionicons
-                name={selected && !create ? item.icon.replace('-outline', '') as IconName : item.icon}
+                name={
+                  selected && !create ? (item.icon.replace('-outline', '') as IconName) : item.icon
+                }
                 size={create ? 25 : 20}
                 color={create ? colors.onAccent : tint}
               />
@@ -468,7 +484,7 @@ const styles = StyleSheet.create({
   brandMarkHole: { flex: 1, borderRadius: radius.pill },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   reach: {
-    minHeight: 36,
+    minHeight: 44,
     borderWidth: 1,
     borderRadius: radius.pill,
     flexDirection: 'row',
@@ -502,7 +518,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   pill: {
-    minHeight: 36,
+    minHeight: 44,
     paddingHorizontal: spacing.sm,
     borderRadius: radius.pill,
     borderWidth: 1,

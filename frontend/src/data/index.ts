@@ -61,7 +61,7 @@ export const queryClient = new QueryClient({
     queries: {
       networkMode: 'offlineFirst',
       staleTime: 30_000,
-      gcTime: 7 * 24 * 60 * 60 * 1000,
+      gcTime: process.env.NODE_ENV === 'test' ? Infinity : 7 * 24 * 60 * 60 * 1000,
       retry: 1,
     },
     mutations: { networkMode: 'offlineFirst', retry: 2 },

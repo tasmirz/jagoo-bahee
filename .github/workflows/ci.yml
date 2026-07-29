@@ -119,13 +119,26 @@ jobs:
         run: pnpm build
       - name: test (includes P0-G6 lint probes and P0-G7 rejection)
         run: pnpm test
+      # ── Why directConnection=true and not replicaSet=rs0 ────────────────────────────
+      # `mongo-init` initiates the set with member host `mongo:27017`, which is correct:
+      # every in-network service resolves that name. A client on the RUNNER HOST does not.
+      # With `?replicaSet=rs0` the driver treats the URL as a seed, discovers the sole
+      # member as `mongo:27017`, cannot resolve it, and never completes server selection —
+      # observed as `Hook timed out in 10000ms` with no mention of DNS or of Mongo.
+      # `directConnection=true` skips topology discovery and talks to the mapped port. The
+      # server is still a replica-set member, so multi-document transactions — the entire
+      # point of VP-02 — still work. Build log L-16.
+      #
+      # JB_REQUIRE_INTEGRATION makes a missing URL fail instead of skipping. Without it,
+      # a typo here reports green while running nothing (L-11).
       - name: production adapter integration gates (VP-02, P1-G6, T1.33)
         run: >-
           pnpm --filter @jagoo/backend exec vitest run
           src/adapters/outbound/mongo/mongo.integration.spec.ts
           src/adapters/outbound/redis/redis.integration.spec.ts
         env:
-          MONGO_URL: mongodb://127.0.0.1:27017/jagoo_ci?replicaSet=rs0
+          JB_REQUIRE_INTEGRATION: '1'
+          MONGO_URL: mongodb://127.0.0.1:27017/jagoo_ci?directConnection=true
           REDIS_URL: redis://127.0.0.1:6379/15
       - name: infrastructure logs on failure
         if: failure()

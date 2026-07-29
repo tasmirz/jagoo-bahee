@@ -10,7 +10,7 @@ export {
   isContentId,
 } from './content-id.js';
 export { base32Encode, base32Decode } from './base32.js';
-export { ByteWriter, bytesEqual, encodeUtf8Nfc } from './wire.js';
+export { ByteWriter, bytesEqual, encodeUtf8Nfc, frameParts } from './wire.js';
 export {
   verifyInclusion,
   verifyReceipt,
@@ -19,6 +19,16 @@ export {
   type OfflineReceipt,
   type OfflineTreeHead,
 } from './evidence.js';
+export {
+  AUDIT_CERTIFICATE_VERSION,
+  createAuditCertificate,
+  verifyAuditCertificate,
+  type AuditCertificate,
+  type AuditCertificateVerification,
+  type AuditReceiptJson,
+  type AuditRequestPacket,
+  type AuditTreeHeadJson,
+} from './audit-certificate.js';
 export {
   ENVELOPE_VERSION,
   FIELD,

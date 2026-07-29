@@ -28,6 +28,9 @@ import {
   identityId,
   pqAttestationBytes,
   revocationAuthorizationBytes,
+  createAuditCertificate,
+  type AuditCertificate,
+  type AuditReceiptJson,
   sealEnvelope,
   blindCredential,
   unblindCredential,
@@ -44,6 +47,8 @@ import {
 import { KeyCertificate, KeyRevocation, RevocationKind } from '@jagoo/sdk/proto';
 import { PostCreate, PostKind } from '@jagoo/sdk/proto';
 import { solvePow, type PowChallengeJson } from '../data/pow';
+import type { DiscoveredService } from '../data/node-config';
+import { storeAndForwardCertificate } from '../audit';
 
 const ROOT_KEY = 'jb.forum.root.v1';
 const text = new TextEncoder();
@@ -424,17 +429,16 @@ export interface ForumSessionSummary {
 export interface PublishedPost {
   readonly contentId: string;
   readonly leafIndex: number;
+  readonly certificate: AuditCertificate;
+  readonly auditCopies: number;
+  readonly auditPending: number;
 }
 
 function authBytes(key: Uint8Array, challenge: Uint8Array): Uint8Array {
   return concat(text.encode('jb-auth-v1\0login\0'), key, challenge);
 }
 
-async function requestJson<T>(
-  baseUrl: string,
-  path: string,
-  init?: RequestInit,
-): Promise<T> {
+async function requestJson<T>(baseUrl: string, path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(new URL(path, `${baseUrl.replace(/\/+$/, '')}/`).toString(), {
     ...init,
     headers: {
@@ -450,6 +454,33 @@ async function requestJson<T>(
   return payload;
 }
 
+async function submitAuditedEnvelope(
+  baseUrl: string,
+  wireBytes: Uint8Array,
+  auditServices: readonly DiscoveredService[],
+  authorization?: string,
+): Promise<{
+  readonly receipt: AuditReceiptJson;
+  readonly certificate: AuditCertificate;
+  readonly auditCopies: number;
+  readonly auditPending: number;
+}> {
+  const requestBody = JSON.stringify({ envelope: base64(wireBytes) });
+  const receipt = await requestJson<AuditReceiptJson>(baseUrl, '/v1/envelopes', {
+    method: 'POST',
+    ...(authorization ? { headers: { Authorization: `Bearer ${authorization}` } } : {}),
+    body: requestBody,
+  });
+  const certificate = createAuditCertificate(text.encode(requestBody), receipt);
+  const stored = await storeAndForwardCertificate(certificate, auditServices);
+  return {
+    receipt,
+    certificate,
+    auditCopies: stored.deliveries.filter((delivery) => delivery.delivered).length,
+    auditPending: stored.deliveries.filter((delivery) => !delivery.delivered).length,
+  };
+}
+
 export async function forumSessionSummary(): Promise<ForumSessionSummary> {
   const configured = await SecureForumSigner.exists();
   const identity = activeSigner ? await activeSigner.identity({ kind: 'device' }) : null;
@@ -459,6 +490,19 @@ export async function forumSessionSummary(): Promise<ForumSessionSummary> {
     authenticated: activeAccessToken !== null,
     ...(identity ? { identityId: identity.id } : {}),
   };
+}
+
+/**
+ * Makes an authenticated read without exposing the bearer token outside the signer boundary.
+ * Feature workspaces use this for profile, notification, message, and operator projections.
+ */
+export async function forumSessionRequest<T>(baseUrl: string, path: string): Promise<T> {
+  if (!activeAccessToken) {
+    throw new Error('Register and authenticate this Forum identity first');
+  }
+  return requestJson<T>(baseUrl, path, {
+    headers: { Authorization: `Bearer ${activeAccessToken}` },
+  });
 }
 
 export async function createForumIdentity(
@@ -499,7 +543,10 @@ export function lockForumIdentity(): void {
   activeCredential = null;
 }
 
-export async function registerForumIdentity(baseUrl: string): Promise<string> {
+export async function registerForumIdentity(
+  baseUrl: string,
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<string> {
   if (!activeSigner) throw new Error('Unlock your Forum identity first');
   const signer = activeSigner;
   const identity = await signer.identity({ kind: 'device' });
@@ -522,18 +569,12 @@ export async function registerForumIdentity(baseUrl: string): Promise<string> {
       },
     },
   );
-  await requestJson(baseUrl, '/v1/envelopes', {
-    method: 'POST',
-    body: JSON.stringify({ envelope: base64(certificate.wireBytes) }),
-  });
+  await submitAuditedEnvelope(baseUrl, certificate.wireBytes, auditServices);
 
   const challenge = await requestJson<{
     readonly challenge: string;
     readonly claim: string;
-  }>(
-    baseUrl,
-    `/v1/auth/challenge?public_key=${encodeURIComponent(base64(identity.publicKey))}`,
-  );
+  }>(baseUrl, `/v1/auth/challenge?public_key=${encodeURIComponent(base64(identity.publicKey))}`);
   const challengeBytes = unbase64(challenge.challenge);
   const signature = await signer.sign(
     { kind: 'device' },
@@ -572,9 +613,12 @@ export async function registerForumIdentity(baseUrl: string): Promise<string> {
 export async function publishForumPost(
   baseUrl: string,
   input: { readonly title: string; readonly bodyMarkdown: string },
+  auditServices: readonly DiscoveredService[] = [],
 ): Promise<PublishedPost> {
   if (!activeSigner) throw new Error('Unlock your Forum identity first');
-  if (!activeAccessToken || !activeCredential) await registerForumIdentity(baseUrl);
+  if (!activeAccessToken || !activeCredential) {
+    await registerForumIdentity(baseUrl, auditServices);
+  }
   const communities = await requestJson<{
     readonly items: readonly { readonly id: string }[];
   }>(baseUrl, '/v1/communities?sort=members&limit=1');
@@ -605,13 +649,17 @@ export async function publishForumPost(
       },
     },
   );
-  const receipt = await requestJson<{
-    readonly content_id: string;
-    readonly leaf_index: number;
-  }>(baseUrl, '/v1/envelopes', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${activeAccessToken}` },
-    body: JSON.stringify({ envelope: base64(sealed.wireBytes) }),
-  });
-  return { contentId: receipt.content_id, leafIndex: receipt.leaf_index };
+  const audited = await submitAuditedEnvelope(
+    baseUrl,
+    sealed.wireBytes,
+    auditServices,
+    activeAccessToken!,
+  );
+  return {
+    contentId: audited.receipt.content_id,
+    leafIndex: audited.receipt.leaf_index,
+    certificate: audited.certificate,
+    auditCopies: audited.auditCopies,
+    auditPending: audited.auditPending,
+  };
 }

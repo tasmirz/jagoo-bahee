@@ -1,6 +1,7 @@
 import { sha256 } from '@noble/hashes/sha256';
 import { concatBytes } from '@noble/hashes/utils';
 import { verify as verifyEd25519 } from '../crypto/ed25519.js';
+import { frameParts } from './wire.js';
 
 const text = new TextEncoder();
 
@@ -36,21 +37,8 @@ export function sthSigningBytes(sth: Omit<OfflineTreeHead, 'signature' | 'server
   );
 }
 
-function framed(parts: readonly Uint8Array[]): Uint8Array {
-  const out = new Uint8Array(parts.reduce((size, part) => size + 4 + part.length, 0));
-  const view = new DataView(out.buffer);
-  let offset = 0;
-  for (const part of parts) {
-    view.setUint32(offset, part.length, false);
-    offset += 4;
-    out.set(part, offset);
-    offset += part.length;
-  }
-  return out;
-}
-
 export function receiptSigningBytes(receipt: Omit<OfflineReceipt, 'signature'>): Uint8Array {
-  return framed([
+  return frameParts([
     text.encode('jb-receipt-v1'),
     text.encode(receipt.contentId),
     text.encode(String(receipt.logIndex)),

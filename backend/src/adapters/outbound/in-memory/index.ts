@@ -26,3 +26,4 @@ export {
   InMemoryBlobStore,
   RecordingNotificationSink,
 } from './in-memory-services.js';
+export { InMemoryServiceDirectory } from './in-memory-service-directory.js';

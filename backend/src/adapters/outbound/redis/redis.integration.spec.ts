@@ -2,10 +2,14 @@ import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { InMemoryPowVerifier } from '../in-memory/in-memory-services.js';
+import {
+  INTEGRATION_HOOK_TIMEOUT_MS,
+  integrationUrl,
+} from '../../../testing/integration-env.js';
 import { RedisCreditLedger } from './redis-services.js';
 import { RedisTaggedCache } from './tagged-cache.js';
 
-const url = process.env.REDIS_URL;
+const url = integrationUrl('REDIS_URL');
 const integration = describe.skipIf(!url);
 
 integration('Redis production adapters', () => {
@@ -15,7 +19,7 @@ integration('Redis production adapters', () => {
   beforeAll(async () => {
     redis = new Redis(url!, { maxRetriesPerRequest: 1 });
     await redis.ping();
-  });
+  }, INTEGRATION_HOOK_TIMEOUT_MS);
 
   afterAll(async () => {
     await redis?.del(

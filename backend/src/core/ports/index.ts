@@ -76,3 +76,9 @@ export {
 } from './request-security.port.js';
 export { Observability, type MetricsSnapshot } from './observability.port.js';
 export { OperatorConfig, type SecurityConfig } from './operator-config.port.js';
+export {
+  AuxiliaryServiceKind,
+  ServiceDirectory,
+  type AuxiliaryService,
+  type AuxiliaryServiceKind as AuxiliaryServiceKindName,
+} from './service-directory.port.js';

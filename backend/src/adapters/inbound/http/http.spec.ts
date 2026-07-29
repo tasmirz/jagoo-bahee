@@ -27,6 +27,8 @@ import {
 import { verifyInclusion, hashLeaf } from '../../../core/domain/merkle.js';
 import { ed25519 } from '@jagoo/sdk/crypto';
 import { authSigningBytes } from '../../outbound/redis/session-auth.js';
+import { createAuditCertificate, type AuditReceiptJson } from '@jagoo/sdk';
+import { ProjectionStore } from '../../../core/ports/storage.port.js';
 
 let app: NestFastifyApplication;
 let accessToken = '';
@@ -102,6 +104,155 @@ beforeAll(async () => {
   accessToken = authenticated.json().accessToken;
   refreshToken = authenticated.json().refreshToken;
   refreshCookieHeader = String(authenticated.headers['set-cookie']);
+});
+
+describe('portable acknowledgement evidence', () => {
+  it('verifies a request packet and reports the acknowledged content online', async () => {
+    const raw = signEnvelope({
+      domain: 'jb:post:create:v1',
+      credential: VALID_CREDENTIAL,
+      nullifier: nextNullifier(),
+      epoch: 1,
+      createdAtMs: now(),
+      body: PostCreate.encode(
+        PostCreate.fromPartial({ title: 'Keep this receipt', kind: 1 }),
+      ).finish(),
+    });
+    const requestBody = JSON.stringify({
+      envelope: Buffer.from(raw).toString('base64'),
+    });
+    const accepted = await app.inject({
+      method: 'POST',
+      url: '/v1/envelopes',
+      payload: requestBody,
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(accepted.statusCode, accepted.body).toBe(200);
+    const certificate = createAuditCertificate(
+      new TextEncoder().encode(requestBody),
+      accepted.json() as AuditReceiptJson,
+    );
+
+    const verified = await app.inject({
+      method: 'POST',
+      url: '/verify',
+      payload: certificate,
+    });
+    expect(verified.statusCode, verified.body).toBe(200);
+    expect(verified.json()).toMatchObject({
+      valid: true,
+      identifier: certificate.identifier,
+      checks: {
+        requestPacket: true,
+        contentIdentifier: true,
+        serverIdentity: true,
+        receiptSignature: true,
+      },
+    });
+
+    const status = await app.inject({
+      method: 'POST',
+      url: '/status',
+      payload: certificate,
+    });
+    expect(status.statusCode, status.body).toBe(200);
+    expect(status.json()).toMatchObject({
+      valid: true,
+      online: true,
+      status: 'online',
+    });
+
+    const projections = app.get(ProjectionStore);
+    await projections.transaction((tx) =>
+      projections
+        .collection('forum_posts')
+        .delete(certificate.identifier, tx),
+    );
+    const projectionDeleted = await app.inject({
+      method: 'POST',
+      url: '/status',
+      payload: certificate,
+    });
+    expect(projectionDeleted.statusCode, projectionDeleted.body).toBe(200);
+    expect(projectionDeleted.json()).toMatchObject({
+      valid: true,
+      online: true,
+      status: 'deleted',
+      reason: expect.stringContaining('projection is missing'),
+    });
+  });
+
+  it('detects an identifier changed after acknowledgement', async () => {
+    const raw = signEnvelope({
+      domain: 'jb:post:create:v1',
+      credential: VALID_CREDENTIAL,
+      nullifier: nextNullifier(),
+      epoch: 1,
+      createdAtMs: now(),
+      body: PostCreate.encode(
+        PostCreate.fromPartial({ title: 'Tamper evidence', kind: 1 }),
+      ).finish(),
+    });
+    const requestBody = JSON.stringify({
+      envelope: Buffer.from(raw).toString('base64'),
+    });
+    const accepted = await app.inject({
+      method: 'POST',
+      url: '/v1/envelopes',
+      payload: requestBody,
+      headers: { 'content-type': 'application/json' },
+    });
+    const certificate = createAuditCertificate(
+      new TextEncoder().encode(requestBody),
+      accepted.json() as AuditReceiptJson,
+    );
+    const tampered = {
+      ...certificate,
+      identifier:
+        certificate.identifier.slice(0, -1) + (certificate.identifier.endsWith('a') ? 'b' : 'a'),
+    };
+    const verified = await app.inject({
+      method: 'POST',
+      url: '/verify',
+      payload: tampered,
+    });
+    expect(verified.json()).toMatchObject({
+      valid: false,
+      checks: { contentIdentifier: false },
+    });
+  });
+});
+
+describe('development discovery surface', () => {
+  it('advertises the home node, auxiliary service lists and evidence endpoints', async () => {
+    const health = await app.inject({ method: 'GET', url: '/health' });
+    expect(health.statusCode, health.body).toBe(200);
+    expect(health.json()).toMatchObject({
+      status: 'ok',
+      node: {
+        serverId: expect.stringMatching(/^jbs1/),
+        requestedAddress: 'http://localhost',
+        localAddresses: expect.any(Array),
+      },
+      services: {
+        auditLogs: expect.any(Array),
+        mcaptcha: expect.any(Array),
+      },
+      endpoints: {
+        federations: '/federations',
+        verify: '/verify',
+        status: '/status',
+      },
+    });
+
+    const federations = await app.inject({ method: 'GET', url: '/federations' });
+    expect(federations.statusCode, federations.body).toBe(200);
+    expect(federations.json()).toMatchObject({
+      serverId: expect.stringMatching(/^jbs1/),
+      items: expect.any(Array),
+      connected: expect.any(Number),
+    });
+  });
 });
 
 afterAll(async () => {

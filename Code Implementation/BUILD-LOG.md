@@ -502,3 +502,17 @@ is clean.
 ## P2 — Federation ★ PRIMARY
 
 _(not started)_
+### 2026-07-29 — portable acknowledgements, service discovery, and client proof vault
+
+- Added root `/health` discovery for the node's requested/local addresses, audit-log services,
+  mCaptcha services, and evidence endpoints; `/federations` reports configured peer reachability.
+- Standardised an SDK-verifiable audit certificate containing the exact envelope request packet
+  and the existing signed transparency receipt. `/verify` checks it and `/status` reports
+  `online`, reasoned `hidden`, unexplained `deleted`, or `unknown_server`.
+- Added the independently runnable `services/audit-log` workspace with append-only, hash-chained
+  JSONL persistence, idempotent retries, conflict rejection, and its own verification boundary.
+- Replaced the Expo demo bootstrap with persisted home-node onboarding, live service discovery,
+  real feed/community/search/post reads, a local proof vault, direct third-party forwarding, and
+  responsive network/proof screens following `Plans/design.md`.
+- Acceptance is covered by SDK-backed HTTP tests, audit-service tests, Expo onboarding/shell
+  tests, and the normal lint/typecheck gates. See ADR-009.

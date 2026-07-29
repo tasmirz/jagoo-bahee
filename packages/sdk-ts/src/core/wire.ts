@@ -93,6 +93,32 @@ export function writeVarintField(w: ByteWriter, fieldNumber: number, value: bigi
   w.varint(value);
 }
 
+/**
+ * Length-prefixed concatenation, for signing structures that are NOT envelopes.
+ *
+ * Receipts, tree heads and the federation handshake payloads all need a deterministic
+ * byte string to sign, but none of them is an `Envelope`, so none goes through the
+ * canonical encoder. Plain concatenation would be ambiguous — `["ab","c"]` and
+ * `["a","bc"]` produce identical bytes — and an attacker who controls two adjacent
+ * fields can exploit exactly that to make one signed statement read as another.
+ * A four-byte big-endian length before every part removes the ambiguity.
+ *
+ * Nested repeated fields frame their elements with this same function and contribute the
+ * result as a single part, so structure is preserved to any depth.
+ */
+export function frameParts(parts: readonly Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((size, part) => size + 4 + part.length, 0));
+  const view = new DataView(out.buffer);
+  let offset = 0;
+  for (const part of parts) {
+    view.setUint32(offset, part.length, false);
+    offset += 4;
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
 /** Constant-time-ish equality for byte arrays. Used on signature and hash comparisons. */
 export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
