@@ -68,3 +68,11 @@ export {
 } from './auth.port.js';
 export { EventBus, type AcceptedEvent } from './events.port.js';
 export { TaggedCache } from './cache.port.js';
+export {
+  RequestSecurity,
+  type RequestSubject,
+  type RequestDecision,
+  type IpBlock,
+} from './request-security.port.js';
+export { Observability, type MetricsSnapshot } from './observability.port.js';
+export { OperatorConfig, type SecurityConfig } from './operator-config.port.js';

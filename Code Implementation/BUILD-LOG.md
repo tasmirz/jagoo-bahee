@@ -432,6 +432,73 @@ requested product design brief and must not be improvised.
 
 ---
 
+### 2026-07-29 — P1 design authority supplied; RN and runtime closure started [P1]
+
+**Design:** persisted the approved `Plans/design.md` direction and supplied visual reference in
+`.impeccable.md`: federated, unstoppable, anonymous; calm and private; Ember Forum space strictly
+separate from Signal messaging. Implemented light/dark tokens, Poppins/JetBrains typography, Reach
+Pill, Seal, five-tab shell, responsive feed/post/thread/audit, communities, full composer states,
+encrypted inbox, profile, search, and a P1 feature-destination registry spanning identity through
+operations. The registry and ambient trust shell have integration tests.
+
+**Capability closure:** completed authenticated attachment list/get/download/delete with ownership
+checks; added global CSP, framing, referrer, permissions, and content-type headers. Bound the
+trusted-proxy parser to an atomic Redis request limiter/IP-block decision path. User-Agent is not an
+input, untrusted XFF cannot rotate buckets, the limiter receives no Forum key, and Redis failure
+closes rather than bypasses.
+
+**Bundle correction:** the first native export exposed barrel imports pulling every font weight and
+icon family. Direct imports reduced assets from 83 to 35, modules from about 1,095 to 1,000, and each
+Hermes bundle from 3.24 MB to 2.91 MB.
+
+**Verified:** lint and typecheck pass; 208 workspace tests pass (SDK 54, backend 144, frontend 10)
+with three infrastructure tests skipped locally; backend and both native Expo exports build.
+
+**Still open:** authenticated admin/IP-block CRUD, durable operator configuration, observability,
+remaining platform gates, real API/signing integration for all RN destinations, deeper per-feature
+screen tests, and local Mongo/Redis execution. P2 remains untouched.
+
+---
+
+### 2026-07-29 — P1 closure: operator surface, live client path, and reproducible acceptance [P1]
+
+**Closed:** bound trusted-proxy subjects to a global fail-closed request limiter and authenticated
+IP-block path; added durable runtime security configuration, aggregate-only observability, admin
+summary/metrics/feature inspection, security headers, and machine-readable OpenAPI. Attachment
+staging now binds owner, hash, MIME, and size before a signed claim; list/get/download/delete and a
+containment-safe filesystem blob adapter complete the small-node storage path.
+
+**Client:** implemented the approved Ember/Signal design system and responsive Expo shell, with
+feed, post, audit, communities, composer, inbox, profile, search, and 14 reachable P1 feature
+destinations. Forum recovery/import/unlock/register is on-device; registration now solves the
+certificate PoW, obtains a blind credential, and signed post publication uses a real community
+scope and returns the transparency receipt.
+
+**Runtime acceptance:** added `seed:demo` and `smoke:local`. The smoke test performs the whole
+certificate → auth → credential → community → signed post → receipt → feed path against the actual
+Nest composition without external services. This uncovered and fixed three real integration bugs:
+the seed omitted certificate PoW, development used a non-protocol credential double, and the
+published post omitted its community scope. A fresh credit subject now covers the registry's
+largest valid operation.
+
+**Repository:** removed tracked macOS metadata, an empty abandoned directory, and the root Cargo
+build output. Cargo output now lives in ignored `.cache/`; root manifests, `packages/`, `crates/`,
+`proto/`, `tools/`, and the hoisted pnpm `node_modules/` remain intentionally at monorepo level.
+`README.md`, `AGENTS.md`, operations guidance, the P1 plan, and the requirements audit now describe
+the same startup and completion boundary.
+
+**External acceptance:** Mongo/Redis integration tests remain mandatory in CI but were not rerun
+locally after Docker work was explicitly stopped. Raspberry Pi memory/nightly endurance gates need
+their target environment. P2 remains untouched.
+
+**Verified final baseline:** 227 workspace tests pass (SDK 54, backend 149, frontend 24), with the
+three real-infrastructure tests skipped; lint, typecheck, Android/iOS Expo export, backend build,
+generated-contract drift, and all 16 three-language vectors pass. A built development node reached
+ready state and served a security-header-protected OpenAPI document with 65 paths. `git diff --check`
+is clean.
+
+---
+
 ## P2 — Federation ★ PRIMARY
 
 _(not started)_

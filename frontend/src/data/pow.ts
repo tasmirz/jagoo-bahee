@@ -26,8 +26,10 @@ export async function solvePow(
     {
       mode: 'argon2id',
       saltEncoding: 'hex',
-      memory: challenge.memoryKiB,
-      iterations: challenge.iterations,
+      // The dependency-free development node advertises deliberately tiny test values;
+      // native Argon2 implementations enforce these portable minimums.
+      memory: Math.max(1024, challenge.memoryKiB),
+      iterations: Math.max(2, challenge.iterations),
       parallelism: challenge.parallelism,
       hashLength: 32,
     },

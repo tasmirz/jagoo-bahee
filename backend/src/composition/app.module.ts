@@ -18,6 +18,7 @@
  */
 
 import { Module, type OnApplicationShutdown } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import Redis from 'ioredis';
 import { S3Client } from '@aws-sdk/client-s3';
 import { MongoClient } from 'mongodb';
@@ -30,6 +31,10 @@ import { ForumReadController } from '../adapters/inbound/http/forum-read.control
 import { EventsController } from '../adapters/inbound/http/events.controller.js';
 import { LabelsController } from '../adapters/inbound/http/labels.controller.js';
 import { HealthController } from '../adapters/inbound/http/health.controller.js';
+import { SecurityHeadersInterceptor } from '../adapters/inbound/http/security-headers.interceptor.js';
+import { RequestSecurityInterceptor } from '../adapters/inbound/http/request-security.interceptor.js';
+import { ObservabilityInterceptor } from '../adapters/inbound/http/observability.interceptor.js';
+import { AdminController } from '../adapters/inbound/http/admin.controller.js';
 import { IngressPipeline, type NonceStore } from '../core/app/ingress.js';
 import { DomainRegistry } from '../core/domain/domain-registry.js';
 import { EnvelopeReader, EnvelopeWriter, ProjectionStore } from '../core/ports/storage.port.js';
@@ -83,10 +88,19 @@ import { StatelessArgon2Pow } from '../adapters/outbound/redis/stateless-pow.js'
 import { RsaBlindCredentialIssuer } from '../adapters/outbound/redis/rsa-blind-credentials.js';
 import { HmacSessionAuth } from '../adapters/outbound/redis/session-auth.js';
 import { S3BlobStore } from '../adapters/outbound/s3/s3-blob-store.js';
+import { FilesystemBlobStore } from '../adapters/outbound/filesystem/filesystem-blob-store.js';
 import { InMemoryEventBus } from '../adapters/outbound/in-memory/in-memory-event-bus.js';
 import { ConfiguredNodeSigner } from '../adapters/outbound/configured-node-signer.js';
 import { NullTaggedCache } from '../adapters/outbound/in-memory/null-tagged-cache.js';
 import { RedisTaggedCache } from '../adapters/outbound/redis/tagged-cache.js';
+import { RequestSecurity } from '../core/ports/request-security.port.js';
+import { InMemoryRequestSecurity } from '../adapters/outbound/in-memory/in-memory-request-security.js';
+import { RedisRequestSecurity } from '../adapters/outbound/redis/redis-request-security.js';
+import { Observability } from '../core/ports/observability.port.js';
+import { InMemoryObservability } from '../adapters/outbound/in-memory/in-memory-observability.js';
+import { OperatorConfig } from '../core/ports/operator-config.port.js';
+import { InMemoryOperatorConfig } from '../adapters/outbound/in-memory/in-memory-operator-config.js';
+import { RedisOperatorConfig } from '../adapters/outbound/redis/redis-operator-config.js';
 import { forumHandlers } from '../features/forum/index.js';
 import { MONGO_RUNTIME, REDIS_RUNTIME, S3_RUNTIME, type MongoRuntime } from './runtime.js';
 
@@ -118,8 +132,13 @@ class RuntimeLifecycle implements OnApplicationShutdown {
     EventsController,
     LabelsController,
     HealthController,
+    AdminController,
   ],
   providers: [
+    { provide: APP_INTERCEPTOR, useClass: SecurityHeadersInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: RequestSecurityInterceptor },
+    { provide: APP_INTERCEPTOR, useClass: ObservabilityInterceptor },
+    { provide: Observability, useClass: InMemoryObservability },
     { provide: Clock, useClass: SystemClock },
     { provide: RandomSource, useClass: SequentialRandom },
     { provide: EventBus, useClass: InMemoryEventBus },
@@ -181,8 +200,8 @@ class RuntimeLifecycle implements OnApplicationShutdown {
       useFactory: (): S3Client | null => {
         const endpoint = process.env.S3_ENDPOINT;
         if (!endpoint) {
-          if (process.env.NODE_ENV === 'production') {
-            throw new Error('S3_ENDPOINT is required in production');
+          if (process.env.NODE_ENV === 'production' && !process.env.BLOB_FILESYSTEM_ROOT) {
+            throw new Error('S3_ENDPOINT or BLOB_FILESYSTEM_ROOT is required in production');
           }
           return null;
         }
@@ -211,9 +230,11 @@ class RuntimeLifecycle implements OnApplicationShutdown {
     {
       provide: BlobStore,
       useFactory: (client: S3Client | null, clock: Clock) =>
-        client
-          ? new S3BlobStore(client, process.env.S3_BUCKET ?? 'jagoo', clock)
-          : new InMemoryBlobStore(),
+        process.env.BLOB_FILESYSTEM_ROOT
+          ? new FilesystemBlobStore(process.env.BLOB_FILESYSTEM_ROOT, clock)
+          : client
+            ? new S3BlobStore(client, process.env.S3_BUCKET ?? 'jagoo', clock)
+            : new InMemoryBlobStore(),
       inject: [S3_RUNTIME, Clock],
     },
     {
@@ -235,6 +256,28 @@ class RuntimeLifecycle implements OnApplicationShutdown {
       inject: [REDIS_RUNTIME],
     },
     {
+      provide: RequestSecurity,
+      useFactory: (redis: Redis | null) =>
+        redis
+          ? new RedisRequestSecurity(
+              redis,
+              Number(process.env.REQUEST_LIMIT_PER_MINUTE ?? 300),
+            )
+          : new InMemoryRequestSecurity(Number(process.env.REQUEST_LIMIT_PER_MINUTE ?? 300)),
+      inject: [REDIS_RUNTIME],
+    },
+    {
+      provide: OperatorConfig,
+      useFactory: (redis: Redis | null) => {
+        const requestLimit = Number(process.env.REQUEST_LIMIT_PER_MINUTE ?? 300);
+        const registrationsOpen = process.env.REGISTRATIONS_OPEN !== 'false';
+        return redis
+          ? new RedisOperatorConfig(redis, requestLimit, registrationsOpen)
+          : new InMemoryOperatorConfig(requestLimit, registrationsOpen);
+      },
+      inject: [REDIS_RUNTIME],
+    },
+    {
       provide: CredentialIssuer,
       useFactory: () => {
         const encoded = process.env.CREDENTIAL_RSA_JWK;
@@ -242,9 +285,12 @@ class RuntimeLifecycle implements OnApplicationShutdown {
           if (process.env.NODE_ENV === 'production') {
             throw new Error('CREDENTIAL_RSA_JWK is required in production');
           }
-          return process.env.REDIS_URL
-            ? RsaBlindCredentialIssuer.generate()
-            : new InMemoryCredentialIssuer();
+          // Keep the tiny deterministic issuer only in the unit-test composition. A
+          // dependency-free development node must expose the same blind-credential
+          // protocol as a durable node so the app and demo seeder are truly runnable.
+          return process.env.NODE_ENV === 'test'
+            ? new InMemoryCredentialIssuer()
+            : RsaBlindCredentialIssuer.generate();
         }
         return new RsaBlindCredentialIssuer(
           JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')),
@@ -337,14 +383,19 @@ class RuntimeLifecycle implements OnApplicationShutdown {
     // The whole mutable surface of the application is this one list (AR-04).
     {
       provide: DomainRegistry,
-      useFactory: (projections: ProjectionStore, nodeSigner: NodeSigner, blobs: BlobStore) => {
+      useFactory: (
+        projections: ProjectionStore,
+        nodeSigner: NodeSigner,
+        blobs: BlobStore,
+        operatorConfig: OperatorConfig,
+      ) => {
         const registry = new DomainRegistry();
-        for (const handler of forumHandlers(projections, nodeSigner, blobs)) {
+        for (const handler of forumHandlers(projections, nodeSigner, blobs, operatorConfig)) {
           registry.register(handler);
         }
         return registry;
       },
-      inject: [ProjectionStore, NodeSigner, BlobStore],
+      inject: [ProjectionStore, NodeSigner, BlobStore, OperatorConfig],
     },
 
     {

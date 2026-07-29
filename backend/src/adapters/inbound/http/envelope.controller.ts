@@ -26,6 +26,7 @@ import {
 import { IngressPipeline } from '../../../core/app/ingress.js';
 import { EnvelopeRejected, RejectionCode } from '../../../core/domain/errors.js';
 import { SessionAuth } from '../../../core/ports/auth.port.js';
+import { Observability } from '../../../core/ports/observability.port.js';
 import { Envelope } from '@jagoo/sdk/proto';
 
 /**
@@ -71,6 +72,7 @@ export class EnvelopeController {
   constructor(
     @Inject(IngressPipeline) private readonly pipeline: IngressPipeline,
     @Inject(SessionAuth) private readonly auth: SessionAuth,
+    @Inject(Observability) private readonly metrics: Observability,
   ) {}
 
   @Post()
@@ -133,12 +135,18 @@ export class EnvelopeController {
       }
     }
 
+    let domain = 'malformed';
     try {
       const receipts = [];
-      for (const raw of raws) receipts.push(this.formatReceipt(await this.pipeline.accept(raw)));
+      for (const raw of raws) {
+        domain = Envelope.decode(raw).domain || 'unknown';
+        receipts.push(this.formatReceipt(await this.pipeline.accept(raw)));
+        this.metrics.ingressAccepted(domain);
+      }
       return raws.length === 1 ? receipts[0]! : { receipts };
     } catch (e) {
       if (e instanceof EnvelopeRejected) {
+        this.metrics.ingressRejected(domain, e.code);
         throw new HttpException(
           {
             code: e.code,

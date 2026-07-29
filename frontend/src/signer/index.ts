@@ -42,6 +42,8 @@ import {
   type SignedEnvelope,
 } from '@jagoo/sdk';
 import { KeyCertificate, KeyRevocation, RevocationKind } from '@jagoo/sdk/proto';
+import { PostCreate, PostKind } from '@jagoo/sdk/proto';
+import { solvePow, type PowChallengeJson } from '../data/pow';
 
 const ROOT_KEY = 'jb.forum.root.v1';
 const text = new TextEncoder();
@@ -97,7 +99,7 @@ export class SecureForumSigner implements ForumSigner {
   private constructor(
     private readonly wrappingKey: Uint8Array,
     private readonly recoveryPassphrase: string,
-    private readonly credentialKey?: BlindCredentialPublicKey,
+    private credentialKey?: BlindCredentialPublicKey,
   ) {}
 
   static async create(
@@ -167,6 +169,10 @@ export class SecureForumSigner implements ForumSigner {
 
   static async exists(): Promise<boolean> {
     return (await SecureStore.getItemAsync(ROOT_KEY, storeOptions)) !== null;
+  }
+
+  configureCredentialKey(value: BlindCredentialPublicKey): void {
+    this.credentialKey = value;
   }
 
   private async rootSeed(): Promise<Uint8Array> {
@@ -402,4 +408,210 @@ export class SecureForumSigner implements ForumSigner {
     await SecureStore.deleteItemAsync(ROOT_KEY, storeOptions);
     this.wrappingKey.fill(0);
   }
+}
+
+let activeSigner: SecureForumSigner | null = null;
+let activeAccessToken: string | null = null;
+let activeCredential: Credential | null = null;
+
+export interface ForumSessionSummary {
+  readonly configured: boolean;
+  readonly unlocked: boolean;
+  readonly authenticated: boolean;
+  readonly identityId?: string;
+}
+
+export interface PublishedPost {
+  readonly contentId: string;
+  readonly leafIndex: number;
+}
+
+function authBytes(key: Uint8Array, challenge: Uint8Array): Uint8Array {
+  return concat(text.encode('jb-auth-v1\0login\0'), key, challenge);
+}
+
+async function requestJson<T>(
+  baseUrl: string,
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await fetch(new URL(path, `${baseUrl.replace(/\/+$/, '')}/`).toString(), {
+    ...init,
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...init?.headers,
+    },
+  });
+  const payload = (await response.json()) as T & { readonly detail?: string };
+  if (!response.ok) {
+    throw new Error(payload.detail ?? `Node request failed with HTTP ${response.status}`);
+  }
+  return payload;
+}
+
+export async function forumSessionSummary(): Promise<ForumSessionSummary> {
+  const configured = await SecureForumSigner.exists();
+  const identity = activeSigner ? await activeSigner.identity({ kind: 'device' }) : null;
+  return {
+    configured,
+    unlocked: activeSigner !== null,
+    authenticated: activeAccessToken !== null,
+    ...(identity ? { identityId: identity.id } : {}),
+  };
+}
+
+export async function createForumIdentity(
+  lockPassphrase: string,
+): Promise<{ readonly recoveryPhrase: string; readonly identityId: string }> {
+  const recoveryPhrase = generateRootMnemonic();
+  activeSigner = await SecureForumSigner.create(lockPassphrase, recoveryPhrase);
+  activeAccessToken = null;
+  activeCredential = null;
+  const identity = await activeSigner.identity({ kind: 'device' });
+  return { recoveryPhrase, identityId: identity.id };
+}
+
+export async function importForumIdentity(
+  recoveryPhrase: string,
+  lockPassphrase: string,
+): Promise<string> {
+  if (!isValidMnemonic(recoveryPhrase.trim())) throw new Error('Enter a valid 24-word phrase');
+  activeSigner = await SecureForumSigner.create(
+    lockPassphrase,
+    recoveryPhrase.trim().replace(/\s+/g, ' '),
+  );
+  activeAccessToken = null;
+  activeCredential = null;
+  return (await activeSigner.identity({ kind: 'device' })).id;
+}
+
+export async function unlockForumIdentity(lockPassphrase: string): Promise<string> {
+  activeSigner = await SecureForumSigner.unlock(lockPassphrase);
+  activeAccessToken = null;
+  activeCredential = null;
+  return (await activeSigner.identity({ kind: 'device' })).id;
+}
+
+export function lockForumIdentity(): void {
+  activeSigner = null;
+  activeAccessToken = null;
+  activeCredential = null;
+}
+
+export async function registerForumIdentity(baseUrl: string): Promise<string> {
+  if (!activeSigner) throw new Error('Unlock your Forum identity first');
+  const signer = activeSigner;
+  const identity = await signer.identity({ kind: 'device' });
+  const powChallenge = await requestJson<PowChallengeJson>(baseUrl, '/v1/credits/challenge', {
+    method: 'POST',
+    body: JSON.stringify({ author_key: base64(identity.publicKey) }),
+  });
+  const pow = await solvePow(powChallenge, identity.publicKey);
+
+  const certificate = await signer.seal(
+    { kind: 'device' },
+    {
+      domain: 'jb:key:certify:forum:v1',
+      body: await signer.certificateBody(),
+      antiAbuse: {
+        credential: new Uint8Array(0),
+        nullifier: new Uint8Array(0),
+        epoch: 0,
+        pow,
+      },
+    },
+  );
+  await requestJson(baseUrl, '/v1/envelopes', {
+    method: 'POST',
+    body: JSON.stringify({ envelope: base64(certificate.wireBytes) }),
+  });
+
+  const challenge = await requestJson<{
+    readonly challenge: string;
+    readonly claim: string;
+  }>(
+    baseUrl,
+    `/v1/auth/challenge?public_key=${encodeURIComponent(base64(identity.publicKey))}`,
+  );
+  const challengeBytes = unbase64(challenge.challenge);
+  const signature = await signer.sign(
+    { kind: 'device' },
+    authBytes(identity.publicKey, challengeBytes),
+  );
+  const session = await requestJson<{ readonly accessToken: string }>(baseUrl, '/v1/auth', {
+    method: 'POST',
+    body: JSON.stringify({
+      public_key: base64(identity.publicKey),
+      challenge: challenge.challenge,
+      claim: challenge.claim,
+      signature: base64(signature),
+    }),
+  });
+  activeAccessToken = session.accessToken;
+
+  const parameters = await requestJson<BlindCredentialPublicKey>(
+    baseUrl,
+    '/v1/credentials/parameters',
+  );
+  signer.configureCredentialKey(parameters);
+  const blinded = await signer.blind(await Crypto.getRandomBytesAsync(32));
+  const issued = await requestJson<{ readonly blindSignature: string }>(
+    baseUrl,
+    '/v1/credentials/request',
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${activeAccessToken}` },
+      body: JSON.stringify({ blinded: base64(blinded.blinded) }),
+    },
+  );
+  activeCredential = await signer.unblind(blinded.state, unbase64(issued.blindSignature));
+  return identity.id;
+}
+
+export async function publishForumPost(
+  baseUrl: string,
+  input: { readonly title: string; readonly bodyMarkdown: string },
+): Promise<PublishedPost> {
+  if (!activeSigner) throw new Error('Unlock your Forum identity first');
+  if (!activeAccessToken || !activeCredential) await registerForumIdentity(baseUrl);
+  const communities = await requestJson<{
+    readonly items: readonly { readonly id: string }[];
+  }>(baseUrl, '/v1/communities?sort=members&limit=1');
+  const communityId = communities.items[0]?.id;
+  if (!communityId) {
+    throw new Error('This node has no community yet. Run the demo seed or create one first.');
+  }
+  const epoch = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
+  const sealed = await activeSigner.seal(
+    { kind: 'device' },
+    {
+      domain: 'jb:post:create:v1',
+      body: PostCreate.encode(
+        PostCreate.fromPartial({
+          title: input.title,
+          kind: PostKind.POST_KIND_TEXT,
+          body_markdown: input.bodyMarkdown,
+        }),
+      ).finish(),
+      scope: communityId,
+      antiAbuse: {
+        credential: activeCredential!.bytes,
+        // Nullifiers are domain-separated on device; the server independently binds the
+        // claim to this envelope's epoch and community scope.
+        nullifier: await activeSigner.nullifier(epoch, 'jb:post:create:v1'),
+        epoch,
+        pow: new Uint8Array(0),
+      },
+    },
+  );
+  const receipt = await requestJson<{
+    readonly content_id: string;
+    readonly leaf_index: number;
+  }>(baseUrl, '/v1/envelopes', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${activeAccessToken}` },
+    body: JSON.stringify({ envelope: base64(sealed.wireBytes) }),
+  });
+  return { contentId: receipt.content_id, leafIndex: receipt.leaf_index };
 }

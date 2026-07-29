@@ -99,7 +99,9 @@ export class InMemoryCertificateStore extends CertificateStore {
 export class InMemoryCreditLedger extends CreditLedger {
   private readonly balances = new Map<string, number>();
 
-  constructor(private readonly startingBalance = 100) {
+  // The largest first-party operation costs 200 credits (community creation). A fresh
+  // anonymous subject must be able to perform every published operation at least once.
+  constructor(private readonly startingBalance = 250) {
     super();
   }
 
@@ -275,6 +277,9 @@ export class NullLabelProvider extends LabelProvider {
 
 export class InMemoryBlobStore extends BlobStore {
   private readonly metadata = new Map<string, BlobMetadata>();
+  private readonly bodies = new Map<string, Uint8Array>();
+
+  async ready(): Promise<void> {}
 
   async presignUpload(
     key: string,
@@ -288,10 +293,26 @@ export class InMemoryBlobStore extends BlobStore {
   async presignDownload(key: string): Promise<string> {
     return `memory://${key}`;
   }
+  async write(key: string, bytes: Uint8Array): Promise<void> {
+    if (!this.metadata.has(key)) throw new Error('upload ticket not found');
+    this.bodies.set(key, new Uint8Array(bytes));
+  }
+  async read(key: string): Promise<{ readonly bytes: Uint8Array; readonly mime: string }> {
+    const metadata = this.metadata.get(key);
+    if (!metadata) throw new Error('blob not found');
+    return {
+      bytes: new Uint8Array(this.bodies.get(key) ?? new Uint8Array()),
+      mime: metadata.mime,
+    };
+  }
   async confirm(key: string): Promise<BlobMetadata> {
     const metadata = this.metadata.get(key);
     if (!metadata) throw new Error('blob not found');
     return metadata;
+  }
+  async delete(key: string): Promise<void> {
+    this.metadata.delete(key);
+    this.bodies.delete(key);
   }
 }
 

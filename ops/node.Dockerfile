@@ -1,4 +1,4 @@
-# Node image for the P2 two-node federation harness.
+# Node image shared by the local P1 deployment and P2 two-node federation harness.
 #
 # NFR-F05: the node must run on a Raspberry Pi 4 in under 512 MB RAM. That is a design
 # constraint, not a target, so this image installs production dependencies only and ships

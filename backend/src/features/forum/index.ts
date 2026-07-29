@@ -17,6 +17,7 @@ import type { DomainHandler } from '../../core/domain/domain-handler.js';
 import type { ProjectionStore } from '../../core/ports/storage.port.js';
 import type { NodeSigner } from '../../core/ports/node-signer.port.js';
 import type { BlobStore } from '../../core/ports/content.port.js';
+import type { OperatorConfig } from '../../core/ports/operator-config.port.js';
 
 import { PostCreateHandler } from './post/post-create.handler.js';
 import { PostDeleteHandler, PostUpdateHandler } from './post/post-edit.handlers.js';
@@ -56,6 +57,7 @@ export function forumHandlers(
   projections: ProjectionStore,
   nodeSigner: NodeSigner,
   blobs?: BlobStore,
+  operatorConfig?: OperatorConfig,
 ): readonly DomainHandler<never>[] {
   const handlers = [
     // Content
@@ -100,7 +102,7 @@ export function forumHandlers(
 
     // Identity. The certify row is the one bootstrap exception to pipeline step 10
     // (ADR-004); its handler re-checks everything that step would have.
-    new KeyCertifyHandler(projections),
+    new KeyCertifyHandler(projections, operatorConfig),
     new KeyRevokeHandler(projections),
   ];
 

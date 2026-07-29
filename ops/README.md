@@ -2,12 +2,16 @@
 
 ## Local Infrastructure
 
-Run `pnpm ops:up` to start the single-node Mongo replica set, Redis, and MinIO. The replica
-set is required for atomic envelope/projection/Merkle transactions. Check readiness at
-`GET /health/ready`; stop and remove the stack with `pnpm ops:down`.
+Run `pnpm local:up` to build and start the node, single-node Mongo replica set, Redis, and
+MinIO. Check readiness at `GET http://localhost:3000/health/ready`, inspect logs with
+`pnpm local:logs`, and stop the stack with `pnpm local:down`.
 
-Start the service with `pnpm dev:backend`. Local development may omit infrastructure URLs
-and use deterministic in-memory adapters. Production deliberately refuses those fallbacks.
+For host-side development, `pnpm ops:up` starts only infrastructure and
+`pnpm dev:backend` starts the service. Local development may omit infrastructure URLs and
+use deterministic in-memory adapters. Production deliberately refuses those fallbacks.
+Run `pnpm smoke:local` for an automated dependency-free signed round trip. With any node
+running on port 3000, `pnpm seed:demo -- --url=http://127.0.0.1:3000` creates a certified
+identity, a `welcome` community, and a signed post that appears in `/v1/feed`.
 
 ## Production Configuration
 
@@ -19,10 +23,17 @@ Set `NODE_ENV=production` and provide:
 | `REDIS_URL`                                 | Credits, nullifiers, auth revocation, and tagged cache |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`     | S3/MinIO object storage                                |
 | `S3_ACCESS_KEY`, `S3_SECRET_KEY`            | Object-store credentials                               |
+| `BLOB_FILESYSTEM_ROOT`                     | Absolute local-blob path used instead of S3            |
+| `PUBLIC_BASE_URL`                          | Public node URL used in filesystem upload links        |
 | `NODE_SIGNING_SEED`                         | Base64 32-byte persistent node identity                |
 | `POW_SECRET`                                | Base64 32-byte stateless challenge key                 |
 | `AUTH_ACCESS_SECRET`, `AUTH_REFRESH_SECRET` | Distinct base64 token keys                             |
 | `CREDENTIAL_RSA_JWK`                        | Base64 JSON private RSA JWK for blind credentials      |
+| `TRUSTED_PROXY_HOPS`                        | Trusted rightmost proxy count; `0` ignores XFF         |
+| `REQUEST_LIMIT_PER_MINUTE`                  | Per-address request ceiling; defaults to `300`         |
+| `REGISTRATIONS_OPEN`                       | Initial new-identity policy; defaults to `true`        |
+| `ADMIN_KEYS`                               | Comma-separated `jbk1...` IDs or hex keys for operators |
+| `CORS_ORIGINS`                             | Comma-separated browser origins; native clients unaffected |
 
 Generate the five cryptographic values with:
 
@@ -35,6 +46,9 @@ pnpm --silent --filter @jagoo/backend secrets:generate |
 restrict access, and back them up; changing node or credential keys on restart breaks stable
 identity or outstanding credentials. The values embedded in `docker-compose.yml` are local
 demo credentials only.
+
+The machine-readable OpenAPI export is served at `/docs-json`. The protobuf files in
+`proto/jagoo/v1/` remain the canonical write-contract documentation.
 
 ## Verification and Recovery
 

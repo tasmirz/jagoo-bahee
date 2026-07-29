@@ -16,6 +16,8 @@
     "ios": "expo run:ios"
   },
   "dependencies": {
+    "@expo-google-fonts/jetbrains-mono": "^0.4.1",
+    "@expo-google-fonts/poppins": "^0.4.1",
     "@jagoo/sdk": "workspace:*",
     "@noble/ciphers": "^1.2.1",
     "@noble/hashes": "^1.7.1",
@@ -23,8 +25,10 @@
     "@react-native-community/netinfo": "^12.0.1",
     "@tanstack/react-query": "^5.101.4",
     "expo": "~52.0.11",
+    "expo-blur": "~14.0.3",
     "expo-build-properties": "^57.0.7",
     "expo-crypto": "~14.0.2",
+    "expo-linear-gradient": "~14.0.2",
     "expo-linking": "~7.0.5",
     "expo-router": "~4.0.9",
     "expo-secure-store": "~14.0.1",

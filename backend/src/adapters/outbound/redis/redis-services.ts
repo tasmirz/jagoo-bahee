@@ -48,7 +48,8 @@ export class RedisCreditLedger extends CreditLedger {
   constructor(
     private readonly redis: Redis,
     private readonly pow: PowVerifier,
-    private readonly initialBalance = 100,
+    // Keep this at or above the registry's largest single-operation cost.
+    private readonly initialBalance = 250,
     private readonly maximumBalance = 1000,
     private readonly ttlMs = 24 * 60 * 60 * 1000,
   ) {

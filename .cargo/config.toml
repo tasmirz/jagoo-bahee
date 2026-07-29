@@ -1,0 +1,3 @@
+[build]
+# Keep Cargo's large generated tree out of the repository root.
+target-dir = "../.cache/cargo-target"

@@ -421,6 +421,83 @@ describe('read API (T1.31)', () => {
     }
   });
 
+  it('applies browser hardening headers to every response (INF-08)', async () => {
+    const response = await app.inject({ method: 'GET', url: '/health/live' });
+    expect(response.headers['content-security-policy']).toContain("default-src 'none'");
+    expect(response.headers['x-content-type-options']).toBe('nosniff');
+    expect(response.headers['x-frame-options']).toBe('DENY');
+    expect(response.headers['referrer-policy']).toBe('no-referrer');
+    expect(response.headers['permissions-policy']).toContain('geolocation=()');
+  });
+
+  it('requires an explicit administrator key and manages the runtime IP block set', async () => {
+    const unauthenticated = await app.inject({ method: 'GET', url: '/v1/admin/ip-blocks' });
+    expect(unauthenticated.statusCode).toBe(401);
+
+    const previous = process.env.ADMIN_KEYS;
+    try {
+      process.env.ADMIN_KEYS = Buffer.from(AUTHOR_KEY).toString('hex');
+      const created = await app.inject({
+        method: 'POST',
+        url: '/v1/admin/ip-blocks',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { subject: '203.0.113.44', reason: 'automated abuse test' },
+      });
+      expect(created.statusCode, created.body).toBe(201);
+
+      const listed = await app.inject({
+        method: 'GET',
+        url: '/v1/admin/ip-blocks',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      expect(listed.statusCode).toBe(200);
+      expect(listed.json().items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ subject: '203.0.113.44', reason: 'automated abuse test' }),
+        ]),
+      );
+
+      const summary = await app.inject({
+        method: 'GET',
+        url: '/v1/admin/summary',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      expect(summary.statusCode).toBe(200);
+      expect(summary.json().transparency.treeSize).toBeGreaterThan(0);
+
+      const configured = await app.inject({
+        method: 'PUT',
+        url: '/v1/admin/config/security',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { registrations_open: false, request_limit_per_minute: 77 },
+      });
+      expect(configured.statusCode, configured.body).toBe(200);
+      expect(configured.json()).toEqual({
+        registrationsOpen: false,
+        requestLimitPerMinute: 77,
+      });
+
+      const metrics = await app.inject({
+        method: 'GET',
+        url: '/v1/admin/metrics',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      expect(metrics.statusCode).toBe(200);
+      expect(JSON.stringify(metrics.json())).not.toContain('203.0.113.44');
+      expect(metrics.json().ingressAccepted['jb:post:create:v1']).toBeGreaterThan(0);
+
+      const deleted = await app.inject({
+        method: 'DELETE',
+        url: '/v1/admin/ip-blocks/203.0.113.44',
+        headers: { authorization: `Bearer ${accessToken}` },
+      });
+      expect(deleted.statusCode).toBe(200);
+    } finally {
+      if (previous === undefined) delete process.env.ADMIN_KEYS;
+      else process.env.ADMIN_KEYS = previous;
+    }
+  });
+
   it('presigns and confirms an attachment whose hash, MIME, and size match', async () => {
     const digest = Buffer.alloc(32, 9).toString('base64');
     const ticket = await app.inject({
@@ -456,6 +533,25 @@ describe('read API (T1.31)', () => {
       }),
     );
     expect(claim.statusCode, claim.body).toBe(200);
+    const attachmentId = claim.json().content_id as string;
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: '/v1/attachments',
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().items).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: attachmentId })]),
+    );
+
+    const download = await app.inject({
+      method: 'GET',
+      url: `/v1/attachments/${attachmentId}/download`,
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    expect(download.statusCode).toBe(200);
+    expect(download.json().url).toMatch(/^memory:\/\//);
 
     const substituted = await submit(
       signEnvelope({
@@ -473,5 +569,13 @@ describe('read API (T1.31)', () => {
       }),
     );
     expect(substituted.statusCode).toBe(403);
+
+    const deleted = await app.inject({
+      method: 'DELETE',
+      url: `/v1/attachments/${attachmentId}`,
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    expect(deleted.statusCode).toBe(200);
+    expect(deleted.json()).toEqual({ deleted: true });
   });
 });
