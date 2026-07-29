@@ -88,7 +88,7 @@ check: lint typecheck test proto-check vectors
 
 # Build and install the custom Android development client (required for native modules)
 android:
-    pnpm --filter @jagoo/frontend exec expo run:android
+    JAVA_HOME="$(${JAVA_HOME:-/usr/libexec/java_home -v 17 2>/dev/null || echo $JAVA_HOME})" ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}" PATH="$PATH:$HOME/Library/Android/sdk/platform-tools:$HOME/Library/Android/sdk/emulator" pnpm --filter @jagoo/frontend exec expo run:android
 
 # Build and install the custom iOS development client (required for native modules)
 ios:
