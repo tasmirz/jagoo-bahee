@@ -1,6 +1,6 @@
 import renderer, { act } from 'react-test-renderer';
-import Home from './index';
-import { featureDestinations } from '../src/features/catalog';
+import Home from '../index';
+import { featureDestinations } from '../../src/features/catalog';
 
 describe('Home', () => {
   it('renders offline with no network or server call', () => {

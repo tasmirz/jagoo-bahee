@@ -50,3 +50,6 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# local execution state
+.run/
