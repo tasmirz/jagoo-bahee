@@ -1,15 +1,16 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    // `node16` rather than `CommonJS`/`Node`. The legacy `Node` (node10) resolver ignores
-    // a package's `exports` map entirely, which is why importing `@jagoo/sdk/core` failed
-    // with TS2307 even though the types were sitting right there. `node16` reads `exports`
-    // and picks the `require` condition, giving this CommonJS build the sdk's CJS output.
-    //
-    // This package has no `"type"` field, so `module: node16` still emits CommonJS — which
-    // is what NestJS decorators and `emitDecoratorMetadata` want.
-    "module": "node16",
-    "moduleResolution": "node16",
+    // `CommonJS`/`Node` resolver is used with explicit `paths` to work around TS1479 
+    // when importing a dual-published workspace package. `node16` resolution incorrectly
+    // flags the CJS output as ESM because it ignores the nested package.json for exports.
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "paths": {
+      "@jagoo/sdk": ["../packages/sdk-ts/dist/cjs/index"],
+      "@jagoo/sdk/proto": ["../packages/sdk-ts/dist/cjs/gen/index.jagoo.v1"],
+      "@jagoo/sdk/*": ["../packages/sdk-ts/dist/cjs/*/index"]
+    },
     "target": "ES2022",
     "lib": ["ES2022"],
     "experimentalDecorators": true,
