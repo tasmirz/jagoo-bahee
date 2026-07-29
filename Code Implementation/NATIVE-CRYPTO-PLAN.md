@@ -28,8 +28,8 @@ envelope format, Android BIP-39 behavior, or a second signer.
 - [x] Export synchronous `Function` primitives using `Uint8Array` ↔ Kotlin `ByteArray`.
 - [x] Implement SHA-2, HMAC, HKDF, PBKDF2, scrypt, Argon2id, Ed25519, X25519, ChaCha20-Poly1305,
       XChaCha20-Poly1305, ML-KEM-768 and ML-DSA-44.
-- [x] Pin Bouncy Castle 1.79 and keep its use inside the native adapter.
-- [x] Add Kotlin known-answer, AEAD-authentication and Ed25519 tests.
+- [x] Pin Bouncy Castle 1.83 and keep its use inside the native adapter.
+- [x] Add Kotlin known-answer, AEAD-authentication, Ed25519 and portable-backend parity tests.
 - [x] Prove Expo autolinking discovers the module.
 
 ## B3 — frontend selection and hot path
@@ -60,6 +60,7 @@ envelope format, Android BIP-39 behavior, or a second signer.
 | Shared derivation is stable | BIP-39/BIP-32 tests match Scure across fixed seeds and paths |
 | Frontend hot path is memoised | Two planes, multiple signatures, exactly two PBKDF2 calls |
 | Native module is linked | Expo autolinking resolves `jagoo-crypto` from `frontend/modules` |
+| Native module compiles | Android AAR assembly and all four Kotlin/JUnit tests pass |
 | Portable behavior is intact | SDK, frontend and cross-language vector suites pass |
 | Device parity is inspectable | Operations workspace runs and renders all 18 checks |
 

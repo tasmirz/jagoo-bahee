@@ -210,10 +210,7 @@ internal class JagooCryptoPrimitives {
     generator.init(
       MLKEMKeyGenerationParameters(FixedSecureRandom(seed), MLKEMParameters.ml_kem_768),
     )
-    val pair = generator.internalGenerateKeyPair(
-      seed.copyOfRange(0, 32),
-      seed.copyOfRange(32, 64),
-    )
+    val pair = generator.generateKeyPair()
     val publicKey = pair.public as MLKEMPublicKeyParameters
     val secretKey = pair.private as MLKEMPrivateKeyParameters
     return mapOf("publicKey" to publicKey.encoded, "secretKey" to secretKey.encoded)

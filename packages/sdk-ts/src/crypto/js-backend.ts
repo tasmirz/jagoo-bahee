@@ -1,10 +1,11 @@
 /**
  * The portable JavaScript crypto backend (ADR-017).
  *
- * ── This is the ONLY file in the repository allowed to import `@noble` or `@scure` ──
+ * ── This is the ONLY production file allowed to import Noble crypto implementations ──
  * Enforced by `no-restricted-imports` in `eslint.config.mjs`, and that rule is itself
  * exercised by a test that writes a violating file and requires ESLint to reject it (L-11: a
- * gate that is only configured is not a gate). The point is not that the JS implementations
+ * gate that is only configured is not a gate). `wordlist-english.ts` is the separate, data-only
+ * Scure word-list adapter. The point is not that the JS implementations
  * are bad — they are excellent — it is that once native code exists there must be exactly one
  * place where the choice is made, or a well-meaning import quietly puts the slow path back on
  * a phone and nothing fails.
