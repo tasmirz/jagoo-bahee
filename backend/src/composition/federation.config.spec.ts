@@ -134,3 +134,52 @@ describe('FD-07 — a node advertises only planes it can actually serve', () => 
     expect(() => load({ NODE_PLANES: 'NEITHER' })).toThrow(/NODE_PLANES/);
   });
 });
+/**
+ * TP-11 — the same-ASN preference needs an ASN to prefer.
+ *
+ * `PeerEndpoint.asn` existed from the start and this parser never populated it, so
+ * `selectPath`'s uplink choice compared `undefined` against every uplink's ASN and fell
+ * through to the priority number every time. Invisible on a single-homed node. On the
+ * multi-homed bridge the container gate builds, it meant every ISP_LOCAL peer resolved to
+ * one uplink, the other side of the pair had no TRUSTED peer, and BR-01 refused to bridge —
+ * a state no configuration could escape.
+ */
+describe('TP-11 — an endpoint may declare the AS it sits on', () => {
+  it('parses `SCOPE:asn=uri` and keeps the ASN', () => {
+    const config = load({
+      FEDERATION_PEERS: `${KEY}@ISP_LOCAL:64502=grpc://jb-b1:8444#TRUSTED`,
+    });
+    expect(config.peers[0]?.endpoints[0]).toMatchObject({
+      address: 'grpc://jb-b1:8444',
+      scope: 'ISP_LOCAL',
+      asn: 64_502,
+    });
+  });
+
+  it('leaves the ASN absent when none is given, so existing configuration is unchanged', () => {
+    const config = load({ FEDERATION_PEERS: `${KEY}@ISP_LOCAL=grpc://jb-b1:8444` });
+    expect(config.peers[0]?.endpoints[0]).not.toHaveProperty('asn');
+  });
+
+  it('never mistakes the port in an address for an ASN', () => {
+    // The descriptor is only the text before the first `=`; `grpc://host:8444` is on the
+    // other side of it and must come through whole.
+    const config = load({
+      FEDERATION_GRPC_LISTEN: '0.0.0.0:8444',
+      FEDERATION_ENDPOINTS: 'ISP_LOCAL=grpc://10.20.30.40:8444',
+    });
+    expect(config.endpoints[0]).toMatchObject({ address: 'grpc://10.20.30.40:8444' });
+    expect(config.endpoints[0]).not.toHaveProperty('asn');
+  });
+
+  it.each(['ISP_LOCAL:=grpc://h:1', 'ISP_LOCAL:abc=grpc://h:1', 'ISP_LOCAL:-1=grpc://h:1'])(
+    'drops a malformed ASN in %o rather than storing NaN',
+    (raw) => {
+      // An endpoint tagged NaN matches no uplink and would silently behave like the untagged
+      // case this parsing exists to fix — a bug wearing the shape of its own fix.
+      const config = load({ FEDERATION_GRPC_LISTEN: '0.0.0.0:8444', FEDERATION_ENDPOINTS: raw });
+      expect(config.endpoints).toHaveLength(1);
+      expect(config.endpoints[0]).not.toHaveProperty('asn');
+    },
+  );
+});

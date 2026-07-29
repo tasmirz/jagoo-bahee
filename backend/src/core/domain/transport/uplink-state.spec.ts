@@ -136,6 +136,32 @@ describe('BR-10 — the operator override', () => {
     expect(withForcedState(forced, null).state).toBe(UplinkState.DEGRADED);
   });
 
+  /**
+   * BR-10 — releasing an override must ERASE it, not merely stop consulting it.
+   *
+   * The assertion above passed for the whole life of this function while the override
+   * survived every release: `withForcedState` spread `health` and then conditionally re-added
+   * `forcedState`, so on `null` the old key came through untouched. `state` was right, so a
+   * test that looked only at `state` saw nothing wrong. The container gate found it — the
+   * operator surface reported `forced: "down"` on an uplink nobody was forcing any more.
+   */
+  it('releasing the override CLEARS forcedState, so the operator surface stops claiming one', () => {
+    const measured = round(initialHealth(SCOPES), { ISP_LOCAL: true }).health;
+    const forced = withForcedState(measured, UplinkState.DOWN);
+    expect(forced.forcedState).toBe(UplinkState.DOWN);
+    expect(withForcedState(forced, null).forcedState).toBeUndefined();
+  });
+
+  it('and a released forced-UP uplink stops claiming scopes it never measured', () => {
+    // `liveScopes` special-cases `forcedState === UP` on a never-probed uplink. With the
+    // override left behind, releasing it would leave that lie in place forever.
+    const forced = withForcedState(initialHealth(SCOPES), UplinkState.UP);
+    expect(liveScopes(forced)).toHaveLength(3);
+    const released = withForcedState(forced, null);
+    expect(released.forcedState).toBeUndefined();
+    expect(liveScopes(released)).toEqual([]);
+  });
+
   it('forcing UP before any probe trusts what the uplink declares', () => {
     // Otherwise BR-10 could not rescue a node whose probe targets are themselves blocked —
     // which is precisely a situation "the probes cannot detect".

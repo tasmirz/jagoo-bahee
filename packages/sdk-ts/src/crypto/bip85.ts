@@ -19,11 +19,13 @@
  * Specification: Plans/01-IDENTITY-PLANES.md §2.2, §3.2 · Plans/requirements/R2 §3
  */
 
-import { HDKey } from '@scure/bip32';
-import { hmac } from '@noble/hashes/hmac';
-import { sha512 } from '@noble/hashes/sha2';
-import { mnemonicToSeedSync, generateMnemonic, validateMnemonic } from '@scure/bip39';
-import { wordlist } from '@scure/bip39/wordlists/english';
+import { cryptoBackend } from './backend.js';
+import { derivePath } from './bip32.js';
+import {
+  generateMnemonic,
+  mnemonicToSeed as mnemonicToSeedBytes,
+  validateMnemonic,
+} from './bip39.js';
 
 /** BIP85 application root. */
 const BIP85_PURPOSE = 83696968;
@@ -59,17 +61,17 @@ export type SignalPath = (typeof SIGNAL_PATH)[keyof typeof SIGNAL_PATH];
 
 /** AUTH-01: 24 words, 256-bit. There is no server-side recovery — the mnemonic is it. */
 export function generateRootMnemonic(): string {
-  return generateMnemonic(wordlist, 256);
+  return generateMnemonic(256);
 }
 
 /** AUTH-02: import with word-list validation. */
 export function isValidMnemonic(mnemonic: string): boolean {
-  return validateMnemonic(mnemonic, wordlist);
+  return validateMnemonic(mnemonic);
 }
 
 /** AUTH-03: the optional BIP-39 passphrase is the 25th word. */
 export function mnemonicToSeed(mnemonic: string, passphrase = ''): Uint8Array {
-  return mnemonicToSeedSync(mnemonic, passphrase);
+  return mnemonicToSeedBytes(mnemonic, passphrase);
 }
 
 /**
@@ -81,10 +83,13 @@ export function mnemonicToSeed(mnemonic: string, passphrase = ''): Uint8Array {
  */
 function deriveEntropy(seed: Uint8Array, application: number, index: number): Uint8Array {
   const path = `m/${BIP85_PURPOSE}'/${application}'/${index}'`;
-  const node = HDKey.fromMasterSeed(seed).derive(path);
-  if (!node.privateKey) throw new Error(`bip85: no private key at ${path}`);
-
-  const entropy = hmac(sha512, new TextEncoder().encode('bip-entropy-from-k'), node.privateKey);
+  const node = derivePath(seed, path);
+  const entropy = cryptoBackend().hmacSha512(
+    new TextEncoder().encode('bip-entropy-from-k'),
+    node.privateKey,
+  );
+  node.privateKey.fill(0);
+  node.chainCode.fill(0);
   return entropy.slice(0, 32);
 }
 

@@ -119,6 +119,17 @@ export function frameParts(parts: readonly Uint8Array[]): Uint8Array {
   return out;
 }
 
+/** Unambiguous callers add their own framing; this only joins already-structured bytes. */
+export function concatBytes(...parts: readonly Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((size, part) => size + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
 /** Constant-time-ish equality for byte arrays. Used on signature and hash comparisons. */
 export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;

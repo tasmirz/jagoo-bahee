@@ -445,7 +445,21 @@ export class FederationInbox {
     // so a false positive here is a denial-of-service with a long tail.
     //
     // A mismatch is not a fork; it is an unusable observation, and it is discarded.
-    if (sth.serverKey.length > 0 && !sameKey(sth.serverKey, peer.publicKey)) {
+    //
+    // ── An UNATTRIBUTED head is the same problem, not an exemption ──────────────────
+    // This used to read `sth.serverKey.length > 0 && !sameKey(...)`, so a head carrying no
+    // key at all skipped the check and was accepted as this peer's own. Proto3 has no absent
+    // message field once the message is present, so "no tree head" and "an all-zero tree
+    // head" arrive identically: `serverKey` empty, `treeSize` 0, `rootHash` empty. Compared
+    // against a peer that had honestly attested three leaves, that reads as `3 → 0` — a
+    // regression, a CRITICAL `peer.forked` alert, and a BLOCK that `evaluateTrust` will not
+    // let vouches lift.
+    //
+    // The container gate hit it on two healthy nodes inside seconds of boot. The rule L-22
+    // states has no exception for the unlabelled case: any check that can BLOCK must first
+    // verify the claim belongs to the peer it names, and a claim that names nobody has not
+    // been verified. It is discarded, and the peer keeps its trust.
+    if (sth.serverKey.length === 0 || !sameKey(sth.serverKey, peer.publicKey)) {
       return PeerLogStatus.UNKNOWN;
     }
 

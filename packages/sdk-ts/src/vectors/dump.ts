@@ -8,7 +8,6 @@
  *     node packages/sdk-ts/dist/vectors/dump.js
  */
 
-import { bytesToHex } from '@noble/hashes/utils';
 import { canonicalBytes } from '../core/canonical.js';
 import { contentIdFromCanonical } from '../core/content-id.js';
 import { envelopeFromFixture, loadVectors } from './fixtures.js';
@@ -19,7 +18,7 @@ function main(): void {
   for (const v of loadVectors()) {
     const canonical = canonicalBytes(envelopeFromFixture(v.envelope));
     out[v.name] = {
-      canonical_hex: bytesToHex(canonical),
+      canonical_hex: Array.from(canonical, (byte) => byte.toString(16).padStart(2, '0')).join(''),
       content_id: contentIdFromCanonical(canonical),
     };
   }

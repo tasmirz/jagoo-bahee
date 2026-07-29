@@ -12,7 +12,7 @@
  * Specification: Plans/01-IDENTITY-PLANES.md §6–7
  */
 
-import { ml_dsa44 } from '@noble/post-quantum/ml-dsa';
+import { cryptoBackend } from './backend.js';
 
 export const ML_DSA_44_PUBLIC_KEY_BYTES = 1312;
 export const ML_DSA_44_SIGNATURE_BYTES = 2420;
@@ -23,13 +23,12 @@ export interface MlDsaKeyPair {
 }
 
 export function generateKeyPair(seed: Uint8Array): MlDsaKeyPair {
-  const keys = ml_dsa44.keygen(seed);
-  return { publicKey: keys.publicKey, secretKey: keys.secretKey };
+  return cryptoBackend().mlDsa44KeyPair(seed);
 }
 
 /** Attest a device key: sign `device_key ‖ valid_from ‖ valid_until` (KeyCertificate §6). */
 export function attest(message: Uint8Array, secretKey: Uint8Array): Uint8Array {
-  return ml_dsa44.sign(secretKey, message);
+  return cryptoBackend().mlDsa44Sign(message, secretKey);
 }
 
 export function verifyAttestation(
@@ -40,7 +39,7 @@ export function verifyAttestation(
   if (signature.length !== ML_DSA_44_SIGNATURE_BYTES) return false;
   if (publicKey.length !== ML_DSA_44_PUBLIC_KEY_BYTES) return false;
   try {
-    return ml_dsa44.verify(publicKey, message, signature);
+    return cryptoBackend().mlDsa44Verify(signature, message, publicKey);
   } catch {
     return false;
   }

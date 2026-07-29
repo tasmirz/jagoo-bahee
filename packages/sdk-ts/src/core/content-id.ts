@@ -12,14 +12,14 @@
  * Specification: Plans/02-CONTRACTS-CORE.md §1, §7
  */
 
-import { sha256 } from '@noble/hashes/sha2';
+import { cryptoBackend } from '../crypto/backend.js';
 import { base32Encode } from './base32.js';
 import { canonicalBytes } from './canonical.js';
 import { PREFIX, type CanonicalEnvelope } from './types.js';
 
 /** Content ID from already-computed canonical bytes. */
 export function contentIdFromCanonical(canonical: Uint8Array): string {
-  return PREFIX.CONTENT + base32Encode(sha256(canonical));
+  return PREFIX.CONTENT + base32Encode(cryptoBackend().sha256(canonical));
 }
 
 /** Content ID of an envelope. */

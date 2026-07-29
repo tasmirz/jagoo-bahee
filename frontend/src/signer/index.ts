@@ -4,10 +4,9 @@
  */
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
-import { xchacha20poly1305 } from '@noble/ciphers/chacha';
-import { scryptAsync } from '@noble/hashes/scrypt';
 import {
   FORUM_PATH,
+  cryptoBackend,
   deriveForumKey,
   ed25519,
   generateRootMnemonic,
@@ -79,8 +78,7 @@ const unbase64 = (value: string): Uint8Array =>
   Uint8Array.from(globalThis.atob(value), (character) => character.charCodeAt(0));
 
 async function digest(value: Uint8Array): Promise<Uint8Array> {
-  const bytes = Uint8Array.from(value);
-  return new Uint8Array(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes.buffer));
+  return cryptoBackend().sha256(value);
 }
 
 function encodeBlindState(state: BlindCredentialState): Uint8Array {
@@ -111,7 +109,7 @@ export class SecureForumSigner implements ForumSigner {
 
   private constructor(
     private readonly wrappingKey: Uint8Array,
-    private readonly recoveryPassphrase: string,
+    private readonly rootSeedCache: Uint8Array,
     private credentialKey?: BlindCredentialPublicKey,
   ) {}
 
@@ -124,14 +122,17 @@ export class SecureForumSigner implements ForumSigner {
     if (!isValidMnemonic(mnemonic)) throw new Error('invalid 24-word recovery phrase');
     const salt = await Crypto.getRandomBytesAsync(16);
     const nonce = await Crypto.getRandomBytesAsync(24);
-    const wrappingKey = await scryptAsync(text.encode(lockPassphrase), salt, {
+    const wrappingKey = cryptoBackend().scrypt(text.encode(lockPassphrase), salt, {
       N: 1 << 16,
       r: 8,
       p: 1,
       dkLen: 32,
     });
-    const ciphertext = xchacha20poly1305(wrappingKey, nonce).encrypt(
+    const ciphertext = cryptoBackend().xchacha20poly1305Seal(
+      wrappingKey,
+      nonce,
       text.encode(mnemonic.normalize('NFKD')),
+      new Uint8Array(),
     );
     await SecureStore.setItemAsync(
       ROOT_KEY,
@@ -143,7 +144,10 @@ export class SecureForumSigner implements ForumSigner {
       }),
       storeOptions,
     );
-    return new SecureForumSigner(wrappingKey, recoveryPassphrase);
+    return new SecureForumSigner(
+      wrappingKey,
+      mnemonicToSeed(mnemonic, recoveryPassphrase),
+    );
   }
 
   static async unlock(
@@ -160,16 +164,24 @@ export class SecureForumSigner implements ForumSigner {
       ciphertext: string;
     };
     if (payload.version !== 1) throw new Error('unsupported Forum key-vault version');
-    const wrappingKey = await scryptAsync(text.encode(lockPassphrase), unbase64(payload.salt), {
+    const wrappingKey = cryptoBackend().scrypt(
+      text.encode(lockPassphrase),
+      unbase64(payload.salt),
+      {
       N: 1 << 16,
       r: 8,
       p: 1,
       dkLen: 32,
-    });
+      },
+    );
+    let mnemonic = '';
     try {
-      const mnemonic = new TextDecoder().decode(
-        xchacha20poly1305(wrappingKey, unbase64(payload.nonce)).decrypt(
+      mnemonic = new TextDecoder().decode(
+        cryptoBackend().xchacha20poly1305Open(
+          wrappingKey,
+          unbase64(payload.nonce),
           unbase64(payload.ciphertext),
+          new Uint8Array(),
         ),
       );
       if (!isValidMnemonic(mnemonic)) throw new Error('invalid recovered mnemonic');
@@ -177,7 +189,11 @@ export class SecureForumSigner implements ForumSigner {
       wrappingKey.fill(0);
       throw new Error('app passphrase is incorrect');
     }
-    return new SecureForumSigner(wrappingKey, recoveryPassphrase, credentialKey);
+    return new SecureForumSigner(
+      wrappingKey,
+      mnemonicToSeed(mnemonic, recoveryPassphrase),
+      credentialKey,
+    );
   }
 
   static async exists(): Promise<boolean> {
@@ -197,19 +213,9 @@ export class SecureForumSigner implements ForumSigner {
   }
 
   private async rootSeed(): Promise<Uint8Array> {
-    const encoded = await SecureStore.getItemAsync(ROOT_KEY, storeOptions);
-    if (!encoded) throw new Error('Forum identity is not configured');
-    const payload = JSON.parse(encoded) as {
-      version: number;
-      nonce: string;
-      ciphertext: string;
-    };
-    const mnemonic = new TextDecoder().decode(
-      xchacha20poly1305(this.wrappingKey, unbase64(payload.nonce)).decrypt(
-        unbase64(payload.ciphertext),
-      ),
-    );
-    return mnemonicToSeed(mnemonic, this.recoveryPassphrase);
+    // PBKDF2-HMAC-SHA512 and vault decryption happen once at unlock. Every caller gets a
+    // disposable copy because context derivation zeroes its input in a finally block.
+    return Uint8Array.from(this.rootSeedCache);
   }
 
   private async contextSeed(ctx: ContextOf<Plane.FORUM>): Promise<Uint8Array> {
@@ -427,6 +433,11 @@ export class SecureForumSigner implements ForumSigner {
 
   async panic(): Promise<void> {
     await SecureForumSigner.panicConfiguredVault();
+    this.lock();
+  }
+
+  lock(): void {
+    this.rootSeedCache.fill(0);
     this.wrappingKey.fill(0);
   }
 }
@@ -525,6 +536,7 @@ export async function createForumIdentity(
   lockPassphrase: string,
 ): Promise<{ readonly recoveryPhrase: string; readonly identityId: string }> {
   const recoveryPhrase = generateRootMnemonic();
+  activeSigner?.lock();
   activeSigner = await SecureForumSigner.create(lockPassphrase, recoveryPhrase);
   activeAccessToken = null;
   activeCredential = null;
@@ -538,6 +550,7 @@ export async function importForumIdentity(
   lockPassphrase: string,
 ): Promise<string> {
   if (!isValidMnemonic(recoveryPhrase.trim())) throw new Error('Enter a valid 24-word phrase');
+  activeSigner?.lock();
   activeSigner = await SecureForumSigner.create(
     lockPassphrase,
     recoveryPhrase.trim().replace(/\s+/g, ' '),
@@ -549,6 +562,7 @@ export async function importForumIdentity(
 }
 
 export async function unlockForumIdentity(lockPassphrase: string): Promise<string> {
+  activeSigner?.lock();
   activeSigner = await SecureForumSigner.unlock(lockPassphrase);
   activeAccessToken = null;
   const storedCredential = await SecureStore.getItemAsync(FORUM_CREDENTIAL_KEY, storeOptions);
@@ -557,6 +571,7 @@ export async function unlockForumIdentity(lockPassphrase: string): Promise<strin
 }
 
 export function lockForumIdentity(): void {
+  activeSigner?.lock();
   activeSigner = null;
   activeAccessToken = null;
   activeCredential = null;

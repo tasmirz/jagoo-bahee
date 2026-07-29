@@ -142,14 +142,26 @@ function deriveState(scopes: readonly ScopeHealth[]): UplinkState {
  * Forcing UP does not fabricate live scopes: it keeps the uplink in the selector's candidate
  * set while leaving the measured per-scope truth intact, so an operator who is right gets
  * their path back and an operator who is wrong gets an honest failure instead of a lie.
+ *
+ * ── Releasing an override must actually release it ─────────────────────────────────
+ * This used to spread `health` and then conditionally re-add `forcedState`, which meant
+ * `withForcedState(health, null)` kept whatever override was already there: `state` fell back
+ * to the measured value, but `forcedState` survived forever. Two consequences, both live.
+ * `/v1/transport/uplinks` reported `forced: "down"` on an uplink no longer forced, so an
+ * operator reading the surface BR-10 exists to provide was told the opposite of the truth.
+ * And `liveScopes` has a special case keyed on `forcedState === UP`, so a released
+ * never-probed uplink went on claiming every scope it declares. The key is dropped
+ * explicitly here rather than left to a conditional spread, because "absent" and "present
+ * and null" are the same to `?? measured` and very different to `health.forcedState === UP`.
  */
 export function withForcedState(
   health: UplinkHealth,
   forced: UplinkState | null,
 ): UplinkHealth {
   const measured = deriveState(health.scopes);
+  const { forcedState: _released, ...rest } = health;
   return {
-    ...health,
+    ...rest,
     state: forced ?? measured,
     ...(forced ? { forcedState: forced } : {}),
   };

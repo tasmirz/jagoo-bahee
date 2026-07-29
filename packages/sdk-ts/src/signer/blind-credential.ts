@@ -6,8 +6,8 @@
  * blinding factor nor the issuance transcript.
  */
 
-import { sha256 } from '@noble/hashes/sha256';
-import { concatBytes, randomBytes } from '@noble/hashes/utils';
+import { concatBytes } from '../core/wire.js';
+import { cryptoBackend } from '../crypto/backend.js';
 
 export interface BlindCredentialPublicKey {
   readonly n: string;
@@ -64,13 +64,19 @@ function inverse(value: bigint, modulus: bigint): bigint {
 }
 
 function representative(token: Uint8Array, modulus: bigint): bigint {
-  return toBigInt(sha256(concatBytes(text.encode('jb-blind-credential-v1\0'), token))) % modulus;
+  return (
+    toBigInt(
+      cryptoBackend().sha256(
+        concatBytes(text.encode('jb-blind-credential-v1\0'), token),
+      ),
+    ) % modulus
+  );
 }
 
 export function blindCredential(
   publicKey: BlindCredentialPublicKey,
-  token: Uint8Array = randomBytes(32),
-  factor: Uint8Array = randomBytes(publicKey.width),
+  token: Uint8Array = cryptoBackend().randomBytes(32),
+  factor: Uint8Array = cryptoBackend().randomBytes(publicKey.width),
 ): { blinded: Uint8Array; state: BlindCredentialState } {
   if (token.length !== 32) throw new Error('credential token must be 32 bytes');
   const modulus = toBigInt(fromBase64Url(publicKey.n));

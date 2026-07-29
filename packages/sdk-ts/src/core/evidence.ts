@@ -1,7 +1,6 @@
-import { sha256 } from '@noble/hashes/sha256';
-import { concatBytes } from '@noble/hashes/utils';
+import { cryptoBackend } from '../crypto/backend.js';
 import { verify as verifyEd25519 } from '../crypto/ed25519.js';
-import { frameParts } from './wire.js';
+import { concatBytes, frameParts } from './wire.js';
 
 const text = new TextEncoder();
 
@@ -26,9 +25,9 @@ export interface OfflineReceipt {
 }
 
 const hashLeaf = (contentId: string): Uint8Array =>
-  sha256(concatBytes(new Uint8Array([0]), text.encode(contentId)));
+  cryptoBackend().sha256(concatBytes(new Uint8Array([0]), text.encode(contentId)));
 const hashNode = (left: Uint8Array, right: Uint8Array): Uint8Array =>
-  sha256(concatBytes(new Uint8Array([1]), left, right));
+  cryptoBackend().sha256(concatBytes(new Uint8Array([1]), left, right));
 
 export function sthSigningBytes(sth: Omit<OfflineTreeHead, 'signature' | 'serverKey'>): Uint8Array {
   return concatBytes(

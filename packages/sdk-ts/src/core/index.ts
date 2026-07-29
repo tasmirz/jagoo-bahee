@@ -10,7 +10,7 @@ export {
   isContentId,
 } from './content-id.js';
 export { base32Encode, base32Decode } from './base32.js';
-export { ByteWriter, bytesEqual, encodeUtf8Nfc, frameParts } from './wire.js';
+export { ByteWriter, bytesEqual, concatBytes, encodeUtf8Nfc, frameParts } from './wire.js';
 export {
   verifyInclusion,
   verifyReceipt,

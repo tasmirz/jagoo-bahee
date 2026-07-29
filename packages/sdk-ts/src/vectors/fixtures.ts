@@ -15,7 +15,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { hexToBytes } from '@noble/hashes/utils';
 import type { Plane, KeyAlg, Priority, AntiAbuse, CanonicalEnvelope } from '../core/types.js';
 
 /**
@@ -74,7 +73,11 @@ interface FixtureFile {
 
 /** `""` must decode to an empty array, which `hexToBytes` handles, but be explicit. */
 function bytes(hex: string | undefined): Uint8Array {
-  return hex ? hexToBytes(hex) : new Uint8Array(0);
+  if (!hex) return new Uint8Array(0);
+  if (hex.length % 2 !== 0 || !/^[0-9a-f]+$/i.test(hex)) {
+    throw new Error('fixture contains invalid hexadecimal bytes');
+  }
+  return Uint8Array.from(hex.match(/.{2}/g) ?? [], (pair) => Number.parseInt(pair, 16));
 }
 
 export function loadVectors(): readonly Vector[] {

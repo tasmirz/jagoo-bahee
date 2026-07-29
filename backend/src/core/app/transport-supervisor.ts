@@ -54,6 +54,19 @@ export class TransportSupervisor {
   constructor(private readonly deps: TransportSupervisorDeps) {}
 
   /**
+   * Rebuild the bridge's peer→island map, or do nothing at all.
+   *
+   * Guarded on `enabled` so AR-12 holds one rung up: a node that has not opted into bridging
+   * pays nothing for this on every probe round. A failure is swallowed — an unreachable peer
+   * directory is the ordinary state during the partition a bridge exists to survive, and it
+   * must not stop the probe loop that will fix it.
+   */
+  private async refreshBridge(): Promise<void> {
+    if (!this.deps.bridge?.enabled) return;
+    await this.deps.bridge.refresh().catch(() => undefined);
+  }
+
+  /**
    * One probe round, plus the failover it implies.
    *
    * Returns the report so the runtime can log it and a test can assert on it. A pass that
@@ -82,6 +95,20 @@ export class TransportSupervisor {
     }
 
     if (transitions.length === 0) {
+      // BR-01 — the bridge's peer→island map goes stale without any uplink moving.
+      //
+      // It used to be rebuilt in exactly two places: once at bootstrap, and again on an
+      // uplink transition. A bridge in its normal state has neither. Peers are seeded and
+      // handshaken by the federation runtime on its own schedule, so the boot-time pass
+      // routinely ran against an empty or partial directory — and then nothing recomputed it
+      // for the life of the process. The container gate found a correctly configured bridge
+      // with three TRUSTED peers reporting "no uplink pair has a TRUSTED peer on both sides"
+      // forever, which no operator could have acted on because nothing was wrong.
+      //
+      // A quiet round is the right place for it: the work is one directory read plus pure
+      // path selection, it runs at the probe cadence rather than per envelope, and the probe
+      // cadence is exactly how often the answer can change.
+      await this.refreshBridge();
       return { transitions, peersReconnected: 0, reason: 'no change' };
     }
 
@@ -106,7 +133,7 @@ export class TransportSupervisor {
     // The bridge's peer→island map is derived from path selection, so it is stale the instant
     // an uplink changes. Refreshed before reconnecting, or the first relayed envelope after a
     // failover would be charged to the wrong pair.
-    await this.deps.bridge?.refresh();
+    await this.refreshBridge();
 
     let reconnected = 0;
     for (const peer of await this.deps.peers.all()) {

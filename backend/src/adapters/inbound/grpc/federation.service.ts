@@ -502,6 +502,10 @@ function toFilter(request: StreamRequest): StreamFilter & { planes?: Plane[] } {
   };
 }
 
+// NOTE: this shape feeds `announceRequestSigningBytes`, so every field must be present in
+// its wire form — a zero ASN is part of the bytes the peer signed and dropping it here would
+// break verification. The directory-facing conversion, where a zero must become "absent", is
+// `fromWireEndpoint` in `federation-client.ts`.
 function fromWireEndpoint(endpoint: WireEndpoint) {
   return {
     uri: endpoint.uri,

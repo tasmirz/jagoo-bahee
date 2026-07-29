@@ -738,6 +738,71 @@ describe('FG-08 — a peer that rewrote its log is detected, demoted, and alerte
     expect((await b.alerts.list(10)).some((alert) => alert.code === 'peer.forked')).toBe(false);
   });
 
+  /**
+   * The same rule, for the claim that names NOBODY.
+   *
+   * The attribution check used to be `serverKey.length > 0 && !sameKey(...)`, so an
+   * unlabelled head skipped it entirely. Proto3 has no absent message field once the message
+   * itself is present, so "this peer sent no tree head" and "this peer sent an all-zero tree
+   * head" are the same bytes: empty key, size 0, empty root. Against a peer that had honestly
+   * attested three leaves that reads as `3 → 0`, and BLOCKED needs an operator to lift.
+   *
+   * Found by the P3 container gate, which blocked two healthy nodes within seconds of boot.
+   */
+  it('discards an UNATTRIBUTED tree head instead of reading it as a shrunken log', async () => {
+    await introduce(b, a, PeerTrust.TRUSTED);
+    await b.sender.announce((await b.peers.get(peerIdOf(a)))!);
+    await b.peers.upsert({ ...(await b.peers.get(peerIdOf(a)))!, trust: PeerTrust.TRUSTED });
+
+    // A real history first, so a regression is genuinely available to be detected.
+    await b.ledger.recordPeerSth(peerIdOf(a), {
+      serverKey: a.signer.publicKey,
+      treeSize: 3,
+      rootHash: new Uint8Array(32).fill(7),
+      timestampMs: NOW_MS,
+      signature: new Uint8Array(64),
+    });
+
+    const status = await b.inbox.observePeerSth((await b.peers.get(peerIdOf(a)))!, {
+      serverKey: new Uint8Array(0),
+      treeSize: 0,
+      rootHash: new Uint8Array(0),
+      timestampMs: NOW_MS,
+      signature: new Uint8Array(0),
+    });
+
+    expect(status).not.toBe('FORKED');
+    expect((await b.peers.get(peerIdOf(a)))!.trust).toBe(PeerTrust.TRUSTED);
+    expect((await b.alerts.list(10)).some((alert) => alert.code === 'peer.forked')).toBe(false);
+    // And it must not be recorded either — an unattributed head is not a new low-water mark.
+    expect((await b.ledger.lastPeerSth(peerIdOf(a)))?.treeSize).toBe(3);
+  });
+
+  it('still blocks a genuine, correctly attributed regression', async () => {
+    // The control for the case above: the guard must not have turned fork detection off.
+    await introduce(b, a, PeerTrust.TRUSTED);
+    await b.sender.announce((await b.peers.get(peerIdOf(a)))!);
+    await b.peers.upsert({ ...(await b.peers.get(peerIdOf(a)))!, trust: PeerTrust.TRUSTED });
+    await b.ledger.recordPeerSth(peerIdOf(a), {
+      serverKey: a.signer.publicKey,
+      treeSize: 3,
+      rootHash: new Uint8Array(32).fill(7),
+      timestampMs: NOW_MS,
+      signature: new Uint8Array(64),
+    });
+
+    const status = await b.inbox.observePeerSth((await b.peers.get(peerIdOf(a)))!, {
+      serverKey: a.signer.publicKey,
+      treeSize: 1,
+      rootHash: new Uint8Array(32).fill(8),
+      timestampMs: NOW_MS,
+      signature: new Uint8Array(64),
+    });
+
+    expect(status).toBe('FORKED');
+    expect((await b.peers.get(peerIdOf(a)))!.trust).toBe(PeerTrust.BLOCKED);
+  });
+
   it('a fork block cannot be vouched away — only an operator lifts it', async () => {
     await introduce(b, a, PeerTrust.TRUSTED);
     await b.sender.announce((await b.peers.get(peerIdOf(a)))!);

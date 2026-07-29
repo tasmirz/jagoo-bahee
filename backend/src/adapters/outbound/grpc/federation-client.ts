@@ -411,11 +411,20 @@ function toWireEndpoint(endpoint: PeerEndpoint) {
   };
 }
 
+/**
+ * Proto3 has no absent scalar, so `asn: 0` on the wire means "not stated" — and AS 0 is
+ * reserved and never routable, so it can never be a real answer either. Storing the zero as
+ * though it were an ASN made every announced endpoint claim membership of AS 0, which
+ * matches no uplink; `selectPath`'s same-ASN preference (TP-11) then had nothing to prefer
+ * and fell through to the priority number for every peer. On the multi-homed bridge that put
+ * every ISP_LOCAL peer on one uplink, left the other side of the pair with no TRUSTED peer,
+ * and made BR-01 unsatisfiable. Absent must stay absent.
+ */
 function fromWireEndpoint(endpoint: WireEndpoint): PeerEndpoint {
   return {
     address: endpoint.uri,
     scope: SCOPE_BY_WIRE[endpoint.scope] ?? 'GLOBAL',
-    asn: endpoint.asn,
+    ...(endpoint.asn > 0 ? { asn: endpoint.asn } : {}),
     isp: endpoint.isp_name,
     region: endpoint.region,
     inboundCapable: endpoint.inbound_capable,

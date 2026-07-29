@@ -31,6 +31,21 @@
 #   docker network disconnect jagoo-isp_ix jb-a1
 # Docker's DNS then stops resolving `jb-b1` from `jb-a1` entirely, which is exactly what a
 # national gateway going dark looks like from inside one ISP.
+#
+# ── No published ports, and that is the point ──────────────────────────────────────
+# These services deliberately publish nothing. A container attached only to `internal`
+# networks has no route to the host, so Docker creates no binding for it — `docker inspect`
+# reports `"3000/tcp": []` whatever `ports:` says. This file used to declare 3101-3104 and
+# they silently did nothing, which is worse than declaring none: the gate was driven over
+# them and therefore asserted the opposite of what this topology exists to claim.
+#
+# Giving the nodes a management network would have restored host access and destroyed the
+# premise — egress would make `GLOBAL` answer, and a shared network would let a1 route to b1
+# with the IX cut. So `backend/src/cli/isp-gate.ts` issues every request from INSIDE, via
+# `docker exec <container> node -e fetch(...)` against the node's own loopback.
+#
+#   docker exec jb-a1 node -e "fetch('http://127.0.0.1:3000/health').then(r=>r.text()).then(console.log)"
+#   docker compose -f ops/isp-compose.yml logs -f jb-a1
 
 name: jagoo-isp
 
@@ -134,12 +149,11 @@ services:
       # GLOBAL is deliberately unreachable: `internal: true` gives this network no egress,
       # so 1.1.1.1 never answers. NATIONAL is the IX. ISP_LOCAL is a node on our own island.
       PROBE_TARGETS: 'GLOBAL=1.1.1.1:443,NATIONAL=jb-b1:3000,ISP_LOCAL=jb-a2:3000'
-      FEDERATION_ENDPOINTS: 'ISP_LOCAL=grpc://jb-a1:8444,NATIONAL=grpc://jb-a1:8444'
+      FEDERATION_ENDPOINTS: 'ISP_LOCAL:64501=grpc://jb-a1:8444,NATIONAL:64501=grpc://jb-a1:8444'
       FEDERATION_PEERS: >-
-        IVL40Zt5HSRFMkLhXy6rbLfP+ntqXtMAl5YOBpiB2xI=@ISP_LOCAL=grpc://jb-a2:8444#TRUSTED,
-        rwaj4ykXFOTzVsGcmxXNGVHsbmZiqne+B1R/KJODNB0=@ISP_LOCAL=grpc://jb-bridge:8444#TRUSTED,
-        wFDFY3pE+oYp//PMzOIwDLNipj2Z2V/FQUUmb0MyRFo=@NATIONAL=grpc://jb-b1:8444#TRUSTED
-    ports: ['3101:3000']
+        IVL40Zt5HSRFMkLhXy6rbLfP+ntqXtMAl5YOBpiB2xI=@ISP_LOCAL:64501=grpc://jb-a2:8444#TRUSTED,
+        rwaj4ykXFOTzVsGcmxXNGVHsbmZiqne+B1R/KJODNB0=@ISP_LOCAL:64501=grpc://jb-bridge:8444#TRUSTED,
+        wFDFY3pE+oYp//PMzOIwDLNipj2Z2V/FQUUmb0MyRFo=@NATIONAL:64502=grpc://jb-b1:8444#TRUSTED
     healthcheck: *node-health
 
   jb-a2:
@@ -159,11 +173,10 @@ services:
       # passes for a2, ISP-local federation is genuinely working and not quietly transiting.
       UPLINKS: 'isp-a||64501|ISP-A|ISP_LOCAL|8444|1'
       PROBE_TARGETS: 'ISP_LOCAL=jb-a1:3000'
-      FEDERATION_ENDPOINTS: 'ISP_LOCAL=grpc://jb-a2:8444'
+      FEDERATION_ENDPOINTS: 'ISP_LOCAL:64501=grpc://jb-a2:8444'
       FEDERATION_PEERS: >-
-        25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50=@ISP_LOCAL=grpc://jb-a1:8444#TRUSTED,
-        rwaj4ykXFOTzVsGcmxXNGVHsbmZiqne+B1R/KJODNB0=@ISP_LOCAL=grpc://jb-bridge:8444#TRUSTED
-    ports: ['3102:3000']
+        25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50=@ISP_LOCAL:64501=grpc://jb-a1:8444#TRUSTED,
+        rwaj4ykXFOTzVsGcmxXNGVHsbmZiqne+B1R/KJODNB0=@ISP_LOCAL:64501=grpc://jb-bridge:8444#TRUSTED
     healthcheck: *node-health
 
   # ── ISP-B island ────────────────────────────────────────────────────────────────────
@@ -216,11 +229,10 @@ services:
       NODE_SIGNING_SEED: 'UVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVE='
       UPLINKS: 'isp-b||64502|ISP-B|GLOBAL+NATIONAL+ISP_LOCAL|8444|1'
       PROBE_TARGETS: 'GLOBAL=1.1.1.1:443,NATIONAL=jb-a1:3000,ISP_LOCAL=jb-bridge:3000'
-      FEDERATION_ENDPOINTS: 'ISP_LOCAL=grpc://jb-b1:8444,NATIONAL=grpc://jb-b1:8444'
+      FEDERATION_ENDPOINTS: 'ISP_LOCAL:64502=grpc://jb-b1:8444,NATIONAL:64502=grpc://jb-b1:8444'
       FEDERATION_PEERS: >-
-        rwaj4ykXFOTzVsGcmxXNGVHsbmZiqne+B1R/KJODNB0=@ISP_LOCAL=grpc://jb-bridge:8444#TRUSTED,
-        25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50=@NATIONAL=grpc://jb-a1:8444#TRUSTED
-    ports: ['3103:3000']
+        rwaj4ykXFOTzVsGcmxXNGVHsbmZiqne+B1R/KJODNB0=@ISP_LOCAL:64502=grpc://jb-bridge:8444#TRUSTED,
+        25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50=@NATIONAL:64501=grpc://jb-a1:8444#TRUSTED
     healthcheck: *node-health
 
   # ── The bridge — the only node on BOTH islands, and on neither IX ───────────────────
@@ -230,7 +242,13 @@ services:
   jb-bridge:
     <<: *node
     container_name: jb-bridge
-    networks: [isp-a, isp-b]
+    # Static, because `UPLINKS` names these addresses and TP-08 binds outbound sockets to
+    # them. A DHCP-assigned address would make the source binding a lottery the gate loses.
+    networks:
+      isp-a:
+        ipv4_address: 10.90.1.30
+      isp-b:
+        ipv4_address: 10.90.2.30
     depends_on:
       mongo-a-init: { condition: service_completed_successfully }
       redis-a: { condition: service_healthy }
@@ -243,6 +261,13 @@ services:
       # TWO uplinks with REAL source addresses on two REAL interfaces. This is the assertion
       # a single-process harness cannot make: TG-01 reads /proc/net/tcp inside this container
       # and requires the established federation connections to leave through both.
+      #
+      # The addresses below MUST match the `ipv4_address` entries under `networks:`. They did
+      # not on the first run — Docker had handed this container 10.90.1.5/10.90.2.5 while
+      # UPLINKS claimed .30 — so every source-bound probe failed with EADDRNOTAVAIL, both
+      # uplinks sat DOWN with 187 consecutive failures, and the bridge could never become
+      # ready. That failure is exactly what ADR-015's falsifiable bind test asserts, arriving
+      # from a misconfiguration instead of a regression.
       UPLINKS: >-
         isp-a|10.90.1.30|64501|ISP-A|ISP_LOCAL|8444|1,
         isp-b|10.90.2.30|64502|ISP-B|ISP_LOCAL|8444|2
@@ -252,11 +277,14 @@ services:
       BRIDGE_ENVELOPES_PER_MIN: '600'
       BRIDGE_BYTES_PER_MIN: '2000000'
       FEDERATION_ENDPOINTS: 'ISP_LOCAL=grpc://jb-bridge:8444'
+      # Each peer is tagged with the AS it actually sits on. Without it every ISP_LOCAL peer
+      # resolves to whichever uplink has the lower priority number (TP-11's same-ASN
+      # preference has nothing to compare), one side of the pair ends up with no TRUSTED
+      # peer, and BR-01 refuses to bridge at all.
       FEDERATION_PEERS: >-
-        25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50=@ISP_LOCAL=grpc://jb-a1:8444#TRUSTED,
-        IVL40Zt5HSRFMkLhXy6rbLfP+ntqXtMAl5YOBpiB2xI=@ISP_LOCAL=grpc://jb-a2:8444#TRUSTED,
-        wFDFY3pE+oYp//PMzOIwDLNipj2Z2V/FQUUmb0MyRFo=@ISP_LOCAL=grpc://jb-b1:8444#TRUSTED
-    ports: ['3104:3000']
+        25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50=@ISP_LOCAL:64501=grpc://jb-a1:8444#TRUSTED,
+        IVL40Zt5HSRFMkLhXy6rbLfP+ntqXtMAl5YOBpiB2xI=@ISP_LOCAL:64501=grpc://jb-a2:8444#TRUSTED,
+        wFDFY3pE+oYp//PMzOIwDLNipj2Z2V/FQUUmb0MyRFo=@ISP_LOCAL:64502=grpc://jb-b1:8444#TRUSTED
     healthcheck: *node-health
 
 networks:

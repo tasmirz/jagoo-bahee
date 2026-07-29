@@ -1,3 +1,4 @@
+import '../src/crypto/backend';
 import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
 import { JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono/400Regular';

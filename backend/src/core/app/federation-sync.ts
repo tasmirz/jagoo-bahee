@@ -26,6 +26,7 @@ import {
   type FederationLedger,
   type FederationSender,
   type PeerDirectory,
+  type PeerEndpoint,
   type PeerRecord,
 } from '../ports/network.port.js';
 import type { PeerLogStatus } from '../ports/transparency.port.js';
@@ -72,7 +73,10 @@ export class FederationSync {
     const updated: PeerRecord = {
       ...peer,
       publicKey: outcome.peerKey.length > 0 ? outcome.peerKey : peer.publicKey,
-      endpoints: outcome.endpoints.length > 0 ? outcome.endpoints : peer.endpoints,
+      endpoints:
+        outcome.endpoints.length > 0
+          ? withLocalKnowledge(outcome.endpoints, peer.endpoints)
+          : peer.endpoints,
       lastSeenMs: nowMs,
       firstSeenMs: peer.firstSeenMs ?? nowMs,
     };
@@ -328,4 +332,35 @@ function contentIdOf(raw: Uint8Array): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * A peer's announcement is authoritative for its own addresses (FD-17) — but only for what
+ * it actually stated.
+ *
+ * An operator who writes `ISP_LOCAL:64502=grpc://jb-b1:8444` in `FEDERATION_PEERS` is
+ * recording a fact about their own topology that the peer has no reason to know and no way
+ * to send: which of THIS node's uplinks reaches it. Replacing the whole endpoint list on
+ * handshake discarded that, so the configuration silently stopped applying the moment the
+ * first handshake succeeded — the worst kind of failure, because it worked at boot.
+ *
+ * Matched on the URI, because that is the only stable key an endpoint has; a field the peer
+ * did state always wins, so this can never contradict the peer about itself.
+ */
+function withLocalKnowledge(
+  announced: readonly PeerEndpoint[],
+  known: readonly PeerEndpoint[],
+): readonly PeerEndpoint[] {
+  if (known.length === 0) return announced;
+  const byAddress = new Map(known.map((endpoint) => [endpoint.address, endpoint]));
+  return announced.map((endpoint) => {
+    const local = byAddress.get(endpoint.address);
+    if (!local) return endpoint;
+    return {
+      ...endpoint,
+      ...(endpoint.asn === undefined && local.asn !== undefined ? { asn: local.asn } : {}),
+      ...(!endpoint.isp && local.isp ? { isp: local.isp } : {}),
+      ...(!endpoint.region && local.region ? { region: local.region } : {}),
+    };
+  });
 }

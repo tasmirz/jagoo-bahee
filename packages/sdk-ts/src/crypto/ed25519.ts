@@ -15,15 +15,15 @@
  * Specification: Plans/01-IDENTITY-PLANES.md §7
  */
 
-import { ed25519 } from '@noble/curves/ed25519';
 import { ED25519_PUBLIC_KEY_BYTES, ED25519_SIGNATURE_BYTES } from '../core/types.js';
+import { cryptoBackend } from './backend.js';
 
 export function derivePublicKey(privateKey: Uint8Array): Uint8Array {
-  return ed25519.getPublicKey(privateKey);
+  return cryptoBackend().ed25519PublicKey(privateKey);
 }
 
 export function sign(message: Uint8Array, privateKey: Uint8Array): Uint8Array {
-  return ed25519.sign(message, privateKey);
+  return cryptoBackend().ed25519Sign(message, privateKey);
 }
 
 /**
@@ -39,7 +39,7 @@ export function verify(
   if (signature.length !== ED25519_SIGNATURE_BYTES) return false;
   if (publicKey.length !== ED25519_PUBLIC_KEY_BYTES) return false;
   try {
-    return ed25519.verify(signature, message, publicKey);
+    return cryptoBackend().ed25519Verify(signature, message, publicKey);
   } catch {
     return false;
   }

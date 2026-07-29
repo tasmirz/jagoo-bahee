@@ -1,7 +1,5 @@
-import { chacha20poly1305 } from '@noble/ciphers/chacha';
-import { hkdf } from '@noble/hashes/hkdf';
-import { sha256 } from '@noble/hashes/sha256';
-import { concatBytes, randomBytes } from '@noble/hashes/utils';
+import { concatBytes } from '../core/wire.js';
+import { cryptoBackend } from './backend.js';
 
 const text = new TextEncoder();
 const RATCHET_INFO = text.encode('jb:signal:ratchet:v1');
@@ -46,7 +44,12 @@ function advance(state: RatchetState): { readonly messageKey: Uint8Array; readon
   if (state.chainKey.length !== 32) throw new Error('ratchet chain key must be 32 bytes');
   const counter = new Uint8Array(8);
   new DataView(counter.buffer).setBigUint64(0, state.counter, false);
-  const material = hkdf(sha256, state.chainKey, counter, RATCHET_INFO, 64);
+  const material = cryptoBackend().hkdfSha256(
+    state.chainKey,
+    counter,
+    RATCHET_INFO,
+    64,
+  );
   return {
     messageKey: material.slice(0, 32),
     next: { chainKey: material.slice(32), counter: state.counter + 1n },
@@ -58,7 +61,7 @@ export function sealRatchetMessage(
   state: RatchetState,
   plaintext: Uint8Array,
   aad: Uint8Array = new Uint8Array(),
-  nonce: Uint8Array = randomBytes(12),
+  nonce: Uint8Array = cryptoBackend().randomBytes(12),
 ): RatchetCiphertext {
   if (nonce.length !== 12) throw new Error('ratchet nonce must be 12 bytes');
   const { messageKey, next } = advance(state);
@@ -66,7 +69,12 @@ export function sealRatchetMessage(
     return {
       counter: state.counter,
       nonce,
-      ciphertext: chacha20poly1305(messageKey, nonce, aad).encrypt(plaintext),
+      ciphertext: cryptoBackend().chacha20poly1305Seal(
+        messageKey,
+        nonce,
+        plaintext,
+        aad,
+      ),
       next,
     };
   } finally {
@@ -85,7 +93,12 @@ export function openRatchetMessage(
   const { messageKey, next } = advance(state);
   try {
     return {
-      plaintext: chacha20poly1305(messageKey, message.nonce, aad).decrypt(message.ciphertext),
+      plaintext: cryptoBackend().chacha20poly1305Open(
+        messageKey,
+        message.nonce,
+        message.ciphertext,
+        aad,
+      ),
       next,
     };
   } finally {

@@ -99,6 +99,22 @@ Three things that look like cleanups and are not:
   specifiers to `./x.ts`. Hence `dist/esm`, hence `dev` depends on `^build`. For active sdk work run
   `tsc -w` alongside.
 
+### Crypto has one semantic implementation and two primitive backends
+
+ADR-017 adds `CryptoBackend` under `packages/sdk-ts/src/crypto/`. Node, iOS, tests and vectors use
+the portable JS backend. Android installs the synchronous local Expo module from
+`frontend/modules/jagoo-crypto` before a signer can run.
+
+- BIP-39, hardened BIP-32/BIP-85, canonical hashing and signing policy remain shared TypeScript.
+- Only `crypto/js-backend.ts` and the word-list data adapter may import Noble/Scure in production.
+  `CRYPTO-01` is lint-enforced and has a failing-on-purpose probe.
+- Do not import a primitive directly in a feature to “avoid the seam.” Add it to `CryptoBackend`,
+  implement both adapters and extend the on-device parity suite.
+- Forum and Signal root seeds are memoised only for an unlocked signer and zeroed on lock/panic.
+- Expo Go cannot contain this local native module. Use `pnpm --filter @jagoo/frontend android` or a
+  development client for Android parity; JS fallback in Expo Go is expected, not evidence of native
+  execution.
+
 **Folder mapping vs. the Plans.** `Plans/07-ARCHITECTURE.md` §6 names `services/node` and `apps/web`.
 This repo uses **`backend/`** (= `services/node`) and **`frontend/`** (= `apps/mobile`, Expo RN).
 `apps/web` is out of scope for P0–P2. Everything else in that layout is unchanged. When a doc says

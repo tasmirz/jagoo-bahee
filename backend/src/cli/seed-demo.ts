@@ -180,10 +180,19 @@ export async function seedDemo(
   });
   const credential = unblindCredential(blinded.state, fromBase64(issued.blindSignature));
   const epoch = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
+  // The community follows the identity, not the other way round.
+  //
+  // A second run under a different `DEMO_IDENTITY_SEED` used to find the FIRST identity's
+  // `welcome` community, try to post into it, and be refused with "post.create permission
+  // required" — moderation working correctly against a seeder that had assumed it owned
+  // somewhere it had merely found. Naming the community after the identity means each demo
+  // identity creates and moderates its own, so the seeder is re-runnable and the ISP gate can
+  // publish a second, distinguishable post to prove a bridge crossing.
+  const communityName = process.env.DEMO_COMMUNITY ?? 'welcome';
   const listed = await json<{
     readonly items: readonly { readonly id: string; readonly name: string }[];
-  }>(url, '/v1/communities?q=welcome');
-  let communityId = listed.items.find((item) => item.name === 'welcome')?.id;
+  }>(url, `/v1/communities?q=${encodeURIComponent(communityName)}`);
+  let communityId = listed.items.find((item) => item.name === communityName)?.id;
   if (!communityId) {
     await json(url, '/v1/envelopes', {
       method: 'POST',
@@ -195,7 +204,7 @@ export async function seedDemo(
             'jb:community:create:v1',
             CommunityCreate.encode(
               CommunityCreate.fromPartial({
-                name: 'welcome',
+                name: communityName,
                 title: 'Welcome',
                 description: 'The local starting point for this Jagoo Bahee node.',
               }),
@@ -212,8 +221,8 @@ export async function seedDemo(
     });
     const created = await json<{
       readonly items: readonly { readonly id: string; readonly name: string }[];
-    }>(url, '/v1/communities?q=welcome');
-    communityId = created.items.find((item) => item.name === 'welcome')?.id;
+    }>(url, `/v1/communities?q=${encodeURIComponent(communityName)}`);
+    communityId = created.items.find((item) => item.name === communityName)?.id;
   }
   if (!communityId) throw new Error('demo community was not projected');
   const post = envelope(

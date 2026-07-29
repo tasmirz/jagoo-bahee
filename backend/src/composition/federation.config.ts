@@ -52,13 +52,26 @@ const DEFAULT_GOSSIP_MS = 5 * 60 * 1000;
 const DEFAULT_DRAIN_MS = 1_000;
 
 /**
- * `FEDERATION_ENDPOINTS` — a comma-separated list of `scope=uri` pairs.
+ * `FEDERATION_ENDPOINTS` — a comma-separated list of `scope[:asn]=uri` pairs.
  *
  *   FEDERATION_ENDPOINTS='GLOBAL=grpc://node1.example.org:8444,ISP_LOCAL=grpc://10.20.30.40:8444'
+ *   FEDERATION_PEERS='AAAA…@ISP_LOCAL:64502=grpc://jb-b1:8444#TRUSTED'
  *
  * Scope is required rather than inferred. FD-17 depends on a node knowing which of its own
  * addresses is reachable from where, and guessing from an IP range would be wrong for
  * exactly the CGNAT and multi-homed cases P3 exists to serve.
+ *
+ * ── The optional ASN is what makes TP-11 real ──────────────────────────────────────
+ * `selectPath` step 5 picks "the highest-priority uplink whose liveScopes ∋ endpoint.scope,
+ * preferring uplink.asn == endpoint.asn", and TP-11 calls that preference "the rule that
+ * keeps the resilience path warm". `PeerEndpoint.asn` existed and this parser never set it,
+ * so for every configured peer the preference compared `undefined` to a number and the
+ * uplink was always chosen by priority alone. On a single-homed node that is invisible. On a
+ * multi-homed bridge it is fatal: every ISP_LOCAL peer resolved to whichever uplink had the
+ * lower priority number, so one side of the pair had no peer, `bridgeReadiness` refused with
+ * "no uplink pair has a TRUSTED peer on both sides", and BR-01 could not be satisfied by any
+ * configuration. Which ASN a peer sits on is exactly the fact a bridge operator has and the
+ * node cannot infer, so it belongs in configuration.
  */
 function parseEndpoints(raw: string | undefined): readonly PeerEndpoint[] {
   if (!raw) return [];
@@ -68,12 +81,23 @@ function parseEndpoints(raw: string | undefined): readonly PeerEndpoint[] {
     if (!trimmed) continue;
     const separator = trimmed.indexOf('=');
     if (separator < 0) continue;
-    const scope = trimmed.slice(0, separator).trim().toUpperCase();
+    const descriptor = trimmed.slice(0, separator).trim();
     const address = trimmed.slice(separator + 1).trim();
+    // Split on the FIRST colon only: the scope never contains one, and everything after it
+    // is the AS number. The address is on the other side of the `=` and is untouched, so a
+    // `grpc://host:port` is never mistaken for a scope with an ASN.
+    const colon = descriptor.indexOf(':');
+    const scope = (colon < 0 ? descriptor : descriptor.slice(0, colon)).toUpperCase();
+    const asnText = colon < 0 ? '' : descriptor.slice(colon + 1).trim();
     if (!address || !(scope in ReachabilityScope)) continue;
+    const asn = Number(asnText);
     endpoints.push({
       address,
       scope: scope as PeerEndpoint['scope'],
+      // A malformed ASN is dropped rather than stored as NaN: an endpoint tagged NaN would
+      // never match any uplink and would silently behave like the untagged case it was
+      // written to fix.
+      ...(asnText && Number.isInteger(asn) && asn > 0 ? { asn } : {}),
       inboundCapable: true,
     });
   }
@@ -81,9 +105,10 @@ function parseEndpoints(raw: string | undefined): readonly PeerEndpoint[] {
 }
 
 /**
- * `FEDERATION_PEERS` — `base64key@scope=uri[;scope=uri][#trust]`, comma separated.
+ * `FEDERATION_PEERS` — `base64key@scope[:asn]=uri[;scope[:asn]=uri][#trust]`, comma separated.
  *
  *   FEDERATION_PEERS='AAAA…@GLOBAL=grpc://node-b:8444#TRUSTED'
+ *   FEDERATION_PEERS='AAAA…@ISP_LOCAL:64502=grpc://jb-b1:8444#TRUSTED'
  *
  * The KEY is the peer identity (FD-02); the URI is mutable metadata. A peer that changes
  * address keeps its identity, its history and its trust — which is the whole reason losing

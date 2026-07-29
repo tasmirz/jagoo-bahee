@@ -35,6 +35,18 @@ const SIGNER_PATTERNS = [
   },
 ];
 
+/**
+ * ADR-017 — production crypto consumers use the backend seam. Keeping primitive imports in one
+ * adapter makes an accidental Android JS fallback a lint failure instead of a performance bug.
+ */
+const CRYPTO_IMPLEMENTATION_PATTERNS = [
+  {
+    group: ['@noble/*', '@scure/*', 'react-native-argon2'],
+    message:
+      'CRYPTO-01: import primitives through CryptoBackend. Only crypto/js-backend.ts and the BIP-39 word-list data adapter may import an implementation.',
+  },
+];
+
 /** AR-01 — the core declares ports; adapters implement them. */
 const CORE_PATTERNS = [
   {
@@ -136,6 +148,23 @@ export default tseslint.config(
     ignores: ['packages/sdk-ts/src/signer/**', 'frontend/src/signer/**'],
     rules: {
       'no-restricted-imports': ['error', { patterns: SIGNER_PATTERNS }],
+    },
+  },
+
+  // ── CRYPTO-01: one implementation boundary ───────────────────────────────
+  // Tests may import a reference implementation to compare outputs. Production SDK and
+  // frontend code may only talk to CryptoBackend.
+  {
+    files: ['packages/sdk-ts/src/**/*.ts', 'frontend/src/**/*.ts'],
+    ignores: [
+      'packages/sdk-ts/src/crypto/js-backend.ts',
+      'packages/sdk-ts/src/crypto/wordlist-english.ts',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: [...SIGNER_PATTERNS, ...CRYPTO_IMPLEMENTATION_PATTERNS] },
+      ],
     },
   },
 

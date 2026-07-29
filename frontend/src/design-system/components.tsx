@@ -1,4 +1,10 @@
-import { useRef, type ComponentProps, type PropsWithChildren, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  type ComponentProps,
+  type PropsWithChildren,
+  type ReactNode,
+} from 'react';
 import {
   AccessibilityInfo,
   Animated,
@@ -13,7 +19,8 @@ import { BlurView } from 'expo-blur';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { AppPalette } from './tokens';
-import { radius, spacing, type as typography } from './tokens';
+import { motion, radius, spacing, type as typography } from './tokens';
+import { useReachScope, type ReachTone } from './reach-scope';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
 export type ReachState = 'connected' | 'constrained' | 'blackout';
@@ -86,6 +93,22 @@ export function AppHeader({
   );
 }
 
+/**
+ * The Reach Pill — design.md §4.1, extended for TP-20.
+ *
+ * ── One device, two levels of truth ────────────────────────────────────────────────
+ * design.md §9 says a screen touching reach must reuse one of the seven signature devices
+ * rather than invent an eighth. So the scope indicator TP-20 demands IS this pill: when the
+ * node has told us which scope it is on, the pill says "Same ISP"; until then it falls back
+ * to the three-state Connected / Constrained / Blackout it has always shown. Nothing
+ * regresses, and no screen had to be edited to gain the new information.
+ *
+ * ── Colour is never the sole carrier ───────────────────────────────────────────────
+ * Each state and each scope has its own icon shape and its own text label, so the pill still
+ * reads completely in greyscale, at maximum font scale, and to a screen reader. That is
+ * NFR-A06 and the design-system README's rule, and it is the reason the scope's `icon` is
+ * part of its display record rather than derived from its colour.
+ */
 export function ReachPill({
   colors,
   state,
@@ -97,29 +120,62 @@ export function ReachPill({
   readonly onPress?: () => void;
   readonly compact?: boolean;
 }) {
-  const settings = {
+  const { display: scope, onInspect } = useReachScope();
+  const toneColor: Record<ReachTone, string> = {
+    ok: colors.verified,
+    limited: colors.constrained,
+    critical: colors.blackout,
+  };
+  const fallback = {
     connected: {
       label: 'Connected',
       icon: 'cellular-outline' as IconName,
       color: colors.verified,
+      hint: 'Shows what still works right now',
     },
     constrained: {
       label: 'Constrained',
       icon: 'swap-vertical-outline' as IconName,
       color: colors.constrained,
+      hint: 'Shows what still works right now',
     },
     blackout: {
       label: 'Blackout',
       icon: 'cloud-offline-outline' as IconName,
       color: colors.blackout,
+      hint: 'Shows what still works right now',
     },
   }[state];
+  const settings = scope
+    ? { label: scope.label, icon: scope.icon, color: toneColor[scope.tone], hint: scope.consequence }
+    : fallback;
+
+  // design.md §6 — a 300 ms state change, colour and icon together, no bounce. A crossfade
+  // rather than an interpolated colour because the icon changes at the same moment and a
+  // half-morphed glyph is noise, not information. Reduced motion skips it entirely.
+  const fade = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    let cancelled = false;
+    void AccessibilityInfo.isReduceMotionEnabled().then((reduced) => {
+      if (cancelled || reduced) return;
+      fade.setValue(0);
+      Animated.timing(fade, {
+        toValue: 1,
+        duration: motion.stateMs,
+        useNativeDriver: true,
+      }).start();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fade, settings.label, settings.color]);
+
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`Network reach: ${settings.label}`}
-      accessibilityHint="Shows what still works right now"
-      onPress={onPress}
+      accessibilityHint={settings.hint}
+      onPress={onInspect ?? onPress}
       style={({ pressed }) => [
         styles.reach,
         {
@@ -130,10 +186,14 @@ export function ReachPill({
         },
       ]}
     >
-      <Ionicons name={settings.icon} size={15} color={settings.color} />
-      {!compact ? (
-        <Text style={[typography.caption, { color: settings.color }]}>{settings.label}</Text>
-      ) : null}
+      <Animated.View style={[styles.reachContent, { opacity: fade }]}>
+        <Ionicons name={settings.icon} size={15} color={settings.color} />
+        {!compact ? (
+          <Text numberOfLines={1} style={[typography.caption, { color: settings.color }]}>
+            {settings.label}
+          </Text>
+        ) : null}
+      </Animated.View>
     </Pressable>
   );
 }
@@ -545,6 +605,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.xs,
+    // A Bangla scope label is wider than its English counterpart; the pill grows to a bound
+    // rather than clipping, and the header's search button keeps its 44 pt target.
+    maxWidth: 190,
+  },
+  reachContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flexShrink: 1,
   },
   seal: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs, flexShrink: 1 },
   iconButton: {

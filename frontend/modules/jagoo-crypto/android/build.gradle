@@ -1,0 +1,28 @@
+apply plugin: 'com.android.library'
+
+group = 'com.jagoobahee.crypto'
+version = '1.0.0'
+
+def expoModulesCorePlugin = new File(
+  project(":expo-modules-core").projectDir.absolutePath,
+  "ExpoModulesCorePlugin.gradle"
+)
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useDefaultAndroidSdkVersions()
+
+android {
+  namespace "com.jagoobahee.crypto"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // 1.79 is the first BC release with the final ML-KEM and ML-DSA lightweight APIs used by
+  // Noble 0.3. Pinning is part of the wire-parity boundary; upgrades require the device suite.
+  implementation "org.bouncycastle:bcprov-jdk18on:1.79"
+  testImplementation "junit:junit:4.13.2"
+}

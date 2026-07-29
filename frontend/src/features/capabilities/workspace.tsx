@@ -17,9 +17,16 @@ import {
   forumSessionSummary,
   type ForumSessionSummary,
 } from '../../signer';
+import {
+  cryptoBackendDiagnostics,
+} from '../../crypto/backend';
+import {
+  runOnDeviceCryptoParity,
+  type CryptoParityReport,
+} from '../../crypto/parity';
 import type { AppPalette } from '../../theme';
 import { radius, spacing, type as typography } from '../../theme';
-import { EmptyState, StatusBanner } from '../../ui/primitives';
+import { Button, EmptyState, StatusBanner } from '../../ui/primitives';
 import { useDebouncedValue } from '../../hooks/use-debounced-value';
 
 interface WorkspaceProps {
@@ -794,7 +801,75 @@ export function OperationsWorkspace({ colors, homeNode }: WorkspaceProps) {
           value={`${federations.data?.value.connected ?? 0} connected`}
         />
       </Panel>
+      <CryptoParityPanel colors={colors} />
     </>
+  );
+}
+
+function CryptoParityPanel({ colors }: { readonly colors: AppPalette }) {
+  const [report, setReport] = useState<CryptoParityReport | null>(null);
+  const [running, setRunning] = useState(false);
+  const diagnostics = cryptoBackendDiagnostics();
+  const run = () => {
+    setRunning(true);
+    // Let React paint the progress state before the deliberately synchronous JSI checks.
+    setTimeout(() => {
+      setReport(runOnDeviceCryptoParity());
+      setRunning(false);
+    }, 0);
+  };
+
+  return (
+    <Panel colors={colors} eyebrow="ADR-017 · local diagnostic" title="Crypto backend parity">
+      <DataRow
+        colors={colors}
+        icon="hardware-chip-outline"
+        label="Active primitive backend"
+        detail={
+          diagnostics.nativeAvailable
+            ? 'Android synchronous native module is installed.'
+            : 'Portable JS is expected on iOS, Expo Go, and Jest.'
+        }
+        value={diagnostics.active}
+      />
+      {report ? (
+        <StatusBanner
+          colors={colors}
+          icon={report.passed ? 'shield-checkmark-outline' : 'warning-outline'}
+          title={
+            report.available
+              ? report.passed
+                ? `${report.checks.length} parity checks passed`
+                : 'Native crypto parity failed'
+              : 'Native Android module is not present'
+          }
+          body={
+            report.available
+              ? `${report.candidate} compared byte-for-byte with ${report.reference}.`
+              : 'Build an Android development client; Expo Go cannot load local native modules.'
+          }
+          tone={report.passed ? 'verified' : 'warning'}
+        />
+      ) : null}
+      {report?.checks.map((item) => (
+        <DataRow
+          colors={colors}
+          detail={item.detail}
+          icon={item.ok ? 'checkmark-circle-outline' : 'close-circle-outline'}
+          key={item.name}
+          label={item.name}
+          value={item.ok ? `${item.durationMs} ms` : 'failed'}
+        />
+      ))}
+      <Button
+        colors={colors}
+        disabled={running}
+        icon="hardware-chip-outline"
+        label={running ? 'Running native checks…' : 'Run on-device parity'}
+        onPress={run}
+        variant="secondary"
+      />
+    </Panel>
   );
 }
 

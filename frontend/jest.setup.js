@@ -19,8 +19,3 @@ jest.mock('@react-native-community/netinfo', () => ({
     fetch: async () => ({ isConnected: false, isInternetReachable: false }),
   },
 }));
-
-jest.mock('react-native-argon2', () => ({
-  __esModule: true,
-  default: async () => ({ rawHash: '00'.repeat(32), encodedHash: '' }),
-}));

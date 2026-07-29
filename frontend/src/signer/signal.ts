@@ -8,11 +8,9 @@ import * as Crypto from 'expo-crypto';
 import * as Device from 'expo-device';
 import * as SecureStore from 'expo-secure-store';
 import type * as ExpoNotifications from 'expo-notifications';
-import { xchacha20poly1305 } from '@noble/ciphers/chacha';
-import { x25519 } from '@noble/curves/ed25519';
-import { scryptAsync } from '@noble/hashes/scrypt';
 import {
   SIGNAL_PATH,
+  cryptoBackend,
   deriveSignalKey,
   ed25519,
   generateRootMnemonic,
@@ -91,8 +89,7 @@ const concat = (...values: readonly Uint8Array[]): Uint8Array => {
   return result;
 };
 async function digest(value: Uint8Array): Promise<Uint8Array> {
-  const copy = Uint8Array.from(value);
-  return new Uint8Array(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, copy.buffer));
+  return cryptoBackend().sha256(value);
 }
 
 interface VaultPayload {
@@ -121,7 +118,7 @@ export class SecureSignalSigner implements SignalSigner {
 
   private constructor(
     private readonly wrappingKey: Uint8Array,
-    private readonly recoveryPassphrase: string,
+    private readonly rootSeedCache: Uint8Array,
   ) {}
 
   static async create(
@@ -133,14 +130,17 @@ export class SecureSignalSigner implements SignalSigner {
     if (!isValidMnemonic(mnemonic)) throw new Error('invalid Signal recovery phrase');
     const salt = await Crypto.getRandomBytesAsync(16);
     const nonce = await Crypto.getRandomBytesAsync(24);
-    const wrappingKey = await scryptAsync(text.encode(lockPassphrase), salt, {
+    const wrappingKey = cryptoBackend().scrypt(text.encode(lockPassphrase), salt, {
       N: 1 << 16,
       r: 8,
       p: 1,
       dkLen: 32,
     });
-    const ciphertext = xchacha20poly1305(wrappingKey, nonce).encrypt(
+    const ciphertext = cryptoBackend().xchacha20poly1305Seal(
+      wrappingKey,
+      nonce,
       text.encode(mnemonic.normalize('NFKD')),
+      new Uint8Array(),
     );
     await SecureStore.setItemAsync(
       ROOT_KEY,
@@ -153,7 +153,10 @@ export class SecureSignalSigner implements SignalSigner {
       storeOptions,
     );
     await SecureStore.setItemAsync(CHANNEL_MAP_KEY, '{}', storeOptions);
-    return new SecureSignalSigner(wrappingKey, recoveryPassphrase);
+    return new SecureSignalSigner(
+      wrappingKey,
+      mnemonicToSeed(mnemonic, recoveryPassphrase),
+    );
   }
 
   static async unlock(
@@ -164,16 +167,24 @@ export class SecureSignalSigner implements SignalSigner {
     if (!encoded) throw new Error('Signal identity is not configured');
     const payload = JSON.parse(encoded) as VaultPayload;
     if (payload.version !== 1) throw new Error('unsupported Signal vault version');
-    const wrappingKey = await scryptAsync(text.encode(lockPassphrase), unbase64(payload.salt), {
-      N: 1 << 16,
-      r: 8,
-      p: 1,
-      dkLen: 32,
-    });
+    const wrappingKey = cryptoBackend().scrypt(
+      text.encode(lockPassphrase),
+      unbase64(payload.salt),
+      {
+        N: 1 << 16,
+        r: 8,
+        p: 1,
+        dkLen: 32,
+      },
+    );
+    let mnemonic = '';
     try {
-      const mnemonic = new TextDecoder().decode(
-        xchacha20poly1305(wrappingKey, unbase64(payload.nonce)).decrypt(
+      mnemonic = new TextDecoder().decode(
+        cryptoBackend().xchacha20poly1305Open(
+          wrappingKey,
+          unbase64(payload.nonce),
           unbase64(payload.ciphertext),
+          new Uint8Array(),
         ),
       );
       if (!isValidMnemonic(mnemonic)) throw new Error('invalid recovered mnemonic');
@@ -181,7 +192,10 @@ export class SecureSignalSigner implements SignalSigner {
       wrappingKey.fill(0);
       throw new Error('app passphrase is incorrect');
     }
-    return new SecureSignalSigner(wrappingKey, recoveryPassphrase);
+    return new SecureSignalSigner(
+      wrappingKey,
+      mnemonicToSeed(mnemonic, recoveryPassphrase),
+    );
   }
 
   static async exists(): Promise<boolean> {
@@ -197,15 +211,7 @@ export class SecureSignalSigner implements SignalSigner {
   }
 
   private async rootSeed(): Promise<Uint8Array> {
-    const encoded = await SecureStore.getItemAsync(ROOT_KEY, storeOptions);
-    if (!encoded) throw new Error('Signal identity is not configured');
-    const payload = JSON.parse(encoded) as VaultPayload;
-    const mnemonic = new TextDecoder().decode(
-      xchacha20poly1305(this.wrappingKey, unbase64(payload.nonce)).decrypt(
-        unbase64(payload.ciphertext),
-      ),
-    );
-    return mnemonicToSeed(mnemonic, this.recoveryPassphrase);
+    return Uint8Array.from(this.rootSeedCache);
   }
 
   private async channelMap(): Promise<Record<string, number>> {
@@ -390,7 +396,7 @@ export class SecureSignalSigner implements SignalSigner {
       const messaging = await this.messagingKeys();
       const oneTimeSeed = deriveSignalKey(root, SIGNAL_PATH.PREKEY, 1);
       try {
-        const signedPrekey = x25519.getPublicKey(signedPrekeySeed);
+        const signedPrekey = cryptoBackend().x25519PublicKey(signedPrekeySeed);
         const kemPublicKey = messaging.publicKey.mlKem768;
         const signature = ed25519.sign(
           signalPrekeySignatureBytes({
@@ -407,7 +413,7 @@ export class SecureSignalSigner implements SignalSigner {
             signed_prekey: signedPrekey,
             signed_prekey_sig: signature,
             kem_public_key: kemPublicKey,
-            one_time_prekeys: [x25519.getPublicKey(oneTimeSeed)],
+            one_time_prekeys: [cryptoBackend().x25519PublicKey(oneTimeSeed)],
             valid_until_ms: validUntilMs,
           }),
         ).finish();
@@ -494,6 +500,11 @@ export class SecureSignalSigner implements SignalSigner {
 
   async panic(): Promise<void> {
     await SecureSignalSigner.panicConfiguredVault();
+    this.lock();
+  }
+
+  lock(): void {
+    this.rootSeedCache.fill(0);
     this.wrappingKey.fill(0);
   }
 }
@@ -549,6 +560,7 @@ export async function createSignalIdentity(
   lockPassphrase: string,
 ): Promise<{ readonly recoveryPhrase: string; readonly identityId: string }> {
   const recoveryPhrase = generateRootMnemonic();
+  activeSigner?.lock();
   activeSigner = await SecureSignalSigner.create(lockPassphrase, recoveryPhrase);
   activeAccessToken = null;
   return {
@@ -562,6 +574,7 @@ export async function importSignalIdentity(
   lockPassphrase: string,
 ): Promise<string> {
   if (!isValidMnemonic(recoveryPhrase.trim())) throw new Error('Enter a valid 24-word phrase');
+  activeSigner?.lock();
   activeSigner = await SecureSignalSigner.create(
     lockPassphrase,
     recoveryPhrase.trim().replace(/\s+/g, ' '),
@@ -571,12 +584,14 @@ export async function importSignalIdentity(
 }
 
 export async function unlockSignalIdentity(lockPassphrase: string): Promise<string> {
+  activeSigner?.lock();
   activeSigner = await SecureSignalSigner.unlock(lockPassphrase);
   activeAccessToken = null;
   return (await activeSigner.identity({ kind: 'device' })).id;
 }
 
 export function lockSignalIdentity(): void {
+  activeSigner?.lock();
   activeSigner = null;
   activeAccessToken = null;
 }
