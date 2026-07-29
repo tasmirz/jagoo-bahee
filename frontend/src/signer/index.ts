@@ -2,6 +2,7 @@
  * Forum key vault. Raw mnemonic and derived seeds never leave this module (SG-01).
  * SecureStore keeps the root device-bound and unavailable while the phone is locked.
  */
+import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
 import * as SecureStore from 'expo-secure-store';
 import { xchacha20poly1305 } from '@noble/ciphers/chacha';
@@ -72,7 +73,7 @@ const unbase64 = (value: string): Uint8Array =>
 
 async function digest(value: Uint8Array): Promise<Uint8Array> {
   const bytes = Uint8Array.from(value);
-  return new Uint8Array(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes.buffer));
+  return new Uint8Array(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes));
 }
 
 function encodeBlindState(state: BlindCredentialState): Uint8Array {
@@ -112,19 +113,34 @@ export class SecureForumSigner implements ForumSigner {
     mnemonic = generateRootMnemonic(),
     recoveryPassphrase = '',
   ): Promise<SecureForumSigner> {
+    console.log('[Identity] SecureForumSigner.create started');
+    const start = Date.now();
     if (lockPassphrase.length < 8) throw new Error('app passphrase must be at least 8 characters');
     if (!isValidMnemonic(mnemonic)) throw new Error('invalid 24-word recovery phrase');
+    
+    console.log(`[Identity] Generating random salt and nonce at +${Date.now() - start}ms`);
     const salt = await Crypto.getRandomBytesAsync(16);
     const nonce = await Crypto.getRandomBytesAsync(24);
+    
+    console.log(`[Identity] Starting scrypt key derivation (this will take a while) at +${Date.now() - start}ms`);
+    const scryptStart = Date.now();
+    // Using setTimeout to allow UI to render the loading state before blocking JS thread
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
     const wrappingKey = await scryptAsync(text.encode(lockPassphrase), salt, {
       N: 1 << 16,
       r: 8,
       p: 1,
       dkLen: 32,
     });
+    console.log(`[Identity] Finished scrypt key derivation. Took ${Date.now() - scryptStart}ms`);
+    
+    console.log(`[Identity] Encrypting root mnemonic at +${Date.now() - start}ms`);
     const ciphertext = xchacha20poly1305(wrappingKey, nonce).encrypt(
       text.encode(mnemonic.normalize('NFKD')),
     );
+    
+    console.log(`[Identity] Writing to SecureStore at +${Date.now() - start}ms`);
     await SecureStore.setItemAsync(
       ROOT_KEY,
       JSON.stringify({
@@ -135,6 +151,7 @@ export class SecureForumSigner implements ForumSigner {
       }),
       storeOptions,
     );
+    console.log(`[Identity] SecureForumSigner.create complete. Total time: ${Date.now() - start}ms`);
     return new SecureForumSigner(wrappingKey, recoveryPassphrase);
   }
 
@@ -508,11 +525,14 @@ export async function forumSessionRequest<T>(baseUrl: string, path: string): Pro
 export async function createForumIdentity(
   lockPassphrase: string,
 ): Promise<{ readonly recoveryPhrase: string; readonly identityId: string }> {
+  console.log('[Identity] createForumIdentity triggered');
   const recoveryPhrase = generateRootMnemonic();
   activeSigner = await SecureForumSigner.create(lockPassphrase, recoveryPhrase);
   activeAccessToken = null;
   activeCredential = null;
+  console.log('[Identity] Deriving public identity device key');
   const identity = await activeSigner.identity({ kind: 'device' });
+  console.log(`[Identity] Successfully generated identity ID: ${identity.id}`);
   return { recoveryPhrase, identityId: identity.id };
 }
 

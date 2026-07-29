@@ -1,4 +1,5 @@
 set shell := ["bash", "-c"]
+export BROWSER := "chromium"
 
 default:
     @just --list

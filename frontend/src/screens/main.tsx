@@ -885,10 +885,15 @@ function IdentityPanel({
   };
 
   const create = async () => {
+    console.log('[Identity:UI] Create button pressed');
     setBusy(true);
     setNotice(null);
     try {
+      // Small timeout to allow UI to render "Creating..." state before block
+      await new Promise(resolve => setTimeout(resolve, 50));
+      console.log('[Identity:UI] Calling createForumIdentity');
       const result = await createForumIdentity(passphrase);
+      console.log('[Identity:UI] createForumIdentity returned successfully');
       setRecoveryPhrase(result.recoveryPhrase);
       await refresh();
       setNotice({
@@ -896,7 +901,9 @@ function IdentityPanel({
         title: 'Identity created on this device',
         body: result.identityId,
       });
+      console.log('[Identity:UI] State updated');
     } catch (error) {
+      console.error('[Identity:UI] Error during creation:', error);
       setNotice({
         tone: 'danger',
         title: 'Identity action failed',
@@ -904,6 +911,7 @@ function IdentityPanel({
       });
     } finally {
       setBusy(false);
+      console.log('[Identity:UI] Busy state cleared');
     }
   };
 

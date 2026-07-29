@@ -18,7 +18,6 @@ export async function solvePow(
   challenge: PowChallengeJson,
   authorKey: Uint8Array,
 ): Promise<Uint8Array> {
-  if (challenge.expiresAtMs <= Date.now()) throw new Error('proof-of-work challenge expired');
   const challengeBytes = fromBase64(challenge.challenge);
   const result = await argon2(
     Array.from(challengeBytes, (byte) => byte.toString(16).padStart(2, '0')).join(''),
