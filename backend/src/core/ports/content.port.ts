@@ -51,6 +51,7 @@ export interface BlobMetadata {
 }
 
 export abstract class BlobStore {
+  abstract ready(): Promise<void>;
   abstract presignUpload(
     key: string,
     mime: string,
@@ -58,7 +59,11 @@ export abstract class BlobStore {
     sha256: Uint8Array,
   ): Promise<UploadTicket>;
   abstract presignDownload(key: string): Promise<string>;
+  /** Direct proxy path used by the filesystem adapter; S3 normally bypasses it. */
+  abstract write(key: string, bytes: Uint8Array): Promise<void>;
+  abstract read(key: string): Promise<{ readonly bytes: Uint8Array; readonly mime: string }>;
   abstract confirm(key: string): Promise<BlobMetadata>;
+  abstract delete(key: string): Promise<void>;
 }
 
 export interface Notification {

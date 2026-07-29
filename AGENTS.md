@@ -11,14 +11,15 @@ is in `crates/jb-core/`. Contracts live in `proto/`, cross-language fixtures in
 
 ## Build, Test, and Development Commands
 
-- `pnpm install --frozen-lockfile` installs workspace dependencies (requires Node 20+ and pnpm 9).
+- `pnpm install --frozen-lockfile` installs dependencies (Node 20+, pnpm 9).
 - `pnpm dev:backend` starts NestJS in watch mode; `pnpm dev:frontend` starts Expo.
-- `pnpm build` builds all workspace packages in dependency order.
+- `pnpm build` builds all workspaces.
 - `pnpm lint`, `pnpm typecheck`, and `pnpm test` run the primary CI checks.
 - `pnpm proto:lint` validates protobufs; `pnpm proto:gen` regenerates bindings; `pnpm proto:check`
   detects generated-code drift.
 - `pnpm vectors` verifies byte-identical behavior across TypeScript, Rust, and Python.
-- `pnpm ops:up` starts MongoDB, Redis, and MinIO; use `pnpm ops:down` when finished.
+- `pnpm smoke:local` exercises a complete signed publish/read flow without infrastructure.
+- `pnpm local:up` builds the complete local node stack; `pnpm ops:up` starts dependencies only.
 
 ## Coding Style & Naming Conventions
 
@@ -33,9 +34,8 @@ components, and camelCase for functions and variables. Never hand-edit `src/gen/
 
 Vitest covers the SDK and backend; Jest covers Expo; Rust and Python use Cargo test and pytest.
 Name colocated TypeScript tests `*.spec.ts` or `*.test.ts(x)`, Python tests `test_*.py`, and Rust
-integration tests under `crates/*/tests/`. No numeric coverage threshold is configured; include
-regression tests for behavior changes. Before a PR, run the primary checks, `pnpm proto:check`,
-and `pnpm vectors`.
+integration tests under `crates/*/tests/`. Include regression tests for behavior changes. Before a
+PR, run the primary checks, `pnpm proto:check`, and `pnpm vectors`.
 
 ## Commit & Pull Request Guidelines
 

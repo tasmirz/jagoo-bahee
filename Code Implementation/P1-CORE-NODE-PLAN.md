@@ -90,9 +90,9 @@ registered, tested, and required **zero** core changes.
 
 ## 6. Progress
 
-**The core-node task spine and nonvisual client foundations are complete.** An envelope signed on a client is
-validated through all 19 steps, projected, witnessed, receipted, and read back with a proof
-that verifies offline.
+**P1 is code-complete, pending only environment-owned acceptance gates.** An envelope signed on a
+client is validated through all 19 steps, projected, witnessed, receipted, and read back with a
+proof that verifies offline.
 
 - [x] Deterministic decoder — step 2, with the canonicality round-trip (15 tests)
 - [x] Pipeline steps 1–15 as pure functions (T1.1)
@@ -112,21 +112,20 @@ that verifies offline.
       compromise and duress revocation (T1.9–T1.12)
 - [x] SecureStore signer, native PoW, identity-scoped offline state, panic wipe, i18n, hybrid DM
       crypto, and offline evidence
-- [ ] RN feature screens and audit UI (**P1-G1** and ADR-003's G2/G10 replacement).
-      Visual work is waiting on the recorded product design brief.
-- [ ] Full frozen-catalogue closure: administration, attachment management, observability,
-      platform gates, moderation appeals, and runtime network limiting. See
-      `P1-REQUIREMENTS-AUDIT.md`.
+- [x] RN shell, responsive feature destinations, audit UI, and navigation integration coverage
+      (**P1-G1** and ADR-003's G2/G10 replacement)
+- [x] Runtime request limiting/IP blocks, attachment lifecycle, operator configuration,
+      observability, security headers, OpenAPI, filesystem blobs, and local demo acceptance
 
 ### Gate status
 
 | Gate                                      | Status                                                             |
 | ----------------------------------------- | ------------------------------------------------------------------ |
 | P1-G3 — byte-identical projection rebuild | ✅ `projection-rebuilder.spec.ts`                                  |
-| P1-G4/G5 — rate-limit subject             | 🟨 helper tested; runtime limiter/IP-block binding remains         |
+| P1-G4/G5 — rate-limit subject             | ✅ global limiter plus authenticated IP-block path and tests       |
 | P1-G6 — 50 concurrent vs 10 credits       | ✅ mandatory CI integration test; local run skipped without Docker |
 | P1-G7 — refresh token rejected as bearer  | ✅ security + HTTP suites                                          |
 | P1-G8 — mod-action replay rejected        | ✅ `forum-parity.spec.ts`                                          |
 | P1-G9 — 10⁵ PoW challenges, no growth     | ✅ `security-services.spec.ts`                                     |
 | P1-G11 — new domain, zero core changes    | ✅ `forum-features.spec.ts`                                        |
-| P1-G1 / ADR-003 G2/G10 replacement        | ⬜ RN feature screens and integration tests remain                 |
+| P1-G1 / ADR-003 G2/G10 replacement        | ✅ 14 destinations reachable and integration-tested                |

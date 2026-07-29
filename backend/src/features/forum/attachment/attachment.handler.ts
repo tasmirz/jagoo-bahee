@@ -34,6 +34,7 @@ import type { BlobStore } from '../../../core/ports/content.port.js';
 import { hexKey } from '../shared/permissions.js';
 
 export const ATTACHMENTS_COLLECTION = 'forum_attachments';
+export const ATTACHMENT_UPLOADS_COLLECTION = 'forum_attachment_uploads';
 
 /** ATT-07. 64 MiB — generous for a photo, far below anything that would hurt a Pi node. */
 export const MAX_ATTACHMENT_BYTES = 64 * 1024 * 1024;
@@ -54,7 +55,27 @@ export interface AttachmentDoc {
   readonly durationMs: number;
   /** ATT-12, and what renders when the blob is unavailable (ATT-19). */
   readonly altText: string;
+  readonly kind: 'image' | 'video' | 'audio' | 'document' | 'other';
+  readonly scanStatus: 'unscanned';
   readonly createdAtMs: number;
+}
+
+export interface AttachmentUploadDoc {
+  readonly id: string;
+  readonly ownerKey: string;
+  readonly storageKey: string;
+  readonly contentSha256: string;
+  readonly mime: string;
+  readonly sizeBytes: number;
+  readonly confirmedAtMs: number | null;
+}
+
+function kindForMime(mime: string): AttachmentDoc['kind'] {
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('audio/')) return 'audio';
+  if (mime === 'application/octet-stream') return 'other';
+  return 'document';
 }
 
 export class AttachmentClaimHandler implements DomainHandler<AttachmentClaim> {
@@ -83,16 +104,29 @@ export class AttachmentClaimHandler implements DomainHandler<AttachmentClaim> {
     return valid;
   }
 
-  async authorize(body: AttachmentClaim, _env: ParsedEnvelope): Promise<AuthDecision> {
+  async authorize(body: AttachmentClaim, env: ParsedEnvelope): Promise<AuthDecision> {
     // Rebuild calls project directly, so object storage remains outside derived state.
     // Live production registration always supplies BlobStore and verifies the upload.
     if (!this.blobs) return allowed;
     try {
+      const upload = await this.projections
+        .collection<AttachmentUploadDoc>(ATTACHMENT_UPLOADS_COLLECTION)
+        .findOne({ id: body.storage_key });
+      if (
+        !upload ||
+        upload.ownerKey !== hexKey(env.authorKey) ||
+        upload.confirmedAtMs === null
+      ) {
+        return { allowed: false, reason: 'blob upload is not confirmed for this identity' };
+      }
       const found = await this.blobs.confirm(body.storage_key);
       const matches =
         found.mime === body.mime &&
         found.size === Number(body.size_bytes) &&
-        Buffer.from(found.sha256).equals(Buffer.from(body.content_sha256));
+        Buffer.from(found.sha256).equals(Buffer.from(body.content_sha256)) &&
+        upload.mime === body.mime &&
+        upload.sizeBytes === Number(body.size_bytes) &&
+        upload.contentSha256 === Buffer.from(body.content_sha256).toString('hex');
       return matches
         ? allowed
         : { allowed: false, reason: 'blob metadata does not match the claim' };
@@ -113,8 +147,13 @@ export class AttachmentClaimHandler implements DomainHandler<AttachmentClaim> {
       height: body.height,
       durationMs: body.duration_ms,
       altText: body.alt_text,
+      kind: kindForMime(body.mime),
+      scanStatus: 'unscanned',
       createdAtMs: Number(env.createdAtMs),
     };
     await this.projections.collection<AttachmentDoc>(ATTACHMENTS_COLLECTION).put(doc.id, doc, tx);
+    await this.projections
+      .collection<AttachmentUploadDoc>(ATTACHMENT_UPLOADS_COLLECTION)
+      .delete(body.storage_key, tx);
   }
 }

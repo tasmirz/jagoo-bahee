@@ -10,6 +10,7 @@ const FORUM_DATA_PREFIXES = [CACHE_PREFIX, 'jb.notifications.forum.v1:'] as cons
 export interface CachedValue<T> {
   readonly value: T;
   readonly storedAtMs: number;
+  readonly source: 'network' | 'cache';
 }
 
 export class OfflineApi {
@@ -23,12 +24,19 @@ export class OfflineApi {
         headers: { Accept: 'application/json' },
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const cached = { value: (await response.json()) as T, storedAtMs: Date.now() };
+      const cached = {
+        value: (await response.json()) as T,
+        storedAtMs: Date.now(),
+        source: 'network' as const,
+      };
       await AsyncStorage.setItem(key, JSON.stringify(cached));
       return cached;
     } catch (error) {
       const stored = await AsyncStorage.getItem(key);
-      if (stored) return JSON.parse(stored) as CachedValue<T>;
+      if (stored) {
+        const cached = JSON.parse(stored) as Omit<CachedValue<T>, 'source'>;
+        return { ...cached, source: 'cache' };
+      }
       throw error;
     }
   }

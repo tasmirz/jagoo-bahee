@@ -1,5 +1,7 @@
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
+  HeadBucketCommand,
   HeadObjectCommand,
   PutObjectCommand,
   type S3Client,
@@ -20,6 +22,10 @@ export class S3BlobStore extends BlobStore {
     private readonly expiresInSeconds = 15 * 60,
   ) {
     super();
+  }
+
+  async ready(): Promise<void> {
+    await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
   }
 
   async presignUpload(
@@ -57,6 +63,26 @@ export class S3BlobStore extends BlobStore {
     );
   }
 
+  async write(key: string, bytes: Uint8Array): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: bytes,
+        ContentLength: bytes.length,
+      }),
+    );
+  }
+
+  async read(key: string): Promise<{ readonly bytes: Uint8Array; readonly mime: string }> {
+    const result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    if (!result.Body) throw new Error('blob body is unavailable');
+    return {
+      bytes: new Uint8Array(await result.Body.transformToByteArray()),
+      mime: result.ContentType ?? 'application/octet-stream',
+    };
+  }
+
   async confirm(key: string): Promise<BlobMetadata> {
     const head = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
     const digest = head.Metadata?.['jb-sha256'];
@@ -69,5 +95,9 @@ export class S3BlobStore extends BlobStore {
       size: head.ContentLength,
       sha256: new Uint8Array(Buffer.from(digest, 'hex')),
     };
+  }
+
+  async delete(key: string): Promise<void> {
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }
 }

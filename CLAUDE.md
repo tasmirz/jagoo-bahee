@@ -53,21 +53,20 @@ package. The root holds only workspace-level configuration — `package.json`, `
 goes in `backend/`, client code in `frontend/`, shared code in a `packages/*` package. A `.ts`/`.tsx`
 file at the root is a design-pattern violation, not a shortcut.
 
-**State: P0 complete. P1 node and nonvisual client foundations complete; visual client breadth remains.**
+**State: P0 complete. P1 code-complete; final real-infrastructure CI acceptance pending.**
 `P0-SKELETON-PLAN.md` §10 and `P1-CORE-NODE-PLAN.md` §6 hold the gate-by-gate evidence tables.
 
-What works today: all 30 Forum domains use the 19-step ingress pipeline; Mongo, Redis, MinIO,
-projection rebuild, Merkle receipts, auth, certificates/revocation, anti-abuse, the frozen read API,
-SSE, tagged caching, notifications, and offline provenance verification are implemented. The Expo
-client has a passphrase-wrapped SecureStore signer, native Argon2, offline query cache, Bangla/English
-strings, and hybrid Forum-message crypto.
+What works today: all 30 Forum domains use the 19-step ingress pipeline; Mongo, Redis, S3/filesystem
+blobs, projection rebuild, Merkle receipts, auth, certificates/revocation, anti-abuse, the frozen
+read API, SSE, tagged caching, notifications, operator controls, request security, and aggregate-only
+observability are implemented. The Expo client follows `Plans/design.md`, exposes all 14 P1 feature
+families, manages its SecureStore identity, and publishes real signed posts through the node.
 
-What is NOT complete: the full frozen P1 catalogue. The RN feature screens and audit UI remain the
-largest gap, so P1-G1 and ADR-003's replacement for P1-G2/P1-G10 are not green. Administration,
-attachment management, observability/platform gates, appeals, and runtime network limiting also
-remain; use `Code Implementation/P1-REQUIREMENTS-AUDIT.md` as the gap matrix. Real Mongo/Redis
-integration tests are present but skip unless `MONGO_URL`/`REDIS_URL` point at running services; do
-not report them as executed when Docker is down.
+`pnpm smoke:local` is the dependency-free end-to-end acceptance path. It certifies a key,
+authenticates, acquires a blind credential, creates a community, publishes a signed post, and reads
+its projection and proof. Real Mongo/Redis integration tests remain mandatory in CI and skip unless
+`MONGO_URL`/`REDIS_URL` point at running services; do not report them as locally executed when those
+services are absent.
 
 ### `@jagoo/sdk` is consumed by three toolchains — do not "simplify" this
 
@@ -137,9 +136,10 @@ Rust and Python are invoked through `pnpm vectors`; run them directly with `carg
 and `python -m pytest tools/vectors`.
 
 **Current verified baseline (2026-07-29):** `pnpm vectors` → 3 implementations agree on 16
-vectors; `pnpm test` → 203 passing (sdk 54, backend 142, frontend 7) plus 3 infrastructure
-tests skipped without Mongo/Redis; lint, typecheck, build, proto lint, and proto check pass.
-CI starts a Mongo replica set and Redis and runs those three adapter tests as mandatory gates.
+vectors; `pnpm test` → 227 passing (SDK 54, backend 149, frontend 24) plus 3 infrastructure
+tests skipped without Mongo/Redis; lint, typecheck, native/backend build, and `proto:check` pass.
+The dependency-free signed smoke flow and running-node/OpenAPI smoke pass. CI starts a Mongo
+replica set and Redis and runs those three adapter tests as mandatory gates.
 
 Two environment notes that will otherwise cost you an hour:
 

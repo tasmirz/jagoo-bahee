@@ -41,6 +41,7 @@ import {
 } from '../../../core/domain/domain-handler.js';
 import { Plane, type ParsedEnvelope } from '../../../core/domain/envelope.js';
 import type { ProjectionStore } from '../../../core/ports/storage.port.js';
+import type { OperatorConfig } from '../../../core/ports/operator-config.port.js';
 import { hexKey } from '../shared/permissions.js';
 import {
   IDENTITIES_COLLECTION,
@@ -68,7 +69,10 @@ export class KeyCertifyHandler implements DomainHandler<KeyCertificate> {
   readonly domain = 'jb:key:certify:forum:v1';
   readonly plane = Plane.FORUM;
 
-  constructor(private readonly projections: ProjectionStore) {}
+  constructor(
+    private readonly projections: ProjectionStore,
+    private readonly operatorConfig?: OperatorConfig,
+  ) {}
 
   decode(body: Uint8Array): KeyCertificate {
     return KeyCertificate.decode(body);
@@ -151,6 +155,14 @@ export class KeyCertifyHandler implements DomainHandler<KeyCertificate> {
       .findOne({ id: hexKey(env.authorKey) });
     if (revocation && revocation.kind !== RevocationKind.ROTATE) {
       return denied('this key has been revoked and cannot be re-certified');
+    }
+    if (this.operatorConfig) {
+      const existing = await this.projections
+        .collection<CertificateDoc>(CERTIFICATES_COLLECTION)
+        .findOne({ id: hexKey(env.authorKey) });
+      if (!existing && !(await this.operatorConfig.security()).registrationsOpen) {
+        return denied('new Forum identity registrations are closed on this node');
+      }
     }
     return allowed;
   }

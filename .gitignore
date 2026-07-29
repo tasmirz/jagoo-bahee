@@ -6,6 +6,7 @@ node_modules/
 dist/
 build/
 target/
+.cache/
 *.tsbuildinfo
 
 # NOTE: generated code (packages/sdk-ts/src/gen, crates/jb-core/src/gen,

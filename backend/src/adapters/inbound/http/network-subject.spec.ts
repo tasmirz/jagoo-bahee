@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { networkSubjects } from './network-subject.js';
+import { InMemoryRequestSecurity } from '../../outbound/in-memory/in-memory-request-security.js';
 
 describe('rate-limit subject (T1.17)', () => {
   it('P1-G4 — rotating User-Agent cannot affect the subject because it is not an input', () => {
@@ -19,5 +20,16 @@ describe('rate-limit subject (T1.17)', () => {
     expect(
       networkSubjects('10.0.0.3', '198.51.100.7, 10.0.0.2', 2),
     ).toEqual({ address: '198.51.100.7', subnet: '198.51.100.0/24' });
+  });
+
+  it('P1-G4/G5 — header rotation cannot create a fresh limiter bucket', async () => {
+    let now = 1_000;
+    const limiter = new InMemoryRequestSecurity(1, 60_000, () => now);
+    const first = networkSubjects('203.0.113.9', '1.1.1.1', 0);
+    const rotated = networkSubjects('203.0.113.9', '8.8.8.8', 0);
+    expect(await limiter.check(first)).toMatchObject({ allowed: true });
+    expect(await limiter.check(rotated)).toMatchObject({ allowed: false });
+    now += 60_001;
+    expect(await limiter.check(rotated)).toMatchObject({ allowed: true });
   });
 });
