@@ -115,18 +115,21 @@ island. No physical multi-ISP setup, no privileged containers, no host network c
 
 ## 5. Exit gate — TG-01 … TG-10
 
-| ID | Criterion | Evidence |
-|---|---|---:|
-| TG-01 | Two uplinks bind outbound connections to the correct source IP per peer | ☐ |
-| TG-02 | `GLOBAL` blocked, two nodes on one simulated ASN federate over `ISP_LOCAL` | ☐ |
-| TG-03 | Path selector demonstrably prefers `ISP_LOCAL` over `NATIONAL`, metric confirms | ☐ |
-| TG-04 | Bridge merges two isolated ASN islands; a post on island A reaches island B | ☐ |
-| TG-05 | Class-0 broadcast crosses the bridge while a bulk backlog is queued | ☐ |
-| TG-06 | Killing uplink A re-establishes affected paths on B within 30 s, zero loss | ☐ |
-| TG-07 | `Backfill` after an uplink switch closes the gap exactly, no duplicates | ☐ |
-| TG-08 | An outbound-only node behind simulated CGNAT federates fully | ☐ |
-| TG-09 | Cold client, seed list only, connects on `ISP_LOCAL` with `GLOBAL` blocked | ☐ |
-| TG-10 | Current scope visible in the client UI, updates within 30 s of a change | ☐ |
+Two columns, because both are required and only one is currently satisfied: the in-process
+suite proves the logic, the container run proves the deployment (L-20).
+
+| ID | Criterion | In-process | Container | Client |
+|---|---|:--:|:--:|:--:|
+| TG-01 | Two uplinks bind outbound connections to the correct source IP per peer | ☑ | ☐ | — |
+| TG-02 | `GLOBAL` blocked, two nodes on one simulated ASN federate over `ISP_LOCAL` | ☑ | ☐ | — |
+| TG-03 | Path selector demonstrably prefers `ISP_LOCAL` over `NATIONAL`, metric confirms | ☑ | ☐ | — |
+| TG-04 | Bridge merges two isolated ASN islands; a post on island A reaches island B | ☑ | ☐ | — |
+| TG-05 | Class-0 broadcast crosses the bridge while a bulk backlog is queued | ☑ | ☐ | — |
+| TG-06 | Killing uplink A re-establishes affected paths on B within 30 s, zero loss | ☑ | ☐ | — |
+| TG-07 | `Backfill` after an uplink switch closes the gap exactly, no duplicates | ☑ | n/a | — |
+| TG-08 | An outbound-only node behind simulated CGNAT federates fully | ☑ | n/a | — |
+| TG-09 | Cold client, seed list only, connects on `ISP_LOCAL` with `GLOBAL` blocked | ☑ node half | — | ☐ |
+| TG-10 | Current scope visible in the client UI, updates within 30 s of a change | ☑ node half | ☐ | ☐ |
 
 ## 6. Rules this phase must not break
 
@@ -145,13 +148,21 @@ island. No physical multi-ISP setup, no privileged containers, no host network c
 
 ## 7. Task status
 
+> Filled from evidence, not from intent. **`Code Implementation/P3-HANDOFF.md` is the
+> authoritative state** — it records what has and has not actually been run, the live blocker,
+> and the design decisions already settled.
+
 | Tasks | Status |
 |---|---:|
-| T3.1–T3.5 scopes, uplinks, source binding, selector, backoff | done |
-| T3.6–T3.7 client directory cache and seed list | done |
-| T3.8 Docker island harness | done |
-| T3.9–T3.10 ISP-local federation and scope metrics | done |
-| T3.11–T3.14 bridge relay, quotas, failover, re-announce | done |
-| T3.15–T3.17 UPnP/NAT-PMP, STUN/CGNAT, reverse tunnel | done |
-| T3.18–T3.19 mDNS/SSDP, manual entry and QR | done |
-| T3.20–T3.22 scope indicator, bridge visibility, router docs | done |
+| T3.1–T3.5 scopes, uplinks, source binding, selector, backoff | done — 51 domain tests + the in-process gate |
+| T3.6 client directory cache | **partial** — `frontend/src/data/peer-directory.ts` exists, is unwired and untested |
+| T3.7 baked-in seed list | **partial** — `seed-directory.ts` exists with placeholder addresses, unwired |
+| T3.8 Docker island harness | **partial** — `ops/isp-compose.yml` + `isp-gate.ts` written, **never run green** |
+| T3.9–T3.10 ISP-local federation and scope metrics | done in-process; unproven in containers |
+| T3.11–T3.14 bridge relay, quotas, failover, re-announce | done — TG-04…TG-07 green in-process |
+| T3.15–T3.17 UPnP/NAT-PMP, STUN/CGNAT, reverse tunnel | done; only CGNAT detection and the tunnel exchange are covered by tests |
+| T3.18 mDNS/SSDP | built, **no test** |
+| T3.19 manual entry ≤ 3 taps + QR | **not started** |
+| T3.20 client scope indicator | **not started** — parsing/cadence exists, no component, no wiring |
+| T3.21 bridge visibility in the operator surface | done — `/v1/transport/bridge`, no route test |
+| T3.22 router port-forwarding docs (Bangla + English) | **not started** |

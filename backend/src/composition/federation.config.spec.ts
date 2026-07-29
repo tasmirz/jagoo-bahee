@@ -110,8 +110,6 @@ describe('FD-02 — a peer is identified by its key', () => {
 });
 
 describe('FD-07 — a node advertises only planes it can actually serve', () => {
-
-
   it('advertises both planes by default, because this build serves both', () => {
     const config = load({ FEDERATION_GRPC_LISTEN: '0.0.0.0:8444' });
     expect(config.planes).toEqual([Plane.FORUM, Plane.SIGNAL]);
@@ -119,17 +117,13 @@ describe('FD-07 — a node advertises only planes it can actually serve', () => 
     expect(config.acceptedClasses).toContain(Priority.BULK);
   });
 
-
-  it('advertises only the explicitly enabled plane', () => {
-    expect(
-      load({ FEDERATION_GRPC_LISTEN: '0.0.0.0:8444', NODE_PLANES: 'SIGNAL' }).planes,
-    ).toEqual([Plane.SIGNAL]);
-
   // FD-07/ADR-012: a Signal-only relay and a Forum-only instance are both legitimate
   // deployments, and the handshake must say which this node is. Asserted per plane rather
   // than only on the default, because the default is the one case that is right by accident.
   it('advertises SIGNAL only when NODE_PLANES says so', () => {
-    expect(load({ NODE_PLANES: 'SIGNAL' }).planes).toEqual([Plane.SIGNAL]);
+    expect(
+      load({ FEDERATION_GRPC_LISTEN: '0.0.0.0:8444', NODE_PLANES: 'SIGNAL' }).planes,
+    ).toEqual([Plane.SIGNAL]);
   });
 
   it('advertises FORUM only when NODE_PLANES says so', () => {
@@ -138,6 +132,5 @@ describe('FD-07 — a node advertises only planes it can actually serve', () => 
 
   it('refuses a node that serves neither plane', () => {
     expect(() => load({ NODE_PLANES: 'NEITHER' })).toThrow(/NODE_PLANES/);
-
   });
-});})
+});

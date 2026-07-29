@@ -264,18 +264,16 @@ export class IngressPipeline {
       try {
         await d.federation?.enqueue(envelope, {
           ...(origin.peerId ? { excludePeers: [origin.peerId] } : {}),
+          // BR-04 — the bridge's byte bucket charges the encoded size. Measured here because
+          // this is the only place that holds the peer's exact bytes (ADR-008 §1).
+          bytes: raw.length,
         });
       } catch {
         // See the durable outbox note above.
       }
     }
     try {
-      await d.federation?.enqueue(envelope, {
-        ...(origin.peerId ? { excludePeers: [origin.peerId] } : {}),
-        // BR-04 — the bridge's byte bucket charges the encoded size. Measured here because
-        // this is the only place that holds the peer's exact bytes (ADR-008 §1).
-        bytes: raw.length,
-      });
+      await d.auxiliary?.fanout(raw, envelope);
     } catch {
       // An optional low-bandwidth path is post-commit and cannot change acceptance.
     }

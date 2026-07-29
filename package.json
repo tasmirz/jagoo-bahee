@@ -36,6 +36,10 @@
     "ops:down": "docker compose -f ops/docker-compose.yml down",
     "ops:two-node": "docker compose -f ops/docker-compose.yml --profile federation up -d --build --wait node-a node-b",
     "ops:two-node:down": "docker compose -f ops/docker-compose.yml --profile federation down",
+    "ops:isp": "docker compose -f ops/isp-compose.yml up -d --build --wait jb-a1 jb-a2 jb-b1 jb-bridge",
+    "ops:isp:down": "docker compose -f ops/isp-compose.yml down -v",
+    "ops:isp:logs": "docker compose -f ops/isp-compose.yml logs -f jb-a1 jb-a2 jb-b1 jb-bridge",
+    "gate:isp": "pnpm --filter @jagoo/backend gate:isp",
     "ops:logs": "docker compose -f ops/docker-compose.yml logs -f"
   },
   "devDependencies": {

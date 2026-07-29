@@ -2,7 +2,7 @@
   "name": "@jagoo/backend",
   "version": "2.0.0",
   "private": true,
-  "description": "NestJS node — hexagonal core/{domain,ports,app}, adapters, features, composition. Plans/07-ARCHITECTURE.md, ADR-002.",
+  "description": "NestJS node \u2014 hexagonal core/{domain,ports,app}, adapters, features, composition. Plans/07-ARCHITECTURE.md, ADR-002.",
   "main": "dist/main.js",
   "scripts": {
     "build": "nest build",
@@ -15,7 +15,8 @@
     "secrets:generate": "tsx src/cli/generate-secrets.ts",
     "seed:demo": "tsx src/cli/seed-demo.ts",
     "smoke:local": "vitest run src/cli/seed-demo.spec.ts",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "gate:isp": "tsx src/cli/isp-gate.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.750.0",

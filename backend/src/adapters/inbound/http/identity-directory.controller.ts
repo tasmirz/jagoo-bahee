@@ -1,5 +1,11 @@
-import { Controller, Get, Query } from '@nestjs/common';
-import type { ProjectionStore } from '../../../core/ports/storage.port.js';
+import { Controller, Get, Inject, Query } from '@nestjs/common';
+// A VALUE import, not `import type`. Ports are abstract classes precisely so they can be DI
+// tokens (ADR-002); `import type` erases the class at runtime, Nest is left with no token,
+// and the container fails to boot with "can't resolve dependencies … argument Function at
+// index [0]". Under vitest it does not fail at all — esbuild drops the decorator metadata,
+// the dependency silently arrives as `undefined`, and the module spec passes (L-15). So the
+// in-process suite cannot see this, and only running the image does (L-20).
+import { ProjectionStore } from '../../../core/ports/storage.port.js';
 import {
   CERTIFICATES_COLLECTION,
   REVOCATIONS_COLLECTION,
@@ -18,7 +24,7 @@ const MAX_DIRECTORY = 10_000;
 /** TP-05/P5: public, pre-positionable certificate material for offline mesh verification. */
 @Controller('v1/identity')
 export class IdentityDirectoryController {
-  constructor(private readonly projections: ProjectionStore) {}
+  constructor(@Inject(ProjectionStore) private readonly projections: ProjectionStore) {}
 
   @Get('certificates')
   async certificates(@Query('plane') plane = 'SIGNAL'): Promise<Record<string, unknown>> {
