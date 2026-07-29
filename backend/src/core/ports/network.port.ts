@@ -126,6 +126,20 @@ export interface SelectedPath {
   readonly transportId: string;
 }
 
+export interface TransportInboundMeta {
+  readonly transportId: string;
+  readonly scope: ReachabilityScope;
+  readonly peer?: string;
+  readonly hops?: number;
+}
+
+export interface TransportProbe {
+  readonly reachable: boolean;
+  readonly rttMs?: number;
+  readonly scope: ReachabilityScope;
+  readonly via: string;
+}
+
 export abstract class Transport {
   abstract readonly id: string;
   abstract readonly scopes: readonly ReachabilityScope[];
@@ -135,7 +149,18 @@ export abstract class Transport {
    * LoRa link cannot carry a forum feed, and attempting it starves the emergency channel.
    */
   abstract readonly classes: readonly Priority[];
+  abstract readonly mtu: number;
+  abstract available(): Promise<boolean>;
   abstract send(raw: Uint8Array, endpoint: PeerEndpoint): Promise<void>;
+  abstract subscribe(
+    onEnvelope: (raw: Uint8Array, meta: TransportInboundMeta) => void,
+  ): () => void;
+  abstract probe(endpoint: PeerEndpoint): Promise<TransportProbe>;
+}
+
+/** Optional non-IP transports receive accepted bytes after commit and can never roll it back. */
+export abstract class AuxiliaryTransportOut {
+  abstract fanout(raw: Uint8Array, envelope: ParsedEnvelope): Promise<void>;
 }
 
 export abstract class PeerDirectory {

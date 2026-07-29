@@ -88,6 +88,9 @@ function validate(rows) {
     if (r.requires_certificate != null && typeof r.requires_certificate !== 'boolean') {
       errors.push(`${at}: requires_certificate must be a boolean when present`);
     }
+    if (r.federate != null && typeof r.federate !== 'boolean') {
+      errors.push(`${at}: federate must be a boolean when present`);
+    }
     if (r.requires_certificate === false && r.body !== 'jagoo.v1.KeyCertificate') {
       errors.push(`${at}: only KeyCertificate may opt out of the prior-certificate check`);
     }
@@ -152,6 +155,7 @@ function emitTs(rows) {
     }
     requires: [${(r.requires ?? []).map((g) => `'${g}'`).join(', ')}],
     requiresCertificate: ${r.requires_certificate !== false},
+    federate: ${r.federate !== false},
     permission: '${r.permission ?? ''}',
   },`,
     )
@@ -179,6 +183,8 @@ export interface DomainSpec {
   readonly requires: readonly RegistryGate[];
   /** Step 10 policy. Only a self-validating KeyCertificate may set this false. */
   readonly requiresCertificate: boolean;
+  /** Step 19 policy. False keeps privacy-sensitive projections node-local. */
+  readonly federate: boolean;
   readonly permission: string;
 }
 
@@ -214,6 +220,7 @@ function emitRust(rows) {
         max_bytes: ${r.max_bytes},
         credit_cost: ${r.credit_cost},
         requires_certificate: ${r.requires_certificate !== false},
+        federate: ${r.federate !== false},
     },`,
     )
     .join('\n');
@@ -254,6 +261,7 @@ pub struct DomainSpec {
     pub max_bytes: u32,
     pub credit_cost: u32,
     pub requires_certificate: bool,
+    pub federate: bool,
 }
 
 pub const DOMAIN_SPECS: &[DomainSpec] = &[
@@ -280,6 +288,7 @@ function emitPython(rows) {
         max_bytes=${r.max_bytes},
         credit_cost=${r.credit_cost},
         requires_certificate=${r.requires_certificate !== false ? 'True' : 'False'},
+        federate=${r.federate !== false ? 'True' : 'False'},
     ),`,
     )
     .join('\n');
@@ -301,6 +310,7 @@ class DomainSpec:
     max_bytes: int
     credit_cost: int
     requires_certificate: bool
+    federate: bool
 
 
 DOMAIN_SPECS: list[DomainSpec] = [

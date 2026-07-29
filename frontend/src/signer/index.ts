@@ -25,10 +25,11 @@ import {
   buildEnvelope,
   canonicalBytes,
   certificateSelfSignatureBytes,
+  contentId as computeContentId,
+  decodeSignedEnvelope,
   identityId,
   pqAttestationBytes,
   revocationAuthorizationBytes,
-  createAuditCertificate,
   type AuditCertificate,
   type AuditReceiptJson,
   sealEnvelope,
@@ -54,9 +55,10 @@ import {
 } from '@jagoo/sdk/proto';
 import { solvePow, type PowChallengeJson } from '../data/pow';
 import type { DiscoveredService } from '../data/node-config';
-import { storeAndForwardCertificate } from '../audit';
+import { submitSignedEnvelope } from '../offline/outbox';
 
 const ROOT_KEY = 'jb.forum.root.v1';
+const FORUM_CREDENTIAL_KEY = 'jb.forum.credential.v1';
 const text = new TextEncoder();
 const storeOptions: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
@@ -184,7 +186,10 @@ export class SecureForumSigner implements ForumSigner {
 
   /** CRS-19: callable from the locked emergency surface. */
   static async panicConfiguredVault(): Promise<void> {
-    await SecureStore.deleteItemAsync(ROOT_KEY, storeOptions);
+    await Promise.all([
+      SecureStore.deleteItemAsync(ROOT_KEY, storeOptions),
+      SecureStore.deleteItemAsync(FORUM_CREDENTIAL_KEY, storeOptions),
+    ]);
   }
 
   configureCredentialKey(value: BlindCredentialPublicKey): void {
@@ -439,10 +444,11 @@ export interface ForumSessionSummary {
 
 export interface PublishedPost {
   readonly contentId: string;
-  readonly leafIndex: number;
-  readonly certificate: AuditCertificate;
+  readonly leafIndex?: number;
+  readonly certificate?: AuditCertificate;
   readonly auditCopies: number;
   readonly auditPending: number;
+  readonly pending: boolean;
 }
 
 export type PublishedAction = PublishedPost;
@@ -471,27 +477,24 @@ async function submitAuditedEnvelope(
   baseUrl: string,
   wireBytes: Uint8Array,
   auditServices: readonly DiscoveredService[],
-  authorization?: string,
+  _authorization?: string,
 ): Promise<{
-  readonly receipt: AuditReceiptJson;
-  readonly certificate: AuditCertificate;
+  readonly receipt?: AuditReceiptJson;
+  readonly certificate?: AuditCertificate;
   readonly auditCopies: number;
   readonly auditPending: number;
+  readonly contentId: string;
+  readonly pending: boolean;
 }> {
-  const requestBody = JSON.stringify({ envelope: base64(wireBytes) });
-  const receipt = await requestJson<AuditReceiptJson>(baseUrl, '/v1/envelopes', {
-    method: 'POST',
-    ...(authorization ? { headers: { Authorization: `Bearer ${authorization}` } } : {}),
-    body: requestBody,
+  const envelope = decodeSignedEnvelope(wireBytes);
+  return submitSignedEnvelope({
+    baseUrl,
+    wireBytes,
+    contentId: computeContentId(envelope),
+    plane: envelope.plane,
+    priority: envelope.priority,
+    auditServices,
   });
-  const certificate = createAuditCertificate(text.encode(requestBody), receipt);
-  const stored = await storeAndForwardCertificate(certificate, auditServices);
-  return {
-    receipt,
-    certificate,
-    auditCopies: stored.deliveries.filter((delivery) => delivery.delivered).length,
-    auditPending: stored.deliveries.filter((delivery) => !delivery.delivered).length,
-  };
 }
 
 export async function forumSessionSummary(): Promise<ForumSessionSummary> {
@@ -525,6 +528,7 @@ export async function createForumIdentity(
   activeSigner = await SecureForumSigner.create(lockPassphrase, recoveryPhrase);
   activeAccessToken = null;
   activeCredential = null;
+  await SecureStore.deleteItemAsync(FORUM_CREDENTIAL_KEY, storeOptions);
   const identity = await activeSigner.identity({ kind: 'device' });
   return { recoveryPhrase, identityId: identity.id };
 }
@@ -540,13 +544,15 @@ export async function importForumIdentity(
   );
   activeAccessToken = null;
   activeCredential = null;
+  await SecureStore.deleteItemAsync(FORUM_CREDENTIAL_KEY, storeOptions);
   return (await activeSigner.identity({ kind: 'device' })).id;
 }
 
 export async function unlockForumIdentity(lockPassphrase: string): Promise<string> {
   activeSigner = await SecureForumSigner.unlock(lockPassphrase);
   activeAccessToken = null;
-  activeCredential = null;
+  const storedCredential = await SecureStore.getItemAsync(FORUM_CREDENTIAL_KEY, storeOptions);
+  activeCredential = storedCredential ? { bytes: unbase64(storedCredential) } : null;
   return (await activeSigner.identity({ kind: 'device' })).id;
 }
 
@@ -620,22 +626,34 @@ export async function registerForumIdentity(
     },
   );
   activeCredential = await signer.unblind(blinded.state, unbase64(issued.blindSignature));
+  await SecureStore.setItemAsync(
+    FORUM_CREDENTIAL_KEY,
+    base64(activeCredential.bytes),
+    storeOptions,
+  );
   return identity.id;
 }
 
 export async function publishForumPost(
   baseUrl: string,
-  input: { readonly title: string; readonly bodyMarkdown: string },
+  input: {
+    readonly title: string;
+    readonly bodyMarkdown: string;
+    readonly communityId?: string;
+  },
   auditServices: readonly DiscoveredService[] = [],
 ): Promise<PublishedPost> {
   if (!activeSigner) throw new Error('Unlock your Forum identity first');
-  if (!activeAccessToken || !activeCredential) {
+  if (!activeCredential) {
     await registerForumIdentity(baseUrl, auditServices);
   }
-  const communities = await requestJson<{
-    readonly items: readonly { readonly id: string }[];
-  }>(baseUrl, '/v1/communities?sort=members&limit=1');
-  const communityId = communities.items[0]?.id;
+  const communityId =
+    input.communityId ??
+    (
+      await requestJson<{
+        readonly items: readonly { readonly id: string }[];
+      }>(baseUrl, '/v1/communities?sort=members&limit=1')
+    ).items[0]?.id;
   if (!communityId) {
     throw new Error('This node has no community yet. Run the demo seed or create one first.');
   }
@@ -666,14 +684,15 @@ export async function publishForumPost(
     baseUrl,
     sealed.wireBytes,
     auditServices,
-    activeAccessToken!,
+    activeAccessToken ?? undefined,
   );
   return {
-    contentId: audited.receipt.content_id,
-    leafIndex: audited.receipt.leaf_index,
-    certificate: audited.certificate,
+    contentId: audited.contentId,
+    ...(audited.receipt ? { leafIndex: audited.receipt.leaf_index } : {}),
+    ...(audited.certificate ? { certificate: audited.certificate } : {}),
     auditCopies: audited.auditCopies,
     auditPending: audited.auditPending,
+    pending: audited.pending,
   };
 }
 
@@ -688,7 +707,7 @@ async function publishForumAction(
   auditServices: readonly DiscoveredService[] = [],
 ): Promise<PublishedAction> {
   if (!activeSigner) throw new Error('Unlock your Forum identity first');
-  if (!activeAccessToken || !activeCredential) {
+  if (!activeCredential) {
     await registerForumIdentity(baseUrl, auditServices);
   }
   const epoch = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
@@ -711,14 +730,15 @@ async function publishForumAction(
     baseUrl,
     sealed.wireBytes,
     auditServices,
-    activeAccessToken!,
+    activeAccessToken ?? undefined,
   );
   return {
-    contentId: audited.receipt.content_id,
-    leafIndex: audited.receipt.leaf_index,
-    certificate: audited.certificate,
+    contentId: audited.contentId,
+    ...(audited.receipt ? { leafIndex: audited.receipt.leaf_index } : {}),
+    ...(audited.certificate ? { certificate: audited.certificate } : {}),
     auditCopies: audited.auditCopies,
     auditPending: audited.auditPending,
+    pending: audited.pending,
   };
 }
 

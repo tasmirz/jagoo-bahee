@@ -26,6 +26,8 @@ export interface DomainSpec {
   readonly requires: readonly RegistryGate[];
   /** Step 10 policy. Only a self-validating KeyCertificate may set this false. */
   readonly requiresCertificate: boolean;
+  /** Step 19 policy. False keeps privacy-sensitive projections node-local. */
+  readonly federate: boolean;
   readonly permission: string;
 }
 
@@ -42,6 +44,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 10,
     requires: ['CREDENTIAL', 'NULLIFIER'],
     requiresCertificate: true,
+    federate: true,
     permission: 'post.create',
   },
   {
@@ -56,6 +59,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 2,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'owner',
   },
   {
@@ -70,6 +74,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'owner',
   },
   {
@@ -84,6 +89,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 3,
     requires: ['CREDENTIAL', 'NULLIFIER'],
     requiresCertificate: true,
+    federate: true,
     permission: 'post.create',
   },
   {
@@ -98,6 +104,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 1,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'owner',
   },
   {
@@ -112,6 +119,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'owner',
   },
   {
@@ -126,6 +134,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 1,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'member',
   },
   {
@@ -140,6 +149,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 200,
     requires: ['CREDENTIAL', 'NULLIFIER', 'POW'],
     requiresCertificate: true,
+    federate: true,
     permission: 'authenticated',
   },
   {
@@ -154,6 +164,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 5,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'community.update',
   },
   {
@@ -168,6 +179,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 5,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'owner',
   },
   {
@@ -182,6 +194,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 1,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: '',
   },
   {
@@ -196,6 +209,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: '',
   },
   {
@@ -210,6 +224,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'per_verb',
   },
   {
@@ -224,6 +239,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 2,
     requires: ['CREDENTIAL', 'NULLIFIER'],
     requiresCertificate: true,
+    federate: true,
     permission: 'member',
   },
   {
@@ -238,6 +254,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'report.review',
   },
   {
@@ -252,6 +269,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 5,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'member.role.update',
   },
   {
@@ -266,6 +284,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 1,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'member.role.update',
   },
   {
@@ -280,6 +299,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 1,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'member.role.update',
   },
   {
@@ -294,6 +314,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 2,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'self',
   },
   {
@@ -308,6 +329,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 1,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'self',
   },
   {
@@ -322,6 +344,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'self',
   },
   {
@@ -336,6 +359,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'self',
   },
   {
@@ -350,6 +374,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'self',
   },
   {
@@ -364,6 +389,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 5,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'member',
   },
   {
@@ -378,6 +404,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'admin',
   },
   {
@@ -393,6 +420,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCostPerMb: 1,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'authenticated',
   },
   {
@@ -407,6 +435,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 2,
     requires: ['CREDENTIAL'],
     requiresCertificate: true,
+    federate: true,
     permission: 'authenticated',
   },
   {
@@ -421,6 +450,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'label.trust',
   },
   {
@@ -435,6 +465,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: ['POW'],
     requiresCertificate: false,
+    federate: true,
     permission: 'self',
   },
   {
@@ -449,6 +480,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'self',
   },
   {
@@ -463,6 +495,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 100,
     requires: ['POW'],
     requiresCertificate: true,
+    federate: true,
     permission: 'authenticated',
   },
   {
@@ -477,6 +510,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 5,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'channel.owner',
   },
   {
@@ -491,6 +525,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'channel.owner',
   },
   {
@@ -505,6 +540,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'channel.owner',
   },
   {
@@ -519,6 +555,22 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 1,
     requires: [],
     requiresCertificate: true,
+    federate: true,
+    permission: 'authenticated',
+  },
+  {
+    domain: 'jb:channel:subscribe:v1',
+    plane: 'SIGNAL',
+    body: 'jagoo.v1.ChannelSubscribe',
+    priority: 'BULK',
+    idempotent: false,
+    scopeKind: 'CHANNEL',
+    keyAlgs: ['ED25519'],
+    maxBytes: 2048,
+    creditCost: 0,
+    requires: [],
+    requiresCertificate: true,
+    federate: false,
     permission: 'authenticated',
   },
   {
@@ -533,6 +585,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'broadcast.emit',
   },
   {
@@ -547,6 +600,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'broadcast.emit',
   },
   {
@@ -561,6 +615,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: '',
   },
   {
@@ -575,6 +630,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'authenticated',
   },
   {
@@ -589,6 +645,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'authenticated',
   },
   {
@@ -603,6 +660,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 1,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'authenticated',
   },
   {
@@ -617,6 +675,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 1,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'authenticated',
   },
   {
@@ -631,6 +690,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'authenticated',
   },
   {
@@ -645,6 +705,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'self',
   },
   {
@@ -659,6 +720,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 2,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'authenticated',
   },
   {
@@ -673,6 +735,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 1,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'group.admin',
   },
   {
@@ -687,6 +750,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: ['POW'],
     requiresCertificate: false,
+    federate: true,
     permission: 'self',
   },
   {
@@ -701,6 +765,7 @@ export const DOMAIN_SPECS: readonly DomainSpec[] = [
     creditCost: 0,
     requires: [],
     requiresCertificate: true,
+    federate: true,
     permission: 'self',
   },
 ] as const;

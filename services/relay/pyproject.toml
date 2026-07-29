@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jagoo-reticulum-relay"
+version = "2.0.0"
+description = "Optional Jagoo Bahee Reticulum/LoRa bridge sidecar"
+requires-python = ">=3.11"
+dependencies = [
+  "grpcio>=1.70,<2",
+  "protobuf>=5,<8",
+  "rns>=1.1,<2",
+]
+
+[project.optional-dependencies]
+dev = ["grpcio-tools>=1.70,<2", "pytest>=8,<10", "pytest-asyncio>=0.24,<2"]
+
+[project.scripts]
+jagoo-relay = "jagoo_relay.daemon:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

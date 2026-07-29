@@ -5,7 +5,9 @@
  * It never imports the Forum signer and never accepts a Forum recovery phrase.
  */
 import * as Crypto from 'expo-crypto';
+import * as Device from 'expo-device';
 import * as SecureStore from 'expo-secure-store';
+import type * as ExpoNotifications from 'expo-notifications';
 import { xchacha20poly1305 } from '@noble/ciphers/chacha';
 import { x25519 } from '@noble/curves/ed25519';
 import { scryptAsync } from '@noble/hashes/scrypt';
@@ -30,13 +32,13 @@ import {
   canonicalBytes,
   certificateSelfSignatureBytes,
   channelId,
-  createAuditCertificate,
+  contentId as computeContentId,
+  decodeSignedEnvelope,
   identityId,
   pqAttestationBytes,
   revocationAuthorizationBytes,
   sealEnvelope,
   type AuditCertificate,
-  type AuditReceiptJson,
   type ContextOf,
   type PublicIdentity,
   type SessionHandle,
@@ -45,6 +47,7 @@ import {
 } from '@jagoo/sdk';
 import {
   ChannelDeclare,
+  ChannelSubscribe,
   ChannelKind,
   BroadcastEmit,
   CheckIn,
@@ -56,10 +59,17 @@ import {
   RevocationKind,
   SignalSessionInit,
 } from '@jagoo/sdk/proto';
-import { storeAndForwardCertificate } from '../audit';
 import type { DiscoveredService } from '../data/node-config';
 import { solvePow, type PowChallengeJson } from '../data/pow';
-import { clearSignalLocalData } from '../features/signal/storage';
+import {
+  cacheSignalPrekey,
+  cacheSignalInbox,
+  clearSignalLocalData,
+  loadCachedSignalInbox,
+  loadCachedSignalPrekey,
+  type CachedSignalSession,
+} from '../features/signal/storage';
+import { clearOutboxPlane, submitSignedEnvelope } from '../offline/outbox';
 
 const ROOT_KEY = 'jb.signal.root.v1';
 const CHANNEL_MAP_KEY = 'jb.signal.channels.v1';
@@ -502,17 +512,26 @@ async function submit(
   baseUrl: string,
   wireBytes: Uint8Array,
   auditServices: readonly DiscoveredService[],
-  authorization?: string,
-): Promise<{ readonly contentId: string; readonly certificate: AuditCertificate }> {
-  const requestBody = JSON.stringify({ envelope: base64(wireBytes) });
-  const receipt = await requestJson<AuditReceiptJson>(baseUrl, '/v1/envelopes', {
-    method: 'POST',
-    ...(authorization ? { headers: { Authorization: `Bearer ${authorization}` } } : {}),
-    body: requestBody,
+  _authorization?: string,
+): Promise<{
+  readonly contentId: string;
+  readonly pending: boolean;
+  readonly certificate?: AuditCertificate;
+}> {
+  const envelope = decodeSignedEnvelope(wireBytes);
+  const result = await submitSignedEnvelope({
+    baseUrl,
+    wireBytes,
+    contentId: computeContentId(envelope),
+    plane: envelope.plane,
+    priority: envelope.priority,
+    auditServices,
   });
-  const certificate = createAuditCertificate(text.encode(requestBody), receipt);
-  await storeAndForwardCertificate(certificate, auditServices);
-  return { contentId: receipt.content_id, certificate };
+  return {
+    contentId: result.contentId,
+    pending: result.pending,
+    ...(result.certificate ? { certificate: result.certificate } : {}),
+  };
 }
 
 export async function signalSessionSummary(): Promise<SignalSessionSummary> {
@@ -634,7 +653,11 @@ export async function publishSignalEnvelope(
     readonly antiAbuse?: Parameters<typeof buildEnvelope>[0]['antiAbuse'];
   },
   auditServices: readonly DiscoveredService[] = [],
-): Promise<{ readonly contentId: string; readonly certificate: AuditCertificate }> {
+): Promise<{
+  readonly contentId: string;
+  readonly pending: boolean;
+  readonly certificate?: AuditCertificate;
+}> {
   if (!activeSigner) throw new Error('Unlock your Signal identity first');
   const sealed = await activeSigner.seal(input.context, input);
   return submit(baseUrl, sealed.wireBytes, auditServices, activeAccessToken ?? undefined);
@@ -652,6 +675,56 @@ export async function publishSignalPrekeys(
         context: { kind: 'device' },
         domain: 'jb:message:prekeys:v1',
         body: await activeSigner.prekeyBody(),
+      },
+      auditServices,
+    )
+  ).contentId;
+}
+
+async function nativePushToken(): Promise<string> {
+  if (!Device.isDevice) throw new Error('Push delivery requires a physical device');
+  // Push is explicit opt-in, so ordinary Signal startup does not eagerly load
+  // the notification provider runtime. Metro supports a deferred CommonJS
+  // require here, while the project's TypeScript module target rejects import().
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const Notifications = require('expo-notifications') as typeof ExpoNotifications;
+  let permission = await Notifications.getPermissionsAsync();
+  if (permission.status !== 'granted') {
+    permission = await Notifications.requestPermissionsAsync();
+  }
+  if (permission.status !== 'granted') {
+    throw new Error('Notification permission was not granted');
+  }
+  const token = await Notifications.getDevicePushTokenAsync();
+  return typeof token.data === 'string' ? token.data : JSON.stringify(token.data);
+}
+
+/**
+ * SB-02: this is deliberately separate from local filtering. Calling it discloses a provider
+ * token to the selected home node, and the UI must obtain explicit consent first.
+ */
+export async function publishSignalPushSubscription(
+  baseUrl: string,
+  channel: string,
+  enabled: boolean,
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<string> {
+  if (!activeAccessToken) throw new Error('Authenticate the Signal identity first');
+  const token = enabled ? text.encode(await nativePushToken()) : new Uint8Array();
+  return (
+    await publishSignalEnvelope(
+      baseUrl,
+      {
+        context: { kind: 'device' },
+        domain: 'jb:channel:subscribe:v1',
+        scope: channel,
+        body: ChannelSubscribe.encode(
+          ChannelSubscribe.fromPartial({
+            channel,
+            push: enabled,
+            push_token: token,
+          }),
+        ).finish(),
       },
       auditServices,
     )
@@ -861,8 +934,35 @@ export async function publishSignalBroadcast(
 interface NodePrekeyBundle {
   readonly identityKey: string;
   readonly signedPrekey: string;
+  readonly signedPrekeySignature: string;
   readonly kemPublicKey: string;
   readonly oneTimePrekeys: readonly string[];
+  readonly validUntilMs: number;
+}
+
+function verifyNodePrekey(recipientKeyHex: string, prekey: NodePrekeyBundle): void {
+  const identityKey = Uint8Array.from(BufferFromHex(prekey.identityKey));
+  const signedPrekey = unbase64(prekey.signedPrekey);
+  const kemPublicKey = unbase64(prekey.kemPublicKey);
+  if (
+    prekey.identityKey.toLowerCase() !== recipientKeyHex.toLowerCase() ||
+    identityKey.length !== 32 ||
+    signedPrekey.length !== 32 ||
+    !Number.isSafeInteger(prekey.validUntilMs) ||
+    prekey.validUntilMs <= Date.now() ||
+    !ed25519.verify(
+      unbase64(prekey.signedPrekeySignature),
+      signalPrekeySignatureBytes({
+        identityKey,
+        signedPrekey,
+        kemPublicKey,
+        validUntilMs: BigInt(prekey.validUntilMs),
+      }),
+      identityKey,
+    )
+  ) {
+    throw new Error('recipient prekey bundle failed local signature or expiry verification');
+  }
 }
 
 export async function startSignalSession(
@@ -873,10 +973,21 @@ export async function startSignalSession(
 ): Promise<string> {
   if (!activeSigner) throw new Error('Unlock your Signal identity first');
   if (!/^[0-9a-f]{64}$/i.test(recipientKeyHex)) throw new Error('recipient key must be 64 hex characters');
-  const prekey = await requestJson<NodePrekeyBundle>(
-    baseUrl,
-    `/v1/signal/prekeys/${encodeURIComponent(recipientKeyHex.toLowerCase())}`,
-  );
+  const key = recipientKeyHex.toLowerCase();
+  let prekey: NodePrekeyBundle;
+  try {
+    prekey = await requestJson<NodePrekeyBundle>(
+      baseUrl,
+      `/v1/signal/prekeys/${encodeURIComponent(key)}`,
+    );
+    verifyNodePrekey(key, prekey);
+    await cacheSignalPrekey(key, prekey);
+  } catch (error) {
+    const cached = await loadCachedSignalPrekey(key);
+    if (!cached) throw error;
+    prekey = cached;
+  }
+  verifyNodePrekey(key, prekey);
   const context = `signal:${recipientKeyHex.toLowerCase()}`;
   const encrypted = await activeSigner.sealFirstMessage(
     {
@@ -908,6 +1019,45 @@ export async function startSignalSession(
   ).contentId;
 }
 
+type NodeSignalSession = CachedSignalSession;
+
+export interface DecryptedSignalSession extends NodeSignalSession {
+  readonly plaintext: string | null;
+}
+
+export async function loadSignalInbox(baseUrl: string): Promise<readonly DecryptedSignalSession[]> {
+  if (!activeSigner) throw new Error('Unlock your Signal identity first');
+  let sessions: readonly NodeSignalSession[];
+  try {
+    const response = await signalSessionRequest<{ readonly items: readonly NodeSignalSession[] }>(
+      baseUrl,
+      '/v1/signal/me/sessions',
+    );
+    sessions = response.items;
+    await cacheSignalInbox(sessions);
+  } catch (error) {
+    sessions = await loadCachedSignalInbox();
+    if (sessions.length === 0) throw error;
+  }
+  return Promise.all(
+    sessions.map(async (session) => {
+      try {
+        const plaintext = await activeSigner!.openFirstMessage(
+          {
+            kemCiphertext: unbase64(session.kemCiphertext),
+            ephemeralX25519: unbase64(session.ephemeralX25519),
+            ciphertext: unbase64(session.ciphertext),
+          },
+          `signal:${session.recipientKey}`,
+        );
+        return { ...session, plaintext: new TextDecoder().decode(plaintext) };
+      } catch {
+        return { ...session, plaintext: null };
+      }
+    }),
+  );
+}
+
 function BufferFromHex(value: string): number[] {
   return value.match(/.{2}/g)?.map((pair) => Number.parseInt(pair, 16)) ?? [];
 }
@@ -925,6 +1075,7 @@ export async function panicSignal(): Promise<void> {
   if (activeSigner) await activeSigner.panic();
   else await SecureSignalSigner.panicConfiguredVault();
   await clearSignalLocalData();
+  await clearOutboxPlane(Plane.SIGNAL);
   activeSigner = null;
   activeAccessToken = null;
 }

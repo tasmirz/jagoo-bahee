@@ -109,6 +109,27 @@ interface AdminSummary {
   readonly transparency: { readonly treeSize: number; readonly timestampMs: number };
 }
 
+interface ReticulumAdminStatus {
+  readonly enabled: boolean;
+  readonly available: boolean;
+  readonly detail?: string;
+  readonly queueDepth?: number;
+  readonly interfaces?: readonly {
+    readonly name: string;
+    readonly kind: string;
+    readonly up: boolean;
+    readonly rssi: number;
+    readonly snr: number;
+    readonly txBytes: string;
+    readonly rxBytes: string;
+  }[];
+  readonly paths?: readonly {
+    readonly destinationHash: string;
+    readonly hops: number;
+    readonly lastSeenMs: string;
+  }[];
+}
+
 function shortened(value: string, length = 16): string {
   return value.length > length ? `${value.slice(0, length)}…` : value;
 }
@@ -784,6 +805,11 @@ export function AdminWorkspace({ colors, homeNode }: WorkspaceProps) {
     '/v1/admin/summary',
     Boolean(summary?.authenticated),
   );
+  const reticulum = useSessionDocument<ReticulumAdminStatus>(
+    homeNode.baseUrl,
+    '/v1/admin/reticulum',
+    Boolean(summary?.authenticated),
+  );
   if (!summary?.authenticated) {
     return <SessionGate colors={colors} summary={summary} />;
   }
@@ -824,6 +850,59 @@ export function AdminWorkspace({ colors, homeNode }: WorkspaceProps) {
           detail="Every acknowledged envelope occupies an append-only leaf."
           value={String(admin.data?.transparency.treeSize ?? 0)}
         />
+      </Panel>
+      <Panel colors={colors} eyebrow="Optional transport" title="Reticulum relay">
+        <DataRow
+          colors={colors}
+          icon="radio-outline"
+          label="Bridge sidecar"
+          detail={
+            reticulum.data?.detail ??
+            (reticulum.data?.enabled
+              ? 'The node is configured to forward eligible signed envelopes.'
+              : 'Disabled by default. Ordinary IP, federation, and mesh remain available.')
+          }
+          signal
+          value={
+            reticulum.isLoading
+              ? 'checking'
+              : reticulum.data?.available
+                ? 'online'
+                : reticulum.data?.enabled
+                  ? 'unavailable'
+                  : 'disabled'
+          }
+        />
+        {reticulum.data?.enabled ? (
+          <DataRow
+            colors={colors}
+            icon="albums-outline"
+            label="Store-and-forward queue"
+            detail={`${reticulum.data.paths?.length ?? 0} known paths`}
+            value={`${reticulum.data.queueDepth ?? 0} frames`}
+          />
+        ) : null}
+        {reticulum.data?.interfaces?.map((item) => (
+          <DataRow
+            colors={colors}
+            detail={`${item.kind} · ${item.up ? 'link up' : 'link down'} · ${item.txBytes} B sent / ${item.rxBytes} B received`}
+            icon="hardware-chip-outline"
+            key={`${item.kind}:${item.name}`}
+            label={item.name}
+            signal
+            value={`RSSI ${item.rssi} · SNR ${item.snr}`}
+          />
+        ))}
+        {reticulum.data?.paths?.map((path) => (
+          <DataRow
+            colors={colors}
+            detail={path.destinationHash}
+            icon="navigate-outline"
+            key={path.destinationHash}
+            label="Known destination"
+            value={`${path.hops} hop${path.hops === 1 ? '' : 's'}`}
+          />
+        ))}
       </Panel>
     </>
   );

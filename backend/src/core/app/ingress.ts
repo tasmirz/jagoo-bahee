@@ -58,6 +58,7 @@ import {
   LOCAL_ORIGIN,
   type FederationLedger,
   type FederationOut,
+  type AuxiliaryTransportOut,
   type IngressOrigin,
 } from '../ports/network.port.js';
 import type { NodeSigner } from '../ports/node-signer.port.js';
@@ -83,6 +84,7 @@ export interface IngressDeps {
   readonly nodeSigner: NodeSigner;
   readonly clock: Clock;
   readonly federation?: FederationOut;
+  readonly auxiliary?: AuxiliaryTransportOut;
   /** ADR-008 §2 — the `(content_id, direction)` dedupe row, written inside the same tx. */
   readonly federationLedger?: FederationLedger;
   readonly events?: EventBus;
@@ -258,12 +260,19 @@ export class IngressPipeline {
     } catch {
       // The acceptance receipt is authoritative; observers are best-effort here.
     }
+    if (spec.federate) {
+      try {
+        await d.federation?.enqueue(envelope, {
+          ...(origin.peerId ? { excludePeers: [origin.peerId] } : {}),
+        });
+      } catch {
+        // See the durable outbox note above.
+      }
+    }
     try {
-      await d.federation?.enqueue(envelope, {
-        ...(origin.peerId ? { excludePeers: [origin.peerId] } : {}),
-      });
+      await d.auxiliary?.fanout(raw, envelope);
     } catch {
-      // See the durable outbox note above.
+      // An optional low-bandwidth path is post-commit and cannot change acceptance.
     }
     d.events?.publish({ type: 'accepted', envelope, receipt });
     try {

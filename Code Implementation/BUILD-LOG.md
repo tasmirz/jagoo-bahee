@@ -765,3 +765,89 @@ the implementation block without first materialising its phase plan.
 untracked partial work to the next session. Reconcile the checklist before extending the system.
 
 **Next:** P4 steps 1–3: plane-aware certificates, isolated Signal signer, channel lifecycle.
+
+---
+
+### 2026-07-29 — Stages 2–4 complete: Signal, offline mesh and optional Reticulum [P4 → P6]
+
+The Claude handoff named three later stages but none had a reconciled implementation status.
+`P4-SIGNAL-PLAN.md`, `P5-OFFLINE-MESH-PLAN.md` and `P6-RETICULUM-PLAN.md` now carry their
+gate-to-test evidence and are closed at the software gate.
+
+**P4 — Signal plane:**
+
+- Added a genuinely isolated Signal certificate/revocation store and SecureStore signer vault,
+  independent panic wipe, identified channel lifecycle, QR verification, confusable-name warning,
+  sequence gaps, severity policy, revocation-in-place and separate Signal SSE/federation paths.
+- Added crisis check-ins, missing-person and resource projections, cached map/list UI, offline
+  prekeys, locally verified prekey signatures/expiry, hybrid X25519 + ML-KEM session initiation,
+  symmetric ratchet primitives, monotonic counters, recipient receipts, ciphertext-only
+  projections and bounded sender-key groups.
+- Added explicit, privacy-labelled push opt-in. `jb:channel:subscribe:v1` is a signed local-only
+  registry row with `federate: false`, so provider tokens cannot enter federation.
+
+**P5 — durable offline and local mesh:**
+
+- Every Forum and Signal publish path queues the exact final signed bytes before network send.
+  The outbox survives restart, recovers `sending` rows, drains by priority, deduplicates by content
+  ID, forwards receipts to ALS and isolates a permanent rejection instead of stranding the queue.
+- Added native host-candidate WebRTC with QR offer/answer exchange, matching nonce fingerprints,
+  65 KiB bounded frames, Bloom reconciliation, automatic missing-envelope transfer, hop/TTL
+  limits, per-peer quotas and full signature/certificate/revocation verification before storage
+  or relay. Mesh remains explicit opt-in.
+- Added independently verified `.jbpack` import/export, certificate pre-positioning, cached Signal
+  inbox/prekeys, resource-use controls whose battery/data-saver values alter the real probe
+  cadence, and the complete offline relay route.
+
+**P6 — optional Reticulum:**
+
+- Added the isolated Python `services/relay` sidecar, checked-in generated bridge bindings,
+  fragmentation with per-frame and whole-envelope integrity, timeout reassembly, SQLite-WAL
+  store-and-forward, a no-radio TCP transport and the optional actual RNS boundary.
+- Added the Nest `ReticulumTransport`/fanout adapter behind ports and configuration. It auto-feeds
+  inbound envelopes through the ordinary ingress pipeline, rejects `BULK` locally, applies RPC
+  deadlines, starts disabled and never sits on HTTP acknowledgement.
+- Added administrator-authenticated, JSON-safe telemetry for interfaces, paths, RSSI, SNR,
+  byte counters and queue depth, rendered in the existing Admin workspace.
+- Added English/Bangla operator instructions, real Reticulum TCPInterface examples and an
+  RNodeInterface configuration/safety guide.
+
+**Verified on the final tree:**
+
+- `pnpm lint` — 5/5 tasks pass.
+- `pnpm typecheck` — 6/6 tasks pass.
+- `pnpm build` — 5/5 tasks pass; Expo exports Android and iOS Hermes bundles (5.22 MB each).
+- `pnpm test` — **406 workspace tests pass**: backend 283, SDK 66, frontend 55, ALS 2.
+  Thirteen Mongo/Redis integration tests remain skipped without their external services.
+- `pnpm test:relay` — 6/6 Python relay tests pass, including gRPC, TCP disconnect/resume,
+  fragmentation/reassembly and typed `BULK` rejection.
+- `pnpm proto:lint`, `pnpm proto:check`, `pnpm vectors`, `pnpm smoke:local` and Expo dependency
+  compatibility checks pass. The registry is 49 domains: 30 Forum and 19 Signal.
+- `git diff --check` reports no whitespace errors. Git prints only the repository's existing
+  Windows line-ending conversion warnings.
+
+**Broke, and the gates caught it:**
+
+1. The async gRPC server used the synchronous `context.is_active()` API, crashing `Receive`.
+   The stream now follows `grpc.aio` cancellation semantics.
+2. The Reticulum client initially used the remote fanout hash as its local receive filter, which
+   would silently discard all inbound packets. Receive now subscribes to the sidecar's announced
+   local destination; a regression test fixes the distinction.
+3. Exporting the native mesh screen from the general connectivity barrel eagerly loaded
+   `react-native-webrtc` in ordinary routes and broke Jest without a native module. The mesh route
+   retains a deliberate native-only lazy boundary.
+4. The completed Signal registry made an old “Forum-only build” assertion false. The config gate
+   now proves dual-plane default and explicit Signal-only operation.
+5. The first mesh implementation displayed battery/data-saver controls without consuming their
+   values, and generated Bloom summaries without transferring the computed difference. Both are
+   now wired to behavior and asserted.
+6. A dynamic notification import kept the native provider out of ordinary Jest startup, but the
+   Expo TypeScript module target rejected that syntax. The explicit opt-in path now uses Metro's
+   deferred `require`, preserving lazy native loading while passing lint, typecheck and all 55
+   frontend tests.
+
+**Not claimed:** no LoRa board was available, so an on-air RNode drill was not run. This environment
+also cannot prove camera QR exchange, provider push delivery or WebRTC transfer between two
+physical devices; the native code, contracts, automated policy gates and Android/iOS production
+exports pass, and the exact device drills are documented. The software exit gates are complete
+without turning those unrun hardware exercises into fictional evidence.

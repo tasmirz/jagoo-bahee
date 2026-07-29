@@ -719,6 +719,7 @@ export function ComposeScreen({
         {
           title: title.trim(),
           bodyMarkdown: body.trim(),
+          ...(publishingCommunity ? { communityId: publishingCommunity.id } : {}),
         },
         homeNode.discovery.services.auditLogs,
       );
@@ -726,12 +727,13 @@ export function ComposeScreen({
       setBody('');
       setPublishResult({
         tone: 'verified',
-        title: 'Published with durable proof',
-        body:
-          `${receipt.contentId.slice(0, 18)}… · transparency leaf ${receipt.leafIndex}` +
-          (receipt.auditCopies > 0
-            ? ` · ${receipt.auditCopies} independent audit copy`
-            : ' · proof saved on this device'),
+        title: receipt.pending ? 'Signed and queued on this device' : 'Published with durable proof',
+        body: receipt.pending
+          ? `${receipt.contentId.slice(0, 18)}… · final ID assigned · awaiting a working path`
+          : `${receipt.contentId.slice(0, 18)}… · transparency leaf ${receipt.leafIndex ?? 'pending'}` +
+            (receipt.auditCopies > 0
+              ? ` · ${receipt.auditCopies} independent audit copy`
+              : ' · proof saved on this device'),
       });
     } catch (error) {
       setPublishResult({

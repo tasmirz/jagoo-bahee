@@ -290,6 +290,7 @@ export function NetworkScreen({
   locale = 'en',
   onBack,
   onChangeServer,
+  onMesh,
 }: {
   readonly colors: AppPalette;
   readonly homeNode: HomeNode;
@@ -297,6 +298,7 @@ export function NetworkScreen({
   readonly locale?: Locale;
   readonly onBack: () => void;
   readonly onChangeServer: () => void;
+  readonly onMesh: () => void;
 }) {
   const federations = useFederations(homeNode.baseUrl);
   const peerDirectory = useFederationPeers(homeNode.baseUrl);
@@ -320,6 +322,12 @@ export function NetworkScreen({
         <ReachPill colors={colors} state={reach} />
       </View>
       <View style={styles.contentColumn}>
+        <Button
+          colors={colors}
+          label="Open offline relay"
+          onPress={onMesh}
+          variant="secondary"
+        />
         <View style={styles.nodeHero}>
           <Text style={[typography.overline, { color: colors.ember }]}>Home server</Text>
           <Text style={[typography.h1, { color: colors.text }]}>

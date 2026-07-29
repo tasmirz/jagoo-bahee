@@ -306,6 +306,9 @@ export class SignalGroupCreateHandler implements DomainHandler<SignalGroupCreate
     if (body.member_keys.some((key) => key.length !== 32)) {
       return invalid('member keys must be 32 bytes', 'member_keys');
     }
+    if (new Set(body.member_keys.map(hex)).size !== body.member_keys.length) {
+      return invalid('group members must be unique', 'member_keys');
+    }
     if (body.group_key_wrapped.length === 0) {
       return invalid('wrapped sender key is required', 'group_key_wrapped');
     }
@@ -348,13 +351,28 @@ export class SignalGroupUpdateHandler implements DomainHandler<SignalGroupUpdate
     if ([...body.add, ...body.remove].some((key) => key.length !== 32)) {
       return invalid('member keys must be 32 bytes', 'add');
     }
+    const add = new Set(body.add.map(hex));
+    const remove = new Set(body.remove.map(hex));
+    if (
+      add.size !== body.add.length ||
+      remove.size !== body.remove.length ||
+      [...add].some((key) => remove.has(key))
+    ) {
+      return invalid('membership changes must be unique and disjoint', 'add');
+    }
     return valid;
   }
   async authorize(body: SignalGroupUpdate, env: ParsedEnvelope): Promise<AuthDecision> {
     const group = await this.projections
       .collection<SignalGroupDoc>(SIGNAL_GROUPS_COLLECTION)
       .findOne({ id: body.group });
-    return group?.adminKey === hex(env.authorKey) ? allowed : denied('group admin key required');
+    if (group?.adminKey !== hex(env.authorKey)) return denied('group admin key required');
+    const remove = new Set(body.remove.map(hex));
+    const members = new Set(group.memberKeys.filter((key) => !remove.has(key)));
+    body.add.map(hex).forEach((key) => members.add(key));
+    return members.size >= 2 && members.size <= 64
+      ? allowed
+      : denied('groups require 2 to 64 members after every update');
   }
   async project(body: SignalGroupUpdate, env: ParsedEnvelope, tx: Tx): Promise<void> {
     const collection = this.projections.collection<SignalGroupDoc>(SIGNAL_GROUPS_COLLECTION);
@@ -363,7 +381,6 @@ export class SignalGroupUpdateHandler implements DomainHandler<SignalGroupUpdate
     const remove = new Set(body.remove.map(hex));
     const members = new Set(group.memberKeys.filter((key) => !remove.has(key)));
     body.add.map(hex).forEach((key) => members.add(key));
-    if (members.size > 64) return;
     await collection.put(
       group.id,
       {

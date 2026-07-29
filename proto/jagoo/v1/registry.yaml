@@ -23,6 +23,7 @@
 #   credit_cost  int           charged at step 13; 0 = free
 #   requires     list          CREDENTIAL | NULLIFIER | POW — anti-abuse gates
 #   requires_certificate bool  defaults true; false only for self-validating key certificates
+#   federate     bool          defaults true; false keeps node-local privacy projections local
 #   permission   string        checked at step 14 against current projections
 #
 # Size budgets (PC-01) are enforced AT CONSTRUCTION with a typed error, not discovered at
@@ -492,6 +493,21 @@ domains:
     max_bytes: 2048
     credit_cost: 1
     requires: []
+    permission: authenticated
+
+  # SB-02: push delivery is explicitly opt-in and necessarily reveals a device token to
+  # this node. Subscription state is node-local and MUST NOT be copied to federated peers.
+  - domain: 'jb:channel:subscribe:v1'
+    plane: SIGNAL
+    body: jagoo.v1.ChannelSubscribe
+    priority: BULK
+    idempotent: false
+    scope_kind: CHANNEL
+    key_algs: [ED25519]
+    max_bytes: 2048
+    credit_cost: 0
+    requires: []
+    federate: false
     permission: authenticated
 
   # ── Broadcast ────────────────────────────────────────────────────────────────────

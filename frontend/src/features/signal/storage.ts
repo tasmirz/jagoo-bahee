@@ -4,6 +4,9 @@ const SUBSCRIPTIONS_KEY = 'jb.signal.subscriptions.v1';
 const VERIFIED_KEY = 'jb.signal.verified-fingerprints.v1';
 const ACKNOWLEDGED_KEY = 'jb.signal.acknowledged-alerts.v1';
 const ALERT_SETTINGS_KEY = 'jb.signal.alert-settings.v1';
+const PUSH_CHANNELS_KEY = 'jb.signal.push-channels.v1';
+const INBOX_KEY = 'jb.signal.inbox.v1';
+const PREKEY_PREFIX = 'jb.signal.prekey.v1:';
 
 export interface SignalArea {
   readonly latE5: number;
@@ -29,6 +32,25 @@ export interface SignalAlertSettings {
   readonly soundWarning: boolean;
   readonly vibrateCritical: boolean;
   readonly vibrateWarning: boolean;
+}
+
+export interface CachedSignalPrekey {
+  readonly identityKey: string;
+  readonly signedPrekey: string;
+  readonly signedPrekeySignature: string;
+  readonly kemPublicKey: string;
+  readonly oneTimePrekeys: readonly string[];
+  readonly validUntilMs: number;
+}
+
+export interface CachedSignalSession {
+  readonly id: string;
+  readonly senderKey: string;
+  readonly recipientKey: string;
+  readonly kemCiphertext: string;
+  readonly ephemeralX25519: string;
+  readonly ciphertext: string;
+  readonly createdAtMs: number;
 }
 
 const defaultAlertSettings: SignalAlertSettings = {
@@ -101,12 +123,56 @@ export async function saveSignalAlertSettings(value: SignalAlertSettings): Promi
   await AsyncStorage.setItem(ALERT_SETTINGS_KEY, JSON.stringify(value));
 }
 
+export async function isSignalPushEnabled(channel: string): Promise<boolean> {
+  return new Set(await readJson<readonly string[]>(PUSH_CHANNELS_KEY, [])).has(channel);
+}
+
+export async function markSignalPushEnabled(channel: string, enabled: boolean): Promise<void> {
+  const channels = new Set(await readJson<readonly string[]>(PUSH_CHANNELS_KEY, []));
+  if (enabled) channels.add(channel);
+  else channels.delete(channel);
+  await AsyncStorage.setItem(PUSH_CHANNELS_KEY, JSON.stringify([...channels]));
+}
+
+export async function cacheSignalPrekey(
+  identityKey: string,
+  value: CachedSignalPrekey,
+): Promise<void> {
+  await AsyncStorage.setItem(
+    `${PREKEY_PREFIX}${identityKey.toLowerCase()}`,
+    JSON.stringify(value),
+  );
+}
+
+export async function loadCachedSignalPrekey(
+  identityKey: string,
+): Promise<CachedSignalPrekey | null> {
+  return readJson<CachedSignalPrekey | null>(
+    `${PREKEY_PREFIX}${identityKey.toLowerCase()}`,
+    null,
+  );
+}
+
+export async function cacheSignalInbox(
+  sessions: readonly CachedSignalSession[],
+): Promise<void> {
+  await AsyncStorage.setItem(INBOX_KEY, JSON.stringify(sessions));
+}
+
+export async function loadCachedSignalInbox(): Promise<readonly CachedSignalSession[]> {
+  return readJson<readonly CachedSignalSession[]>(INBOX_KEY, []);
+}
+
 export async function clearSignalLocalData(): Promise<void> {
+  const prekeys = (await AsyncStorage.getAllKeys()).filter((key) => key.startsWith(PREKEY_PREFIX));
   await AsyncStorage.multiRemove([
     SUBSCRIPTIONS_KEY,
     VERIFIED_KEY,
     ACKNOWLEDGED_KEY,
     ALERT_SETTINGS_KEY,
+    PUSH_CHANNELS_KEY,
+    INBOX_KEY,
+    ...prekeys,
   ]);
 }
 

@@ -18,6 +18,7 @@ import {
 } from '../../../core/domain/domain-handler.js';
 import { Plane, type ParsedEnvelope } from '../../../core/domain/envelope.js';
 import type { ProjectionStore } from '../../../core/ports/storage.port.js';
+import type { SignalPushGateway } from '../../../core/ports/signal-push.port.js';
 import {
   SIGNAL_CHANNELS_COLLECTION,
   SIGNAL_CHANNEL_VOUCHES_COLLECTION,
@@ -25,6 +26,10 @@ import {
   type SignalChannelDoc,
   type SignalChannelVouchDoc,
 } from '../channel/channel.handlers.js';
+import {
+  SIGNAL_PUSH_SUBSCRIPTIONS_COLLECTION,
+  type SignalPushSubscriptionDoc,
+} from '../channel/channel-subscribe.handler.js';
 
 export const SIGNAL_BROADCASTS_COLLECTION = 'signal_broadcasts';
 
@@ -95,7 +100,10 @@ export class BroadcastEmitHandler implements DomainHandler<BroadcastEmit> {
   readonly domain = 'jb:broadcast:emit:v1';
   readonly plane = Plane.SIGNAL;
 
-  constructor(private readonly projections: ProjectionStore) {}
+  constructor(
+    private readonly projections: ProjectionStore,
+    private readonly push?: SignalPushGateway,
+  ) {}
 
   decode(body: Uint8Array): BroadcastEmit {
     return BroadcastEmit.decode(body);
@@ -185,6 +193,26 @@ export class BroadcastEmitHandler implements DomainHandler<BroadcastEmit> {
     if (channel) {
       await channels.put(channel.id, { ...channel, lastSequence: body.sequence.toString() }, tx);
     }
+  }
+
+  async afterCommit(body: BroadcastEmit, env: ParsedEnvelope): Promise<void> {
+    if (!this.push) return;
+    const subscriptions = await this.projections
+      .collection<SignalPushSubscriptionDoc>(SIGNAL_PUSH_SUBSCRIPTIONS_COLLECTION)
+      .find({ channel: body.channel }, 10_000);
+    await this.push.deliver(
+      subscriptions.map((subscription) =>
+        Buffer.from(subscription.pushToken, 'base64').toString('utf8'),
+      ),
+      {
+        channel: body.channel,
+        broadcast: env.contentId,
+        sequence: body.sequence.toString(),
+        severity: body.severity,
+        headline: body.headline.trim(),
+        expiresAtMs: Number(body.expires_at_ms),
+      },
+    );
   }
 }
 

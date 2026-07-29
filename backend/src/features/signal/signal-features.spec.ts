@@ -3,8 +3,13 @@ import {
   BroadcastEmit,
   BroadcastRevoke,
   ChannelDeclare,
+  ChannelSubscribe,
   CheckIn,
+  DeliveryState,
   PrekeyBundle,
+  SignalDeliveryReceipt,
+  SignalGroupCreate,
+  SignalGroupUpdate,
   SignalMessage,
   SignalSessionInit,
 } from '@jagoo/sdk/proto';
@@ -19,7 +24,6 @@ import {
 import { Plane, Priority } from '../../core/domain/envelope.js';
 import {
   AUTHOR_KEY,
-  AUTHOR_SEED,
   NOW_MS,
   buildHarness,
   signEnvelope,
@@ -29,6 +33,10 @@ import {
   SIGNAL_CHANNELS_COLLECTION,
   type SignalChannelDoc,
 } from './channel/channel.handlers.js';
+import {
+  SIGNAL_PUSH_SUBSCRIPTIONS_COLLECTION,
+  type SignalPushSubscriptionDoc,
+} from './channel/channel-subscribe.handler.js';
 import {
   SIGNAL_BROADCASTS_COLLECTION,
   defaultSeverityAllows,
@@ -40,7 +48,9 @@ import {
 } from './crisis/crisis.handlers.js';
 import {
   SIGNAL_MESSAGES_COLLECTION,
+  SIGNAL_GROUPS_COLLECTION,
   SIGNAL_SESSIONS_COLLECTION,
+  type SignalGroupDoc,
   type SignalMessageDoc,
   type SignalSessionDoc,
 } from './message/signal-message.handlers.js';
@@ -85,6 +95,37 @@ async function declareChannel(harness: Awaited<ReturnType<typeof signalHarness>>
 }
 
 describe('P4 channels and broadcasts', () => {
+  it('SB-02 stores a signed push subscription locally and never federates its token', async () => {
+    const h = await signalHarness();
+    const channel = await declareChannel(h);
+    const queuedBefore = h.federation.queued.length;
+    await h.pipeline.accept(
+      signEnvelope({
+        plane: Plane.SIGNAL,
+        domain: 'jb:channel:subscribe:v1',
+        scope: channel,
+        priority: Priority.BULK,
+        nonce: nextNonce(),
+        body: ChannelSubscribe.encode(
+          ChannelSubscribe.fromPartial({
+            channel,
+            push: true,
+            push_token: new TextEncoder().encode('provider-device-token'),
+          }),
+        ).finish(),
+      }),
+    );
+    expect(h.federation.queued).toHaveLength(queuedBefore);
+    expect(
+      await h.projections
+        .collection<SignalPushSubscriptionDoc>(SIGNAL_PUSH_SUBSCRIPTIONS_COLLECTION)
+        .findOne({ channel }),
+    ).toMatchObject({
+      channel,
+      pushToken: Buffer.from('provider-device-token').toString('base64'),
+    });
+  });
+
   it('P4-G2/G3/G5/G12 projects a bounded broadcast, exposes a gap and retains revocation', async () => {
     const h = await signalHarness();
     const channel = await declareChannel(h);
@@ -247,7 +288,7 @@ describe('P4 crisis and identified messaging', () => {
       }),
     );
 
-    await h.pipeline.accept(
+    const messageReceipt = await h.pipeline.accept(
       signEnvelope({
         plane: Plane.SIGNAL,
         domain: 'jb:message:signal:v1',
@@ -264,6 +305,40 @@ describe('P4 crisis and identified messaging', () => {
         ).finish(),
       }),
     );
+    await expect(
+      h.pipeline.accept(
+        signEnvelope({
+          plane: Plane.SIGNAL,
+          domain: 'jb:message:signal:v1',
+          scope: '',
+          priority: Priority.DIRECT,
+          nonce: nextNonce(),
+          body: SignalMessage.encode(
+            SignalMessage.fromPartial({
+              session: sessionReceipt.contentId,
+              counter: 0n,
+              ciphertext: new Uint8Array(32).fill(7),
+            }),
+          ).finish(),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await h.pipeline.accept(
+      signEnvelope({
+        seed: recipientSeed,
+        plane: Plane.SIGNAL,
+        domain: 'jb:message:receipt:v1',
+        scope: '',
+        priority: Priority.DIRECT,
+        nonce: nextNonce(),
+        body: SignalDeliveryReceipt.encode(
+          SignalDeliveryReceipt.fromPartial({
+            message: messageReceipt.contentId,
+            state: DeliveryState.DELIVERY_STATE_DELIVERED,
+          }),
+        ).finish(),
+      }),
+    );
 
     const session = await h.projections
       .collection<SignalSessionDoc>(SIGNAL_SESSIONS_COLLECTION)
@@ -273,6 +348,7 @@ describe('P4 crisis and identified messaging', () => {
       .find({}, 10);
     expect(session?.ciphertext).toBeTruthy();
     expect(messages).toHaveLength(1);
+    expect(messages[0]?.deliveryState).toBe(DeliveryState.DELIVERY_STATE_DELIVERED);
     expect(
       new TextDecoder().decode(
         openFirstMessage(
@@ -284,6 +360,53 @@ describe('P4 crisis and identified messaging', () => {
     ).toBe('Meet at the eastern shelter');
     expect(JSON.stringify({ session, messages })).not.toContain('plaintext');
     expect(JSON.stringify({ session, messages })).not.toContain('Meet at the eastern shelter');
+  });
+
+  it('MS-06 maintains a rekeyed sender-key group with 2–64 unique members', async () => {
+    const h = await signalHarness();
+    const memberTwo = ed25519.derivePublicKey(new Uint8Array(32).fill(21));
+    const memberThree = ed25519.derivePublicKey(new Uint8Array(32).fill(22));
+    const created = await h.pipeline.accept(
+      signEnvelope({
+        plane: Plane.SIGNAL,
+        domain: 'jb:group:create:v1',
+        scope: '',
+        priority: Priority.DIRECT,
+        nonce: nextNonce(),
+        body: SignalGroupCreate.encode(
+          SignalGroupCreate.fromPartial({
+            name: 'Shelter coordinators',
+            member_keys: [AUTHOR_KEY, memberTwo],
+            group_key_wrapped: new Uint8Array(96).fill(4),
+          }),
+        ).finish(),
+      }),
+    );
+    await h.pipeline.accept(
+      signEnvelope({
+        plane: Plane.SIGNAL,
+        domain: 'jb:group:update:v1',
+        scope: created.contentId,
+        priority: Priority.DIRECT,
+        nonce: nextNonce(),
+        body: SignalGroupUpdate.encode(
+          SignalGroupUpdate.fromPartial({
+            group: created.contentId,
+            add: [memberThree],
+            remove: [memberTwo],
+            rekey_wrapped: new Uint8Array(96).fill(5),
+          }),
+        ).finish(),
+      }),
+    );
+    const group = await h.projections
+      .collection<SignalGroupDoc>(SIGNAL_GROUPS_COLLECTION)
+      .findOne({ id: created.contentId });
+    expect(group?.memberKeys).toEqual([
+      Buffer.from(AUTHOR_KEY).toString('hex'),
+      Buffer.from(memberThree).toString('hex'),
+    ]);
+    expect(group?.groupKeyWrapped).toBe(Buffer.from(new Uint8Array(96).fill(5)).toString('base64'));
   });
 });
 

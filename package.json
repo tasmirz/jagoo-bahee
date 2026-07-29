@@ -23,6 +23,7 @@
     "vectors:ts": "pnpm --filter @jagoo/sdk exec vitest run src/vectors",
     "vectors:rust": "cargo test -p jb-core --test vectors",
     "vectors:python": "python -m pytest tools/vectors -q",
+    "test:relay": "python -m pytest services/relay -q",
     "dev:backend": "pnpm --filter @jagoo/backend dev",
     "dev:audit-log": "pnpm --filter @jagoo/audit-log dev",
     "dev:frontend": "pnpm --filter @jagoo/frontend dev",

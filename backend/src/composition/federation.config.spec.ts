@@ -110,10 +110,16 @@ describe('FD-02 — a peer is identified by its key', () => {
 });
 
 describe('FD-07 — a node advertises only planes it can actually serve', () => {
-  it('advertises FORUM only, because no Signal domain exists in this build', () => {
+  it('advertises both implemented planes by default', () => {
     const config = load({ FEDERATION_GRPC_LISTEN: '0.0.0.0:8444' });
-    expect(config.planes).toEqual([Plane.FORUM]);
+    expect(config.planes).toEqual([Plane.FORUM, Plane.SIGNAL]);
     expect(config.acceptedClasses).toContain(Priority.BROADCAST);
     expect(config.acceptedClasses).toContain(Priority.BULK);
+  });
+
+  it('advertises only the explicitly enabled plane', () => {
+    expect(
+      load({ FEDERATION_GRPC_LISTEN: '0.0.0.0:8444', NODE_PLANES: 'SIGNAL' }).planes,
+    ).toEqual([Plane.SIGNAL]);
   });
 });

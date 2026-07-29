@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import { QueryClientProvider } from '@tanstack/react-query';
 import {
   createContext,
@@ -9,7 +10,7 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
-import { useColorScheme } from 'react-native';
+import { AppState, useColorScheme } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { queryClient } from '../data';
 import { useNodeReach } from '../data/node';
@@ -21,6 +22,8 @@ import {
   type HomeNode,
 } from '../data/node-config';
 import { palettes, type AppPalette, type ReachState, type ThemeMode } from '../design-system';
+import { drainOutboxOnce } from '../offline/outbox';
+import { refreshMeshCertificates } from '../offline/certificate-cache';
 
 const THEME_KEY = 'jb.theme-preference.v1';
 
@@ -61,6 +64,28 @@ function AppStateProvider({ children }: PropsWithChildren) {
       });
     return () => {
       active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!homeNode) return;
+    const refresh = () => void refreshMeshCertificates(homeNode.baseUrl).catch(() => undefined);
+    refresh();
+    const interval = setInterval(refresh, 60 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [homeNode]);
+
+  useEffect(() => {
+    const foreground = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void drainOutboxOnce();
+    });
+    const network = NetInfo.addEventListener((state) => {
+      if (state.isConnected && state.isInternetReachable !== false) void drainOutboxOnce();
+    });
+    void drainOutboxOnce();
+    return () => {
+      foreground.remove();
+      network();
     };
   }, []);
 

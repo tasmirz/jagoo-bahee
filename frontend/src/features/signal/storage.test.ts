@@ -1,5 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  cacheSignalInbox,
+  clearSignalLocalData,
+  loadCachedSignalInbox,
   loadSignalSubscriptions,
   saveSignalSubscription,
   subscriptionAllows,
@@ -79,5 +82,23 @@ describe('Signal local subscription policy', () => {
         2,
       ),
     ).toBe(true);
+  });
+
+  it('P5-G1 caches ciphertext-only inbox rows for offline reading and wipes them on panic', async () => {
+    const sessions = [
+      {
+        id: 'jb1session',
+        senderKey: 'aa',
+        recipientKey: 'bb',
+        kemCiphertext: 'AQ==',
+        ephemeralX25519: 'Ag==',
+        ciphertext: 'Aw==',
+        createdAtMs: 1,
+      },
+    ];
+    await cacheSignalInbox(sessions);
+    await expect(loadCachedSignalInbox()).resolves.toEqual(sessions);
+    await clearSignalLocalData();
+    await expect(loadCachedSignalInbox()).resolves.toEqual([]);
   });
 });

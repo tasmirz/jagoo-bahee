@@ -20,10 +20,12 @@ import {
   createSignalIdentity,
   declareSignalChannel,
   panicSignal,
+  loadSignalInbox,
   publishMissingPerson,
   publishSignalBroadcast,
   publishSignalCheckIn,
   publishSignalPrekeys,
+  publishSignalPushSubscription,
   publishSignalResource,
   registerSignalIdentity,
   signalSessionSummary,
@@ -31,13 +33,16 @@ import {
   unlockSignalIdentity,
   verifySignalQrFingerprint,
   type SignalSessionSummary,
+  type DecryptedSignalSession,
 } from '../../signer/signal';
 import {
   acknowledgeSignalAlert,
   acknowledgedSignalAlerts,
   isSignalFingerprintVerified,
+  isSignalPushEnabled,
   loadSignalSubscriptions,
   markSignalFingerprintVerified,
+  markSignalPushEnabled,
   saveSignalSubscription,
   subscriptionAllows,
   type LocalSignalSubscription,
@@ -475,11 +480,14 @@ export function SignalChannelScreen({
   const [personallyVerified, setPersonallyVerified] = useState(false);
   const [scannedFingerprint, setScannedFingerprint] = useState('');
   const [notice, setNotice] = useState('');
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
   const channel = channelQuery.data?.value;
   useEffect(() => {
     void loadSignalSubscriptions().then((items) =>
       setSubscribed(items.some((item) => item.channel === channelId)),
     );
+    void isSignalPushEnabled(channelId).then(setPushEnabled);
   }, [channelId]);
   useEffect(() => {
     if (!channel) return;
@@ -495,6 +503,31 @@ export function SignalChannelScreen({
     await markSignalFingerprintVerified(channel.currentSigningKey);
     setPersonallyVerified(true);
     setNotice('Personally verified on this device. Nothing was sent to the server.');
+  };
+
+  const togglePush = async () => {
+    setPushBusy(true);
+    setNotice('');
+    try {
+      const next = !pushEnabled;
+      await publishSignalPushSubscription(
+        homeNode.baseUrl,
+        channelId,
+        next,
+        homeNode.discovery.services.auditLogs,
+      );
+      await markSignalPushEnabled(channelId, next);
+      setPushEnabled(next);
+      setNotice(
+        next
+          ? 'Push is enabled. This home node can now see your device delivery token.'
+          : 'Push is disabled and the token projection was removed from this home node.',
+      );
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not update push delivery');
+    } finally {
+      setPushBusy(false);
+    }
   };
 
   return (
@@ -531,6 +564,27 @@ export function SignalChannelScreen({
               void saveSignalSubscription(defaultSubscription(channel.id)).then(() => setSubscribed(true))
             }
             system="signal"
+          />
+          <StatusBanner
+            body="Local filters stay private. Push is different: enabling it reveals this channel subscription and a device delivery token to your selected home node."
+            colors={colors}
+            icon="notifications-outline"
+            title="Optional server-visible push"
+            tone="warning"
+          />
+          <Button
+            colors={colors}
+            disabled={pushBusy}
+            label={
+              pushBusy
+                ? 'Updating push…'
+                : pushEnabled
+                  ? 'Disable server push'
+                  : 'Enable server push'
+            }
+            onPress={() => void togglePush()}
+            system="signal"
+            variant="secondary"
           />
           <SectionHeader colors={colors} title="In-person verification" />
           <Text style={[typography.mono, styles.fingerprint, { color: colors.text2 }]}>
@@ -952,10 +1006,17 @@ export function SignalMessagesScreen({ colors, homeNode, reach, onNetwork }: Sig
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
-  const sessions = useNodeDocument<NodePage<{ id: string; recipientKey: string; createdAtMs: number }>>(
-    homeNode.baseUrl,
-    null,
-  );
+  const [sessions, setSessions] = useState<readonly DecryptedSignalSession[]>([]);
+  const refresh = async () => {
+    try {
+      setSessions(await loadSignalInbox(homeNode.baseUrl));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not read Signal inbox');
+    }
+  };
+  useEffect(() => {
+    void refresh();
+  }, [homeNode.baseUrl]);
   const send = async () => {
     setBusy(true);
     setNotice('');
@@ -1008,8 +1069,21 @@ export function SignalMessagesScreen({ colors, homeNode, reach, onNetwork }: Sig
           tone={notice.startsWith('Encrypted') ? 'verified' : 'danger'}
         />
       ) : null}
-      {sessions.data?.value.items.map((session) => (
-        <Text key={session.id}>{session.id}</Text>
+      <Button colors={colors} label="Refresh encrypted inbox" onPress={() => void refresh()} variant="ghost" />
+      {sessions.map((session) => (
+        <View
+          key={session.id}
+          style={[styles.listRow, { borderBottomColor: colors.border }]}
+        >
+          <View style={styles.flex}>
+            <Text style={[typography.caption, { color: colors.text2 }]}>
+              {session.senderKey.slice(0, 16)}… · {new Date(session.createdAtMs).toLocaleString()}
+            </Text>
+            <Text style={[typography.body, { color: colors.text }]}>
+              {session.plaintext ?? 'Ciphertext for the other participant'}
+            </Text>
+          </View>
+        </View>
       ))}
     </Screen>
   );

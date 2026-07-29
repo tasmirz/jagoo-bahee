@@ -1,5 +1,6 @@
 import type { DomainHandler } from '../../core/domain/domain-handler.js';
 import type { ProjectionStore } from '../../core/ports/storage.port.js';
+import type { SignalPushGateway } from '../../core/ports/signal-push.port.js';
 import {
   ChannelDeclareHandler,
   ChannelRetireHandler,
@@ -7,6 +8,7 @@ import {
   ChannelUpdateHandler,
   ChannelVouchHandler,
 } from './channel/channel.handlers.js';
+import { ChannelSubscribeHandler } from './channel/channel-subscribe.handler.js';
 import {
   BroadcastEmitHandler,
   BroadcastRevokeHandler,
@@ -32,6 +34,7 @@ import {
 /** P4 handlers stay in one plane-specific registration list; ingress remains unchanged. */
 export function signalHandlers(
   projections: ProjectionStore,
+  push?: SignalPushGateway,
 ): readonly DomainHandler<never>[] {
   return [
     new SignalKeyCertifyHandler(projections),
@@ -41,7 +44,8 @@ export function signalHandlers(
     new ChannelRotateHandler(projections),
     new ChannelRetireHandler(projections),
     new ChannelVouchHandler(projections),
-    new BroadcastEmitHandler(projections),
+    new ChannelSubscribeHandler(projections),
+    new BroadcastEmitHandler(projections, push),
     new BroadcastRevokeHandler(projections),
     new CheckInHandler(projections),
     new MissingPersonHandler(projections),

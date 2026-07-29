@@ -40,6 +40,7 @@ pub struct DomainSpec {
     pub max_bytes: u32,
     pub credit_cost: u32,
     pub requires_certificate: bool,
+    pub federate: bool,
 }
 
 pub const DOMAIN_SPECS: &[DomainSpec] = &[
@@ -53,6 +54,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 65536,
         credit_cost: 10,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:post:update:v1",
@@ -64,6 +66,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 65536,
         credit_cost: 2,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:post:delete:v1",
@@ -75,6 +78,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 4096,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:comment:create:v1",
@@ -86,6 +90,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 16384,
         credit_cost: 3,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:comment:update:v1",
@@ -97,6 +102,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 16384,
         credit_cost: 1,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:comment:delete:v1",
@@ -108,6 +114,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 4096,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:vote:cast:v1",
@@ -119,6 +126,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 1024,
         credit_cost: 1,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:community:create:v1",
@@ -130,6 +138,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 32768,
         credit_cost: 200,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:community:update:v1",
@@ -141,6 +150,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 32768,
         credit_cost: 5,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:community:archive:v1",
@@ -152,6 +162,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 1024,
         credit_cost: 5,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:membership:join:v1",
@@ -163,6 +174,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 1024,
         credit_cost: 1,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:membership:leave:v1",
@@ -174,6 +186,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 1024,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:mod:action:v1",
@@ -185,6 +198,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 4096,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:report:create:v1",
@@ -196,6 +210,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 8192,
         credit_cost: 2,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:report:resolve:v1",
@@ -207,6 +222,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 4096,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:role:define:v1",
@@ -218,6 +234,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 2048,
         credit_cost: 5,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:role:assign:v1",
@@ -229,6 +246,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 1024,
         credit_cost: 1,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:role:revoke:v1",
@@ -240,6 +258,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 1024,
         credit_cost: 1,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:profile:update:v1",
@@ -251,6 +270,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 8192,
         credit_cost: 2,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:social:follow:v1",
@@ -262,6 +282,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 1024,
         credit_cost: 1,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:social:block:v1",
@@ -273,6 +294,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 2048,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:social:save:v1",
@@ -284,6 +306,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 1024,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:prefs:feed:v1",
@@ -295,6 +318,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 8192,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:award:give:v1",
@@ -306,6 +330,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 2048,
         credit_cost: 5,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:award:type:v1",
@@ -317,6 +342,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 2048,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:attachment:claim:v1",
@@ -328,6 +354,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 4096,
         credit_cost: 5,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:message:forum:v1",
@@ -339,6 +366,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 1024,
         credit_cost: 2,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:label:emit:v1",
@@ -350,6 +378,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 8192,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:key:certify:forum:v1",
@@ -361,6 +390,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 8192,
         credit_cost: 0,
         requires_certificate: false,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:key:revoke:forum:v1",
@@ -372,6 +402,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 512,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:channel:declare:v1",
@@ -383,6 +414,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 16384,
         credit_cost: 100,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:channel:update:v1",
@@ -394,6 +426,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 16384,
         credit_cost: 5,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:channel:rotate:v1",
@@ -405,6 +438,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 512,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:channel:retire:v1",
@@ -416,6 +450,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 512,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:channel:vouch:v1",
@@ -427,6 +462,19 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 2048,
         credit_cost: 1,
         requires_certificate: true,
+        federate: true,
+    },
+    DomainSpec {
+        domain: "jb:channel:subscribe:v1",
+        plane: Plane::Signal,
+        body: "jagoo.v1.ChannelSubscribe",
+        priority: Priority::Bulk,
+        idempotent: false,
+        scope_kind: ScopeKind::Channel,
+        max_bytes: 2048,
+        credit_cost: 0,
+        requires_certificate: true,
+        federate: false,
     },
     DomainSpec {
         domain: "jb:broadcast:emit:v1",
@@ -438,6 +486,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 512,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:broadcast:revoke:v1",
@@ -449,6 +498,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 512,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:checkin:post:v1",
@@ -460,6 +510,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 512,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:missing:report:v1",
@@ -471,6 +522,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 512,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:resource:report:v1",
@@ -482,6 +534,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 512,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:message:signal:v1",
@@ -493,6 +546,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 1024,
         credit_cost: 1,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:message:session:v1",
@@ -504,6 +558,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 2048,
         credit_cost: 1,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:message:receipt:v1",
@@ -515,6 +570,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 512,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:message:prekeys:v1",
@@ -526,6 +582,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 8192,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:group:create:v1",
@@ -537,6 +594,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 1024,
         credit_cost: 2,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:group:update:v1",
@@ -548,6 +606,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 1024,
         credit_cost: 1,
         requires_certificate: true,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:key:certify:signal:v1",
@@ -559,6 +618,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 8192,
         credit_cost: 0,
         requires_certificate: false,
+        federate: true,
     },
     DomainSpec {
         domain: "jb:key:revoke:signal:v1",
@@ -570,6 +630,7 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         max_bytes: 512,
         credit_cost: 0,
         requires_certificate: true,
+        federate: true,
     },
 ];
 

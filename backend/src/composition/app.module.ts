@@ -17,7 +17,7 @@
  * No core, feature, or controller code selects a concrete adapter.
  */
 
-import { Module, type OnApplicationShutdown } from '@nestjs/common';
+import { Module, type OnApplicationShutdown, type OnModuleInit } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import Redis from 'ioredis';
 import { S3Client } from '@aws-sdk/client-s3';
@@ -111,6 +111,13 @@ import { ConfiguredServiceDirectory } from '../adapters/outbound/configured-serv
 import { serverId as serverIdOf } from '@jagoo/sdk/core';
 import { FederationController } from '../adapters/inbound/http/federation.controller.js';
 import { SignalReadController } from '../adapters/inbound/http/signal-read.controller.js';
+import { IdentityDirectoryController } from '../adapters/inbound/http/identity-directory.controller.js';
+import { ReticulumController } from '../adapters/inbound/http/reticulum.controller.js';
+import { SignalPushGateway } from '../core/ports/signal-push.port.js';
+import {
+  ConfiguredSignalPushGateway,
+  NullSignalPushGateway,
+} from '../adapters/outbound/configured-signal-push.js';
 import {
   FederationLedger,
   FederationOut,
@@ -119,6 +126,7 @@ import {
   PeerDirectory,
   PeerQuotaLimiter,
 } from '../core/ports/network.port.js';
+import { AuxiliaryTransportOut } from '../core/ports/network.port.js';
 import { OperatorAlerts } from '../core/ports/alerts.port.js';
 import { FederationInbox, type NodeIdentity } from '../core/app/federation-inbox.js';
 import { FederationOutboxService } from '../core/app/federation-outbox.js';
@@ -146,6 +154,14 @@ import { FederationGrpcServer } from '../adapters/inbound/grpc/federation.server
 import { GrpcFederationSender } from '../adapters/outbound/grpc/federation-client.js';
 import { FEDERATION_CONFIG, loadFederationConfig, type FederationConfig } from './federation.config.js';
 import { FederationRuntime } from './federation.runtime.js';
+import {
+  ReticulumFanout,
+  ReticulumTransport,
+} from '../adapters/outbound/grpc/reticulum-transport.js';
+import {
+  RETICULUM_TRANSPORT,
+  type OptionalReticulumTransport,
+} from './reticulum.config.js';
 
 export const NONCE_STORE = Symbol('NonceStore');
 export const NODE_ENVELOPE_STORE = Symbol('NodeEnvelopeStore');
@@ -166,6 +182,28 @@ class RuntimeLifecycle implements OnApplicationShutdown {
   }
 }
 
+class ReticulumLifecycle implements OnModuleInit, OnApplicationShutdown {
+  private unsubscribe: (() => void) | null = null;
+
+  constructor(
+    private readonly transport: OptionalReticulumTransport,
+    private readonly pipeline: IngressPipeline,
+  ) {}
+
+  onModuleInit(): void {
+    this.unsubscribe = this.transport?.subscribe((raw, meta) => {
+      void this.pipeline.accept(raw, {
+        transportId: meta.transportId,
+        ...(meta.peer ? { peerId: meta.peer } : {}),
+      });
+    }) ?? null;
+  }
+
+  onApplicationShutdown(): void {
+    this.unsubscribe?.();
+  }
+}
+
 @Module({
   controllers: [
     EnvelopeController,
@@ -182,6 +220,8 @@ class RuntimeLifecycle implements OnApplicationShutdown {
     AdminController,
     FederationController,
     SignalReadController,
+    IdentityDirectoryController,
+    ReticulumController,
   ],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: SecurityHeadersInterceptor },
@@ -192,6 +232,23 @@ class RuntimeLifecycle implements OnApplicationShutdown {
     { provide: RandomSource, useClass: SequentialRandom },
     { provide: EventBus, useClass: InMemoryEventBus },
     { provide: ServiceDirectory, useClass: ConfiguredServiceDirectory },
+    {
+      provide: RETICULUM_TRANSPORT,
+      useFactory: (): OptionalReticulumTransport => {
+        const address = process.env.RETICULUM_BRIDGE_ADDRESS;
+        if (!address || process.env.RETICULUM_ENABLED !== 'true') return null;
+        return new ReticulumTransport(
+          address,
+          process.env.RETICULUM_DESTINATION_HASH ?? '',
+        );
+      },
+    },
+    {
+      provide: AuxiliaryTransportOut,
+      useFactory: (transport: OptionalReticulumTransport) =>
+        new ReticulumFanout(transport, process.env.RETICULUM_DESTINATION_HASH ?? ''),
+      inject: [RETICULUM_TRANSPORT],
+    },
     { provide: LabelProvider, useClass: NullLabelProvider },
     {
       provide: NodeSigner,
@@ -426,12 +483,24 @@ class RuntimeLifecycle implements OnApplicationShutdown {
     // Feature handlers register into the registry; the pipeline never learns they exist.
     // The whole mutable surface of the application is this one list (AR-04).
     {
+      provide: SignalPushGateway,
+      useFactory: () =>
+        process.env.SIGNAL_PUSH_ENDPOINT
+          ? new ConfiguredSignalPushGateway(
+              process.env.SIGNAL_PUSH_ENDPOINT,
+              process.env.SIGNAL_PUSH_BEARER_TOKEN,
+            )
+          : new NullSignalPushGateway(),
+    },
+
+    {
       provide: DomainRegistry,
       useFactory: (
         projections: ProjectionStore,
         nodeSigner: NodeSigner,
         blobs: BlobStore,
         operatorConfig: OperatorConfig,
+        signalPush: SignalPushGateway,
       ) => {
         const registry = new DomainRegistry();
         const enabledPlanes = new Set(
@@ -445,13 +514,13 @@ class RuntimeLifecycle implements OnApplicationShutdown {
           }
         }
         if (enabledPlanes.has('SIGNAL')) {
-          for (const handler of signalHandlers(projections)) {
+          for (const handler of signalHandlers(projections, signalPush)) {
             registry.register(handler);
           }
         }
         return registry;
       },
-      inject: [ProjectionStore, NodeSigner, BlobStore, OperatorConfig],
+      inject: [ProjectionStore, NodeSigner, BlobStore, OperatorConfig, SignalPushGateway],
     },
 
     {
@@ -475,6 +544,7 @@ class RuntimeLifecycle implements OnApplicationShutdown {
         cache: TaggedCache,
         federation: FederationOut,
         federationLedger: FederationLedger,
+        auxiliary: AuxiliaryTransportOut,
       ) =>
         new IngressPipeline({
           registry,
@@ -493,6 +563,7 @@ class RuntimeLifecycle implements OnApplicationShutdown {
           // Step 19 fanout and the ADR-008 §2 direction row. Both optional in the
           // pipeline's own contract, so a P1-shaped node with federation off is unchanged.
           federation,
+          auxiliary,
           federationLedger,
         }),
       inject: [
@@ -514,7 +585,14 @@ class RuntimeLifecycle implements OnApplicationShutdown {
         TaggedCache,
         FederationOut,
         FederationLedger,
+        AuxiliaryTransportOut,
       ],
+    },
+    {
+      provide: ReticulumLifecycle,
+      useFactory: (transport: OptionalReticulumTransport, pipeline: IngressPipeline) =>
+        new ReticulumLifecycle(transport, pipeline),
+      inject: [RETICULUM_TRANSPORT, IngressPipeline],
     },
     {
       provide: RuntimeLifecycle,

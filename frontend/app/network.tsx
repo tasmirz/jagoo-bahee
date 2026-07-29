@@ -13,6 +13,7 @@ export default function NetworkRoute() {
         colors={colors}
         homeNode={homeNode}
         onBack={() => router.back()}
+        onMesh={() => router.push('/mesh')}
         onChangeServer={() =>
           void disconnectHomeNode().then(() => {
             router.dismissAll();
