@@ -37,6 +37,7 @@ import {
   type PeerRecord,
 } from '../ports/network.port.js';
 import { AlertSeverity, type OperatorAlerts } from '../ports/alerts.port.js';
+import type { BridgeRelay } from '../ports/transport.port.js';
 import type { EnvelopeReader, ProjectionStore } from '../ports/storage.port.js';
 import type { Clock } from '../ports/system.port.js';
 
@@ -49,6 +50,11 @@ export interface FederationOutboxDeps {
   readonly projections: ProjectionStore;
   readonly clock: Clock;
   readonly alerts?: OperatorAlerts;
+  /**
+   * P3 — the ISP bridge (BR-01…BR-05). Absent means "this node does not bridge", which is
+   * the default and is not a degraded state: fanout then behaves exactly as it did in P2.
+   */
+  readonly bridge?: BridgeRelay;
   /** How many entries one drain pass leases. Bounded so a deep queue cannot exhaust memory. */
   readonly batchSize?: number;
 }
@@ -80,19 +86,74 @@ export class FederationOutboxService extends FederationOut {
     const targeted = options.targets && options.targets.length > 0 ? new Set(options.targets) : null;
 
     const peers = await this.deps.peers.all();
-    const entries = peers
+    const candidates = peers
       .filter((peer) => !excluded.has(peer.serverId))
       .filter((peer) => (targeted ? targeted.has(peer.serverId) : true))
-      .filter((peer) => this.eligible(peer, envelope))
-      .map((peer) => ({
-        contentId: envelope.contentId,
-        peerId: peer.serverId,
-        priority: envelope.priority,
-        plane: envelope.plane,
-        nextAttemptAtMs: this.deps.clock.nowMs(),
-      }));
+      .filter((peer) => this.eligible(peer, envelope));
+
+    const allowed = await this.applyBridgePolicy(envelope, candidates, options);
+
+    const entries = allowed.map((peer) => ({
+      contentId: envelope.contentId,
+      peerId: peer.serverId,
+      priority: envelope.priority,
+      plane: envelope.plane,
+      nextAttemptAtMs: this.deps.clock.nowMs(),
+    }));
 
     if (entries.length > 0) await this.deps.outbox.enqueue(entries);
+  }
+
+  /**
+   * BR-01 … BR-05 — gate the CROSSINGS, and only the crossings.
+   *
+   * An envelope this node authored is not a relay, and fanout to peers on the island it
+   * arrived from is not a relay either — both are ordinary P2 federation, and gating them
+   * would break gossip on any node that happens to have two interfaces. What is gated is
+   * exactly the case BR-01 is about: an envelope from island A being carried to island B by
+   * a node that sits on both, which is the moment that node becomes a chokepoint and has to
+   * have earned the right.
+   *
+   * With no bridge configured, or with one uplink, every peer resolves to the same uplink,
+   * nothing is a crossing, and this returns its input unchanged (AR-12).
+   */
+  private async applyBridgePolicy(
+    envelope: ParsedEnvelope,
+    candidates: readonly PeerRecord[],
+    options: FanoutOptions,
+  ): Promise<readonly PeerRecord[]> {
+    const bridge = this.deps.bridge;
+    const originPeerId = options.excludePeers?.[0];
+    // Locally authored content: this node IS the origin, so nothing is being relayed.
+    if (!bridge || !originPeerId) return candidates;
+
+    const viaUplinkId = await bridge.uplinkForPeer(originPeerId);
+    if (!viaUplinkId) return candidates;
+
+    const kept: PeerRecord[] = [];
+    const crossings: PeerRecord[] = [];
+    for (const peer of candidates) {
+      const uplinkId = await bridge.uplinkForPeer(peer.serverId);
+      if (!uplinkId || uplinkId === viaUplinkId) kept.push(peer);
+      else crossings.push(peer);
+    }
+    if (crossings.length === 0) return kept;
+
+    // One decision for the whole crossing set: the quota is per uplink PAIR, and asking per
+    // peer would charge an island with three nodes three times for one link's worth of
+    // traffic.
+    const decision = bridge.shouldRelay(envelope, viaUplinkId, options.bytes ?? 0);
+    if (!decision.relay) return kept;
+
+    const permitted = new Set(decision.toUplinks);
+    for (const peer of crossings) {
+      const uplinkId = await bridge.uplinkForPeer(peer.serverId);
+      if (uplinkId && permitted.has(uplinkId)) {
+        kept.push(peer);
+        bridge.recordRelay(viaUplinkId, uplinkId, envelope.priority, options.bytes ?? 0);
+      }
+    }
+    return kept;
   }
 
   private eligible(peer: PeerRecord, envelope: ParsedEnvelope): boolean {

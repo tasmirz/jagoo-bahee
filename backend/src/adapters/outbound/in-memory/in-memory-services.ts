@@ -38,6 +38,7 @@ import {
   type BackfillReport,
   type FanoutOptions,
   type ReachabilityScope,
+  type PeerEndpoint,
   type PeerRecord,
   type SelectedPath,
 } from '../../../core/ports/network.port.js';
@@ -250,12 +251,29 @@ export class InMemoryPeerDirectory extends PeerDirectory {
  * the part that must not drift, so it lives in `SCOPE_PREFERENCE` and is shared.
  */
 export class NarrowestScopePathSelector extends PathSelector {
+  /** What was reported back, so a test can assert TP-02/TP-12 were actually fed. */
+  readonly outcomes: { peerId: string; scope: string; ok: boolean; rttMs?: number }[] = [];
+
   async select(peer: PeerRecord): Promise<SelectedPath | null> {
     for (const scope of SCOPE_PREFERENCE) {
       const endpoint = peer.endpoints.find((e) => e.scope === scope);
       if (endpoint) return { endpoint, transportId: 'in-memory' };
     }
     return null;
+  }
+
+  async recordOutcome(
+    peer: PeerRecord,
+    endpoint: PeerEndpoint,
+    ok: boolean,
+    rttMs?: number,
+  ): Promise<void> {
+    this.outcomes.push({
+      peerId: peer.serverId,
+      scope: endpoint.scope,
+      ok,
+      ...(rttMs === undefined ? {} : { rttMs }),
+    });
   }
 }
 

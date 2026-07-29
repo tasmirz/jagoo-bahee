@@ -60,6 +60,14 @@ export interface PeerEndpoint {
    */
   readonly inboundCapable?: boolean;
   readonly lastOkAtMs?: number;
+  /**
+   * When we last TRIED, successfully or not. Node-local and deliberately absent from the
+   * wire `PeerEndpoint`: it is a fact about our dialling, not about the peer, and would be
+   * meaningless to anyone else. TP-12's backoff is measured from it, because measuring from
+   * `lastOkAtMs` alone leaves an endpoint that has never succeeded to be retried forever —
+   * the exact hot loop the requirement forbids, on the endpoint most likely to be dead.
+   */
+  readonly lastAttemptAtMs?: number;
   readonly rttMs?: number;
   readonly consecutiveFailures?: number;
 }
@@ -124,6 +132,9 @@ export interface PeerRecord {
 export interface SelectedPath {
   readonly endpoint: PeerEndpoint;
   readonly transportId: string;
+  /** P3 — which uplink carries it, and the source address TP-08 binds the socket to. */
+  readonly uplinkId?: string;
+  readonly sourceIp?: string;
 }
 
 export abstract class Transport {
@@ -149,6 +160,21 @@ export abstract class PeerDirectory {
 export abstract class PathSelector {
   /** Null when no path works at any scope. */
   abstract select(peer: PeerRecord): Promise<SelectedPath | null>;
+  /**
+   * Step 5 of the normative algorithm: "on success record last_ok_at and reset failures; on
+   * failure increment consecutive_failures".
+   *
+   * On the port rather than inside the selector because the only component that knows
+   * whether a dial worked is the one that dialled. Making it part of the contract is what
+   * stops the selector's backoff state (TP-12) and the transport's reality drifting apart —
+   * a selector nobody reports back to will rank a dead endpoint first forever.
+   */
+  abstract recordOutcome(
+    peer: PeerRecord,
+    endpoint: PeerEndpoint,
+    ok: boolean,
+    rttMs?: number,
+  ): Promise<void>;
 }
 
 export interface BackfillReport {
@@ -188,6 +214,13 @@ export interface FanoutOptions {
   readonly targets?: readonly string[];
   /** FD-14 / FED-28: never relay an envelope back to the peer it arrived from. */
   readonly excludePeers?: readonly string[];
+  /**
+   * Encoded size, so a bridge charges its byte quota what actually crossed the link
+   * (BR-04). Passed in rather than recomputed: the pipeline already holds the raw bytes at
+   * the fanout point, and re-encoding a peer's envelope to measure it is precisely the
+   * round trip ADR-008 §1 forbids.
+   */
+  readonly bytes?: number;
 }
 
 /**

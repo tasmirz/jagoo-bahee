@@ -147,6 +147,29 @@ import { GrpcFederationSender } from '../adapters/outbound/grpc/federation-clien
 import { FEDERATION_CONFIG, loadFederationConfig, type FederationConfig } from './federation.config.js';
 import { FederationRuntime } from './federation.runtime.js';
 
+// ── P3 · ISP availability and bridging ────────────────────────────────────────────────
+import { TransportController } from '../adapters/inbound/http/transport.controller.js';
+import { TunnelController } from '../adapters/inbound/http/tunnel.controller.js';
+import {
+  BridgeRelay,
+  LocalDiscovery,
+  NatTraversal,
+  ScopeProbe,
+  UplinkManager,
+} from '../core/ports/transport.port.js';
+import { PathRouter } from '../core/app/path-router.js';
+import { BridgeRelayService } from '../core/app/bridge-relay.js';
+import { TransportSupervisor } from '../core/app/transport-supervisor.js';
+import { ReverseTunnelExchange } from '../core/app/reverse-tunnel.js';
+import { PathSelector } from '../core/ports/network.port.js';
+import { TcpScopeProbe } from '../adapters/outbound/transport/tcp-probe.js';
+import { ConfiguredUplinkManager } from '../adapters/outbound/transport/configured-uplinks.js';
+import { UdpNatTraversal } from '../adapters/outbound/transport/nat-traversal.js';
+import { MulticastLocalDiscovery } from '../adapters/outbound/transport/local-discovery.js';
+import { ReverseTunnelClient } from '../adapters/outbound/transport/reverse-tunnel-client.js';
+import { TRANSPORT_STATE, TransportRuntime } from './transport.runtime.js';
+import { TRANSPORT_CONFIG, loadTransportConfig, type TransportConfig } from './transport.config.js';
+
 export const NONCE_STORE = Symbol('NonceStore');
 export const NODE_ENVELOPE_STORE = Symbol('NodeEnvelopeStore');
 export const NODE_IDENTITY = Symbol('NodeIdentity');
@@ -182,6 +205,8 @@ class RuntimeLifecycle implements OnApplicationShutdown {
     AdminController,
     FederationController,
     SignalReadController,
+    TransportController,
+    TunnelController,
   ],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: SecurityHeadersInterceptor },
@@ -602,8 +627,11 @@ class RuntimeLifecycle implements OnApplicationShutdown {
         clock: Clock,
         random: RandomSource,
         identity: () => NodeIdentity,
-      ) => new GrpcFederationSender({ signer, clock, random, identity }),
-      inject: [NodeSigner, Clock, RandomSource, NODE_IDENTITY],
+        // P3 — the selector decides WHICH uplink carries each connection and binds the
+        // socket to its source address (TP-08), and is told whether the dial worked.
+        paths: PathSelector,
+      ) => new GrpcFederationSender({ signer, clock, random, identity, paths }),
+      inject: [NodeSigner, Clock, RandomSource, NODE_IDENTITY, PathSelector],
     },
     {
       provide: FederationInbox,
@@ -662,6 +690,7 @@ class RuntimeLifecycle implements OnApplicationShutdown {
         projections: ProjectionStore,
         clock: Clock,
         alerts: OperatorAlerts,
+        bridge: BridgeRelay,
       ) =>
         new FederationOutboxService({
           outbox,
@@ -672,6 +701,8 @@ class RuntimeLifecycle implements OnApplicationShutdown {
           projections,
           clock,
           alerts,
+          // BR-01…BR-05 — gates CROSSINGS only. With one uplink nothing is a crossing.
+          bridge,
         }),
       inject: [
         FederationOutbox,
@@ -682,6 +713,7 @@ class RuntimeLifecycle implements OnApplicationShutdown {
         ProjectionStore,
         Clock,
         OperatorAlerts,
+        BridgeRelay,
       ],
     },
     // Step 19 fanout goes through the durable queue. The pipeline knows only `FederationOut`.
@@ -788,6 +820,167 @@ class RuntimeLifecycle implements OnApplicationShutdown {
         FEDERATION_GRPC_SERVER,
         FederationSender,
       ],
+    },
+
+    // ── P3 · ISP availability and bridging ──────────────────────────────────────────
+    // AR-12 one rung up: with no `UPLINKS` this whole block resolves to one implicit
+    // uplink that declares every scope, binds nothing and probes nothing — a P2-shaped
+    // node is bit-for-bit unchanged, and the resilience machinery costs it nothing.
+    {
+      provide: TRANSPORT_CONFIG,
+      useFactory: (): TransportConfig => loadTransportConfig(process.env),
+    },
+    { provide: ScopeProbe, useClass: TcpScopeProbe },
+    {
+      provide: UplinkManager,
+      useFactory: (config: TransportConfig, prober: ScopeProbe, clock: Clock) =>
+        new ConfiguredUplinkManager({
+          uplinks: config.uplinks,
+          probe: config.probe,
+          prober,
+          clock,
+        }),
+      inject: [TRANSPORT_CONFIG, ScopeProbe, Clock],
+    },
+    {
+      provide: PathSelector,
+      useFactory: (
+        uplinks: UplinkManager,
+        peers: PeerDirectory,
+        clock: Clock,
+        random: RandomSource,
+        observability: Observability,
+      ) => new PathRouter({ uplinks, peers, clock, random, observability }),
+      inject: [UplinkManager, PeerDirectory, Clock, RandomSource, Observability],
+    },
+    {
+      provide: BridgeRelayService,
+      useFactory: (
+        config: TransportConfig,
+        peers: PeerDirectory,
+        paths: PathSelector,
+        uplinks: UplinkManager,
+        clock: Clock,
+      ) => new BridgeRelayService({ config: config.bridge, peers, paths, uplinks, clock }),
+      inject: [TRANSPORT_CONFIG, PeerDirectory, PathSelector, UplinkManager, Clock],
+    },
+    { provide: BridgeRelay, useExisting: BridgeRelayService },
+    {
+      provide: TransportSupervisor,
+      useFactory: (
+        uplinks: UplinkManager,
+        peers: PeerDirectory,
+        sync: FederationSync,
+        clock: Clock,
+        bridge: BridgeRelayService,
+        observability: Observability,
+        alerts: OperatorAlerts,
+      ) =>
+        new TransportSupervisor({ uplinks, peers, sync, clock, bridge, observability, alerts }),
+      inject: [
+        UplinkManager,
+        PeerDirectory,
+        FederationSync,
+        Clock,
+        BridgeRelayService,
+        Observability,
+        OperatorAlerts,
+      ],
+    },
+    {
+      provide: ReverseTunnelExchange,
+      useFactory: (clock: Clock) => new ReverseTunnelExchange({ clock }),
+      inject: [Clock],
+    },
+    {
+      provide: NatTraversal,
+      useFactory: (config: TransportConfig, clock: Clock) =>
+        // TP-14/TP-15 are opt-in: an unsolicited SSDP burst is a fingerprint, and on a
+        // hostile network a fingerprint is a target.
+        config.nat.upnp || config.nat.natPmp || config.nat.stunServers.length > 0
+          ? new UdpNatTraversal({
+              clock,
+              upnp: config.nat.upnp,
+              natPmp: config.nat.natPmp,
+              stunServers: config.nat.stunServers,
+            })
+          : null,
+      inject: [TRANSPORT_CONFIG, Clock],
+    },
+    {
+      provide: LocalDiscovery,
+      useFactory: (config: TransportConfig, clock: Clock) =>
+        config.localDiscovery
+          ? new MulticastLocalDiscovery({ clock, httpPort: Number(process.env.PORT ?? 3000) })
+          : null,
+      inject: [TRANSPORT_CONFIG, Clock],
+    },
+    {
+      provide: ReverseTunnelClient,
+      useFactory: (
+        config: TransportConfig,
+        signer: NodeSigner,
+        clock: Clock,
+        random: RandomSource,
+      ) => {
+        const through = config.tunnel.through;
+        if (!through) return null;
+        // `serverId@https://host` — the id is checked by the exit node's TRUSTED lookup, and
+        // carrying it here means a misconfigured origin fails loudly rather than tunnelling
+        // to a stranger.
+        const origin = through.includes('@') ? through.slice(through.indexOf('@') + 1) : through;
+        return new ReverseTunnelClient({
+          signer,
+          clock,
+          random,
+          exitOrigin: origin.replace(/\/$/, ''),
+          localOrigin: `http://127.0.0.1:${Number(process.env.PORT ?? 3000)}`,
+        });
+      },
+      inject: [TRANSPORT_CONFIG, NodeSigner, Clock, RandomSource],
+    },
+    {
+      provide: TransportRuntime,
+      useFactory: (
+        config: TransportConfig,
+        uplinks: UplinkManager,
+        supervisor: TransportSupervisor,
+        bridge: BridgeRelayService,
+        nat: NatTraversal | null,
+        discovery: LocalDiscovery | null,
+        tunnel: ReverseTunnelClient | null,
+        signer: NodeSigner,
+        federation: FederationConfig,
+      ) =>
+        new TransportRuntime({
+          config,
+          uplinks,
+          supervisor,
+          bridge,
+          nat,
+          discovery,
+          tunnel,
+          nodeIdentity: () => ({
+            serverId: signer.serverId,
+            displayName: federation.displayName,
+          }),
+          grpcPort: Number(federation.listen?.split(':').pop() ?? 8444),
+        }),
+      inject: [
+        TRANSPORT_CONFIG,
+        UplinkManager,
+        TransportSupervisor,
+        BridgeRelayService,
+        NatTraversal,
+        LocalDiscovery,
+        ReverseTunnelClient,
+        NodeSigner,
+        FEDERATION_CONFIG,
+      ],
+    },
+    {
+      provide: TRANSPORT_STATE,
+      useExisting: TransportRuntime,
     },
   ],
 })

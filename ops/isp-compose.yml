@@ -1,0 +1,277 @@
+# P3 — the ISP island harness (T3.8). See ADR-015 for why this is Docker and not netns.
+#
+#   pnpm ops:isp        bring the topology up
+#   pnpm gate:isp       drive TG-01 … TG-06 against it
+#   pnpm ops:isp:down   tear it down
+#
+# ── The topology ────────────────────────────────────────────────────────────────────
+#
+#   network: isp-a (internal, 10.90.1.0/24)        network: isp-b (internal, 10.90.2.0/24)
+#   ┌──────────────────────────────┐               ┌──────────────────────────────┐
+#   │  jb-a1        jb-a2          │               │           jb-b1              │
+#   │  mongo-a      redis-a        │               │  mongo-b     redis-b         │
+#   └──────────────┬───────────────┘               └───────────────┬──────────────┘
+#                  │                                               │
+#                  └──────── network: ix (internal, the IX) ───────┘
+#                  │                                               │
+#                  └────────────► jb-bridge (isp-a + isp-b) ◄──────┘
+#
+# `internal: true` on every network is the whole point: there is no route to the host and
+# no route between islands except the ones drawn above. That is a stronger isolation
+# statement than an iptables rule, because there is no interface to misconfigure.
+#
+# ── Why each island has its OWN Mongo and Redis ────────────────────────────────────
+# L-18: whenever a phase adds a participant, the gate must instantiate genuinely independent
+# stacks, because sharing any of them reproduces the false green it exists to prevent. Here
+# the subject IS reachability, so a shared database container would sit on a network both
+# islands can reach — and the partition the gate is asserting would not exist. Two islands,
+# two datastores.
+#
+# ── Cutting the IX ─────────────────────────────────────────────────────────────────
+#   docker network disconnect jagoo-isp_ix jb-a1
+# Docker's DNS then stops resolving `jb-b1` from `jb-a1` entirely, which is exactly what a
+# national gateway going dark looks like from inside one ISP.
+
+name: jagoo-isp
+
+x-node: &node
+  build:
+    context: ..
+    dockerfile: ops/node.Dockerfile
+  environment: &node-env
+    NODE_ENV: development
+    PORT: '3000'
+    FEDERATION_GRPC_LISTEN: '0.0.0.0:8444'
+    FEDERATION_DRAIN_INTERVAL_MS: '1000'
+    FEDERATION_GOSSIP_INTERVAL_MS: '15000'
+    # A short probe interval so the gate does not spend thirty seconds per assertion. TG-06
+    # requires re-evaluation within 30 s; 5 s leaves room to prove that with margin.
+    PROBE_INTERVAL_MS: '5000'
+    PROBE_FAILURE_THRESHOLD: '2'
+    PROBE_TIMEOUT_MS: '1500'
+    # The demo operator key. Its seed is 32 × 0x07 and lives only in this harness.
+    ADMIN_KEYS: 'ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c'
+    AUTH_ACCESS_SECRET: 'ERERERERERERERERERERERERERERERERERERERERERE='
+    AUTH_REFRESH_SECRET: 'IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI='
+    POW_SECRET: 'MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM='
+    BLOB_FILESYSTEM_ROOT: '/tmp/blobs'
+    SERVICE_DISCOVERY_PROBE: 'false'
+  healthcheck: &node-health
+    test:
+      - CMD
+      - node
+      - -e
+      - "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+    interval: 3s
+    timeout: 5s
+    retries: 40
+    start_period: 10s
+
+x-mongo: &mongo
+  image: mongo:7
+  command: ['--replSet', 'rs0', '--bind_ip_all', '--quiet']
+  healthcheck:
+    test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok || quit(1)"]
+    interval: 3s
+    timeout: 5s
+    retries: 30
+    start_period: 5s
+
+services:
+  # ── ISP-A island ────────────────────────────────────────────────────────────────────
+  mongo-a:
+    <<: *mongo
+    container_name: jb-isp-mongo-a
+    networks: [isp-a]
+
+  mongo-a-init:
+    image: mongo:7
+    container_name: jb-isp-mongo-a-init
+    networks: [isp-a]
+    restart: 'no'
+    depends_on:
+      mongo-a: { condition: service_healthy }
+    entrypoint:
+      - mongosh
+      - --host
+      - mongo-a:27017
+      - --quiet
+      - --eval
+      - |
+        try { rs.status(); } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo-a:27017' }] }); }
+        for (let i = 0; i < 60; i++) { if (db.hello().isWritablePrimary) { print('rs0 PRIMARY ready'); quit(0); } sleep(500); }
+        quit(1);
+
+  redis-a:
+    image: redis:7-alpine
+    container_name: jb-isp-redis-a
+    networks: [isp-a]
+    command: ['redis-server', '--appendonly', 'no']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # jb-a1 sits on its island AND on the IX — the normal, unpartitioned state. Cutting the
+  # IX is what makes island A an island.
+  jb-a1:
+    <<: *node
+    container_name: jb-a1
+    networks: [isp-a, ix]
+    depends_on:
+      mongo-a-init: { condition: service_completed_successfully }
+      redis-a: { condition: service_healthy }
+    environment:
+      <<: *node-env
+      NODE_NAME: 'a1'
+      MONGO_URL: 'mongodb://mongo-a:27017/jagoo_a1?replicaSet=rs0'
+      REDIS_URL: 'redis://redis-a:6379/0'
+      NODE_SIGNING_SEED: 'QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE='
+      # One uplink, ASN 64501, no source binding: a1 is a single-homed node inside ISP-A,
+      # which is what almost every volunteer node actually is.
+      UPLINKS: 'isp-a||64501|ISP-A|GLOBAL+NATIONAL+ISP_LOCAL|8444|1'
+      # GLOBAL is deliberately unreachable: `internal: true` gives this network no egress,
+      # so 1.1.1.1 never answers. NATIONAL is the IX. ISP_LOCAL is a node on our own island.
+      PROBE_TARGETS: 'GLOBAL=1.1.1.1:443,NATIONAL=jb-b1:3000,ISP_LOCAL=jb-a2:3000'
+      FEDERATION_ENDPOINTS: 'ISP_LOCAL=grpc://jb-a1:8444,NATIONAL=grpc://jb-a1:8444'
+      FEDERATION_PEERS: >-
+        IVL40Zt5HSRFMkLhXy6rbLfP+ntqXtMAl5YOBpiB2xI=@ISP_LOCAL=grpc://jb-a2:8444#TRUSTED,
+        rwaj4ykXFOTzVsGcmxXNGVHsbmZiqne+B1R/KJODNB0=@ISP_LOCAL=grpc://jb-bridge:8444#TRUSTED,
+        wFDFY3pE+oYp//PMzOIwDLNipj2Z2V/FQUUmb0MyRFo=@NATIONAL=grpc://jb-b1:8444#TRUSTED
+    ports: ['3101:3000']
+    healthcheck: *node-health
+
+  jb-a2:
+    <<: *node
+    container_name: jb-a2
+    networks: [isp-a]
+    depends_on:
+      mongo-a-init: { condition: service_completed_successfully }
+      redis-a: { condition: service_healthy }
+    environment:
+      <<: *node-env
+      NODE_NAME: 'a2'
+      MONGO_URL: 'mongodb://mongo-a:27017/jagoo_a2?replicaSet=rs0'
+      REDIS_URL: 'redis://redis-a:6379/1'
+      NODE_SIGNING_SEED: 'QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI='
+      # a2 is NOT on the IX at all — it is only ever reachable from inside ISP-A. If TG-02
+      # passes for a2, ISP-local federation is genuinely working and not quietly transiting.
+      UPLINKS: 'isp-a||64501|ISP-A|ISP_LOCAL|8444|1'
+      PROBE_TARGETS: 'ISP_LOCAL=jb-a1:3000'
+      FEDERATION_ENDPOINTS: 'ISP_LOCAL=grpc://jb-a2:8444'
+      FEDERATION_PEERS: >-
+        25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50=@ISP_LOCAL=grpc://jb-a1:8444#TRUSTED,
+        rwaj4ykXFOTzVsGcmxXNGVHsbmZiqne+B1R/KJODNB0=@ISP_LOCAL=grpc://jb-bridge:8444#TRUSTED
+    ports: ['3102:3000']
+    healthcheck: *node-health
+
+  # ── ISP-B island ────────────────────────────────────────────────────────────────────
+  mongo-b:
+    <<: *mongo
+    container_name: jb-isp-mongo-b
+    networks: [isp-b]
+
+  mongo-b-init:
+    image: mongo:7
+    container_name: jb-isp-mongo-b-init
+    networks: [isp-b]
+    restart: 'no'
+    depends_on:
+      mongo-b: { condition: service_healthy }
+    entrypoint:
+      - mongosh
+      - --host
+      - mongo-b:27017
+      - --quiet
+      - --eval
+      - |
+        try { rs.status(); } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo-b:27017' }] }); }
+        for (let i = 0; i < 60; i++) { if (db.hello().isWritablePrimary) { print('rs0 PRIMARY ready'); quit(0); } sleep(500); }
+        quit(1);
+
+  redis-b:
+    image: redis:7-alpine
+    container_name: jb-isp-redis-b
+    networks: [isp-b]
+    command: ['redis-server', '--appendonly', 'no']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  jb-b1:
+    <<: *node
+    container_name: jb-b1
+    networks: [isp-b, ix]
+    depends_on:
+      mongo-b-init: { condition: service_completed_successfully }
+      redis-b: { condition: service_healthy }
+    environment:
+      <<: *node-env
+      NODE_NAME: 'b1'
+      MONGO_URL: 'mongodb://mongo-b:27017/jagoo_b1?replicaSet=rs0'
+      REDIS_URL: 'redis://redis-b:6379/0'
+      NODE_SIGNING_SEED: 'UVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVE='
+      UPLINKS: 'isp-b||64502|ISP-B|GLOBAL+NATIONAL+ISP_LOCAL|8444|1'
+      PROBE_TARGETS: 'GLOBAL=1.1.1.1:443,NATIONAL=jb-a1:3000,ISP_LOCAL=jb-bridge:3000'
+      FEDERATION_ENDPOINTS: 'ISP_LOCAL=grpc://jb-b1:8444,NATIONAL=grpc://jb-b1:8444'
+      FEDERATION_PEERS: >-
+        rwaj4ykXFOTzVsGcmxXNGVHsbmZiqne+B1R/KJODNB0=@ISP_LOCAL=grpc://jb-bridge:8444#TRUSTED,
+        25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50=@NATIONAL=grpc://jb-a1:8444#TRUSTED
+    ports: ['3103:3000']
+    healthcheck: *node-health
+
+  # ── The bridge — the only node on BOTH islands, and on neither IX ───────────────────
+  # BR-05: it advertises `is_bridge` and its bridged ASNs, so peers know a cross-island path
+  # exists and can prefer it during a partition. BR-01: bridging requires TRUSTED on each
+  # side, which `#TRUSTED` in FEDERATION_PEERS grants here and a real deployment would earn.
+  jb-bridge:
+    <<: *node
+    container_name: jb-bridge
+    networks: [isp-a, isp-b]
+    depends_on:
+      mongo-a-init: { condition: service_completed_successfully }
+      redis-a: { condition: service_healthy }
+    environment:
+      <<: *node-env
+      NODE_NAME: 'bridge'
+      MONGO_URL: 'mongodb://mongo-a:27017/jagoo_bridge?replicaSet=rs0'
+      REDIS_URL: 'redis://redis-a:6379/2'
+      NODE_SIGNING_SEED: 'YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE='
+      # TWO uplinks with REAL source addresses on two REAL interfaces. This is the assertion
+      # a single-process harness cannot make: TG-01 reads /proc/net/tcp inside this container
+      # and requires the established federation connections to leave through both.
+      UPLINKS: >-
+        isp-a|10.90.1.30|64501|ISP-A|ISP_LOCAL|8444|1,
+        isp-b|10.90.2.30|64502|ISP-B|ISP_LOCAL|8444|2
+      PROBE_TARGETS: 'ISP_LOCAL=jb-a1:3000;jb-b1:3000'
+      BRIDGE_PAIRS: 'isp-a:isp-b'
+      BRIDGE_CLASSES: 'BROADCAST;DIRECT;CHECKIN;BULK'
+      BRIDGE_ENVELOPES_PER_MIN: '600'
+      BRIDGE_BYTES_PER_MIN: '2000000'
+      FEDERATION_ENDPOINTS: 'ISP_LOCAL=grpc://jb-bridge:8444'
+      FEDERATION_PEERS: >-
+        25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50=@ISP_LOCAL=grpc://jb-a1:8444#TRUSTED,
+        IVL40Zt5HSRFMkLhXy6rbLfP+ntqXtMAl5YOBpiB2xI=@ISP_LOCAL=grpc://jb-a2:8444#TRUSTED,
+        wFDFY3pE+oYp//PMzOIwDLNipj2Z2V/FQUUmb0MyRFo=@ISP_LOCAL=grpc://jb-b1:8444#TRUSTED
+    ports: ['3104:3000']
+    healthcheck: *node-health
+
+networks:
+  # `internal: true` — no route to the host, no NAT to the internet. `GLOBAL` probes fail
+  # because GLOBAL genuinely is not reachable, not because a rule says so.
+  isp-a:
+    internal: true
+    ipam:
+      config: [{ subnet: 10.90.1.0/24 }]
+  isp-b:
+    internal: true
+    ipam:
+      config: [{ subnet: 10.90.2.0/24 }]
+  # The national exchange. Disconnecting a node from this network is the IX going dark.
+  ix:
+    internal: true
+    ipam:
+      config: [{ subnet: 10.90.9.0/24 }]

@@ -17,13 +17,7 @@ import {
   signalPrekeySignatureBytes,
 } from '@jagoo/sdk/crypto';
 import { Plane, Priority } from '../../core/domain/envelope.js';
-import {
-  AUTHOR_KEY,
-  AUTHOR_SEED,
-  NOW_MS,
-  buildHarness,
-  signEnvelope,
-} from '../../testing/harness.js';
+import { AUTHOR_KEY, NOW_MS, buildHarness, signEnvelope } from '../../testing/harness.js';
 import { signalHandlers } from './index.js';
 import {
   SIGNAL_CHANNELS_COLLECTION,

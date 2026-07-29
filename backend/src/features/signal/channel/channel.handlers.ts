@@ -1,13 +1,13 @@
 import {
-  BroadcastCategory,
   ChannelDeclare,
   ChannelKind,
   ChannelRetire,
   ChannelRotate,
   ChannelUpdate,
   ChannelVouch,
-  ClaimKind,
   VouchLevel,
+  type BroadcastCategory,
+  type ClaimKind,
 } from '@jagoo/sdk/proto';
 import { channelId } from '@jagoo/sdk';
 import type { Tx } from '../../../core/domain/domain-handler.js';
