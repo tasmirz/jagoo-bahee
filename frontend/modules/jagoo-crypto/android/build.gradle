@@ -21,8 +21,8 @@ android {
 }
 
 dependencies {
-  // 1.79 is the first BC release with the final ML-KEM and ML-DSA lightweight APIs used by
-  // Noble 0.3. Pinning is part of the wire-parity boundary; upgrades require the device suite.
-  implementation "org.bouncycastle:bcprov-jdk18on:1.79"
+  // Pinning is part of the wire-parity boundary. BC 1.83 matches Noble 0.3's deterministic
+  // ML-KEM/ML-DSA vectors; upgrades require the on-device parity suite.
+  implementation "org.bouncycastle:bcprov-jdk18on:1.83"
   testImplementation "junit:junit:4.13.2"
 }

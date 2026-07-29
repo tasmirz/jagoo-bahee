@@ -851,3 +851,78 @@ also cannot prove camera QR exchange, provider push delivery or WebRTC transfer 
 physical devices; the native code, contracts, automated policy gates and Android/iOS production
 exports pass, and the exact device drills are documented. The software exit gates are complete
 without turning those unrun hardware exercises into fictional evidence.
+
+---
+
+### 2026-07-30 — B1–B4 complete: shared crypto seam and Android acceleration
+
+The client no longer has competing crypto call paths. `@jagoo/sdk` owns one synchronous,
+primitive-only `CryptoBackend`; the portable Noble/Scure adapter remains the Node, iOS, test and
+vector implementation, while an autolinked Android Expo module supplies the same contract through
+Bouncy Castle 1.83. Signed formats, BIP-39/BIP-32/BIP-85 rules and identity policy remain in the
+shared TypeScript byte authority.
+
+**Built:**
+
+- Routed SDK content IDs, evidence, blind credentials, Ed25519, X25519, AEAD, ML-KEM, ML-DSA,
+  Signal ratchets and BIP-85 through the backend seam. Production direct Noble, Scure and
+  `react-native-argon2` imports are forbidden; a test creates a violating file and requires ESLint
+  to reject it with `CRYPTO-01`.
+- Added shared BIP-39 and hardened BIP-32 implementations plus reference-parity regressions.
+- Added `frontend/modules/jagoo-crypto`, exposing synchronous Expo `Function` primitives for
+  SHA-2, HMAC, HKDF, PBKDF2, scrypt, Argon2id, Ed25519, X25519, ChaCha20-Poly1305,
+  XChaCha20-Poly1305, ML-KEM-768 and ML-DSA-44.
+- Installed the native backend before application/signer evaluation with an intentional JS
+  fallback for iOS, Expo Go and Jest. Frontend vault KDF/AEAD, prekeys and proof-of-work use the
+  seam.
+- Cached one BIP-39 root seed per unlocked Forum/Signal signer, returned only copies, and zeroed
+  the cache and wrapping key on lock, panic and replacement. A regression proves repeated signing
+  makes exactly one PBKDF2 call per plane.
+- Added an explicit 18-check Operations diagnostic comparing the Android backend byte-for-byte
+  with JS, including cross-verification and KEM decapsulation. Accepted ADR-017 and closed the
+  B1–B4 implementation plan.
+
+**Verified on the final tree:**
+
+- `pnpm install --frozen-lockfile`, workspace lint (5/5 tasks) and typecheck (6/6 tasks) pass.
+- `pnpm test` passes **561 tests**: backend 431, SDK 71, frontend 57 and ALS 2. Thirteen external
+  Mongo/Redis integration tests remain skipped.
+- The SDK dual build passes; `pnpm vectors` confirms TypeScript, Rust and Python agree on all
+  16 vectors and `expected.json`.
+- Expo autolinking resolves both `expo-modules-core` 2.2.3 and local `jagoo-crypto`.
+- `:jagoo-crypto:testDebugUnitTest :jagoo-crypto:assembleDebug` passes all four Kotlin/JUnit tests
+  and produces the AAR. The tests include exact portable-backend KDF, AEAD, ML-KEM and deterministic
+  ML-DSA vectors.
+- A clean generated Expo Android project assembles a full multi-ABI debug APK: 606 Gradle tasks,
+  `BUILD SUCCESSFUL` in 17m32s. The workstation's incomplete NDK 26.1 installation was bypassed in
+  this disposable harness with the already-installed NDK 27.1; repository native source was not
+  patched around the machine defect.
+- Production Expo export passes for Android (1,664 modules) and iOS (1,665 modules), producing
+  5.2 MB Hermes bundles. Metro emits only the existing upstream Noble package-export fallbacks.
+- Expo Doctor passes 17/18 checks. Its sole remaining check is React Native Directory metadata:
+  `react-native-webrtc` is listed as untested on New Architecture, while the private `@jagoo/sdk`
+  and its WebRTC config plugin have no public-directory metadata. The full Android compile passes;
+  the warning is retained rather than hidden with exclusions.
+
+**Broke, and the gates caught it:**
+
+1. Registering the JS default only through the crypto barrel left direct core imports without a
+   backend. Splitting backend state from adapter bootstrap removed the cycle and made direct SDK
+   entry points safe.
+2. The first native pass used an obsolete Expo `Constant`, returned from expression-body `try`
+   blocks, and called an instance ML-KEM method statically. Kotlin compilation caught all three.
+3. `app.json` forced Kotlin 1.9.24 while React Native 0.76.9 supplies 1.9.25, selecting an
+   incompatible Compose compiler. The app now pins 1.9.25, which Expo Modules Core maps to
+   Compose 1.5.15.
+4. Bouncy Castle 1.79 generated valid but non-identical ML-DSA signatures. Pinning 1.83 and using
+   its byte-oriented signer with the FIPS pure-mode prefix and zero `rnd` restored the portable
+   deterministic wire bytes.
+5. The first Unicode parity fixture had expected values generated from mojibake. Regenerating the
+   fixture from the literal `Jagoo Bahee · জাগো বাহে · ADR-017` made the encoding boundary explicit.
+6. Expo Doctor rejected a direct `expo-modules-core` app dependency. The adapter now consumes
+   Expo's public re-export and the redundant dependency is gone.
+
+**Not claimed:** no physical Android device was attached, so the Operations screen's 18-check
+runtime suite has not been executed on hardware. The AAR tests, autolinking, complete debug APK and
+production bundles pass; the exact device drill remains in `NATIVE-CRYPTO-PLAN.md` and must retain
+the Android model/API plus a result screenshot as release evidence.

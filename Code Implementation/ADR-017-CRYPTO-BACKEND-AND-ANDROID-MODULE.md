@@ -22,8 +22,10 @@ Introduce a primitive-only `CryptoBackend` interface in the shared SDK.
 - The portable Noble/Scure adapter remains the default for Node, iOS, tests and vectors.
 - Android installs `frontend/modules/jagoo-crypto` during application module evaluation. It is a
   local Expo module exposing synchronous `Function` calls and Kotlin `ByteArray` values.
-- The Android adapter pins Bouncy Castle 1.79. XChaCha20-Poly1305 is constructed from HChaCha20 and
-  the provider's IETF ChaCha20-Poly1305 implementation.
+- The Android adapter pins Bouncy Castle 1.83. XChaCha20-Poly1305 is constructed from HChaCha20 and
+  the provider's IETF ChaCha20-Poly1305 implementation. ML-DSA uses the protected byte-oriented
+  signer entry point with the FIPS pure-mode prefix and zero `rnd`, preserving the portable
+  adapter's deterministic signature bytes.
 - BIP-39 checksum/seed framing, hardened BIP-32, BIP-85 paths, envelopes and signer policy stay in
   TypeScript. Native code receives primitive byte inputs and returns primitive byte outputs only.
 - Production SDK and frontend files may not import Noble, Scure or `react-native-argon2` outside
@@ -49,5 +51,7 @@ does not persist keys, log byte inputs, or own identity state.
   explicit unlock/proof actions; repeated signatures no longer repeat PBKDF2 or vault decryption.
 - Bouncy Castle upgrades are security- and compatibility-sensitive changes requiring the Kotlin
   tests, on-device parity suite and cross-language gates.
+- Android pins Kotlin 1.9.25, matching React Native 0.76.9 and Expo Modules Core's Compose 1.5.15
+  compatibility mapping.
 - Expo Go cannot load the local module. Development and release validation use a development client
   or native build, while Expo Go/Jest deliberately report the JS backend.

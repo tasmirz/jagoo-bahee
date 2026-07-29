@@ -9,7 +9,7 @@ class JagooCryptoModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("JagooCrypto")
 
-    Constants("backendId" to "android-bc-1.79")
+    Constants("backendId" to "android-bc-1.83")
 
     Function("randomBytes", crypto::randomBytes)
     Function("sha256", crypto::sha256)
