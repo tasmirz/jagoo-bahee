@@ -14,6 +14,13 @@
 # | P0-G5 | contracts (registry codegen identical) |
 # | P0-G6 | backend  (import-boundary lint probes) |
 # | P0-G7 | backend  (unknown version / domain)    |
+#
+# P2 exit gates (Plans/05 §8) are blocking from here on:
+#
+# | Gate         | Job                                                          |
+# |--------------|--------------------------------------------------------------|
+# | FG-01..FG-10 | federation (two independent stacks over real loopback gRPC)   |
+# | FG-05        | build      (real Mongo: unique index + concurrent insertion)  |
 
 name: CI
 
@@ -135,6 +142,7 @@ jobs:
         run: >-
           pnpm --filter @jagoo/backend exec vitest run
           src/adapters/outbound/mongo/mongo.integration.spec.ts
+          src/adapters/outbound/mongo/federation.integration.spec.ts
           src/adapters/outbound/redis/redis.integration.spec.ts
         env:
           JB_REQUIRE_INTEGRATION: '1'
@@ -146,3 +154,36 @@ jobs:
       - name: stop test infrastructure
         if: always()
         run: docker compose -f ops/docker-compose.yml down -v
+
+  # ── ★ P2 — the federation exit gate ─────────────────────────────────────────────────
+  # Two independent stacks, real `nice-grpc` servers on loopback, real Ed25519 signatures,
+  # the real 19-step pipeline on both sides. FG-01 … FG-10 from Plans/05 §8.
+  #
+  # A SEPARATE job on purpose. This is the PRIMARY goal of the project, and burying it in
+  # the general test job would let a green summary hide it being skipped — which is the
+  # failure mode L-11 exists to prevent. It needs no containers, so it also stays fast.
+  federation:
+    name: ★ federation gate (FG-01..FG-10)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The sdk is consumed as BUILT output by every consumer (build log L-12), so the
+      # e2e suite cannot run against src/.
+      - name: build @jagoo/sdk
+        run: pnpm --filter @jagoo/sdk build
+      - name: FG-01 … FG-10 over loopback gRPC
+        run: pnpm --filter @jagoo/backend exec vitest run src/federation
+      - name: federation unit gates (trust, quota, backoff, announce, config)
+        run: >-
+          pnpm --filter @jagoo/backend exec vitest run
+          src/core/domain/federation
+          src/composition/federation.config.spec.ts
+          src/adapters/inbound/http/federation-discovery.spec.ts

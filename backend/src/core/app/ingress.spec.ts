@@ -329,3 +329,50 @@ describe('VP-02 — steps 16 and 17 are atomic', () => {
     expect(docs, 'the projection must have rolled back').toHaveLength(0);
   });
 });
+
+/**
+ * ADR-011 — anti-abuse is an admission cost charged at ORIGIN, not on every hop.
+ *
+ * Every gate is keyed to one node: PoW to that node's `POW_SECRET`, credits to its ledger,
+ * blind credentials to its issuer, nullifiers to its registry. A proof minted for node A is
+ * not merely unverifiable on node B, it is meaningless there — so charging again on arrival
+ * makes every gated domain unfederatable, which is 29 of the 30 Forum rows.
+ *
+ * The receiving node's protection is the per-peer, per-class quota spent at the transport
+ * boundary (FD-15) and the trust level that bounds which classes a peer may push (FG-09).
+ */
+describe('ADR-011 — a federated envelope does not pay the admission cost twice', () => {
+  /** `jb:post:create:v1` requires a credential and a nullifier. This has neither. */
+  const unpaid = (over: Record<string, unknown> = {}): Uint8Array =>
+    signEnvelope({ body: postBody(), ...over });
+
+  it('rejects a gated envelope published LOCALLY with no anti-abuse block', async () => {
+    const h = await harness();
+    await expect(h.pipeline.accept(unpaid())).rejects.toMatchObject({
+      code: RejectionCode.CREDENTIAL_INVALID,
+    });
+  });
+
+  it('accepts the same envelope when a peer delivered it', async () => {
+    const h = await harness();
+    // The proof would have been minted against the ORIGIN node's `POW_SECRET`, ledger,
+    // issuer and nullifier registry. It is not unverifiable here — it is meaningless here.
+    const receipt = await h.pipeline.accept(unpaid(), {
+      transportId: 'grpc',
+      peerId: 'jbs1peer',
+    });
+    expect(receipt.contentId).toMatch(/^jb1/);
+  });
+
+  it('still runs every VERIFICATION step on that envelope — FD-03 is untouched', async () => {
+    const h = await harness();
+    // A forged signature from a peer is rejected at step 9, exactly as a local one is. What
+    // step 13 skips is a PAYMENT, not a CHECK (FG-06).
+    await expect(
+      h.pipeline.accept(unpaid({ forgeSignature: true }), {
+        transportId: 'grpc',
+        peerId: 'jbs1peer',
+      }),
+    ).rejects.toMatchObject({ code: RejectionCode.BAD_SIGNATURE });
+  });
+});

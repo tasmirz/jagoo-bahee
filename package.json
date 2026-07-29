@@ -33,7 +33,8 @@
     "local:logs": "docker compose -f ops/docker-compose.yml logs -f node audit-log mongo redis minio",
     "ops:up": "docker compose -f ops/docker-compose.yml up -d --wait mongo redis minio && docker compose -f ops/docker-compose.yml up -d mongo-init minio-init && docker compose -f ops/docker-compose.yml wait mongo-init minio-init",
     "ops:down": "docker compose -f ops/docker-compose.yml down",
-    "ops:two-node": "docker compose -f ops/docker-compose.yml --profile federation up -d",
+    "ops:two-node": "docker compose -f ops/docker-compose.yml --profile federation up -d --build --wait node-a node-b",
+    "ops:two-node:down": "docker compose -f ops/docker-compose.yml --profile federation down",
     "ops:logs": "docker compose -f ops/docker-compose.yml logs -f"
   },
   "devDependencies": {

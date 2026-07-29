@@ -77,7 +77,11 @@ const IMPURE_MODULES = [
   'fastify',
   'express',
   '@nestjs/*',
+  // ADR-007: the federation gRPC runtime is an ADAPTER concern. `core/domain` decides who
+  // may federate and what a peer may push; it must never learn what a channel is.
   '@grpc/*',
+  'nice-grpc',
+  'nice-grpc-common',
   'node:fs',
   'node:net',
   'node:http',

@@ -107,9 +107,48 @@ import { forumHandlers } from '../features/forum/index.js';
 import { MONGO_RUNTIME, REDIS_RUNTIME, S3_RUNTIME, type MongoRuntime } from './runtime.js';
 import { ServiceDirectory } from '../core/ports/service-directory.port.js';
 import { ConfiguredServiceDirectory } from '../adapters/outbound/configured-service-directory.js';
+import { serverId as serverIdOf } from '@jagoo/sdk/core';
+import { FederationController } from '../adapters/inbound/http/federation.controller.js';
+import {
+  FederationLedger,
+  FederationOut,
+  FederationOutbox,
+  FederationSender,
+  PeerDirectory,
+  PeerQuotaLimiter,
+} from '../core/ports/network.port.js';
+import { OperatorAlerts } from '../core/ports/alerts.port.js';
+import { FederationInbox, type NodeIdentity } from '../core/app/federation-inbox.js';
+import { FederationOutboxService } from '../core/app/federation-outbox.js';
+import { FederationSync } from '../core/app/federation-sync.js';
+import {
+  InMemoryFederationLedger,
+  InMemoryFederationOutbox,
+} from '../adapters/outbound/in-memory/in-memory-federation.js';
+import {
+  InMemoryOperatorAlerts,
+  InMemoryPeerQuotaLimiter,
+} from '../adapters/outbound/in-memory/in-memory-quota.js';
+import { InMemoryPeerDirectory } from '../adapters/outbound/in-memory/in-memory-services.js';
+import {
+  MongoFederationLedger,
+  MongoFederationOutbox,
+  MongoPeerDirectory,
+} from '../adapters/outbound/mongo/mongo-federation.js';
+import {
+  RedisOperatorAlerts,
+  RedisPeerQuotaLimiter,
+} from '../adapters/outbound/redis/redis-federation.js';
+import { FederationService } from '../adapters/inbound/grpc/federation.service.js';
+import { FederationGrpcServer } from '../adapters/inbound/grpc/federation.server.js';
+import { GrpcFederationSender } from '../adapters/outbound/grpc/federation-client.js';
+import { FEDERATION_CONFIG, loadFederationConfig, type FederationConfig } from './federation.config.js';
+import { FederationRuntime } from './federation.runtime.js';
 
 export const NONCE_STORE = Symbol('NonceStore');
 export const NODE_ENVELOPE_STORE = Symbol('NodeEnvelopeStore');
+export const NODE_IDENTITY = Symbol('NodeIdentity');
+export const FEDERATION_GRPC_SERVER = Symbol('FederationGrpcServer');
 
 class RuntimeLifecycle implements OnApplicationShutdown {
   constructor(
@@ -139,6 +178,7 @@ class RuntimeLifecycle implements OnApplicationShutdown {
     DiscoveryController,
     EvidenceController,
     AdminController,
+    FederationController,
   ],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: SecurityHeadersInterceptor },
@@ -418,6 +458,8 @@ class RuntimeLifecycle implements OnApplicationShutdown {
         clock: Clock,
         events: EventBus,
         cache: TaggedCache,
+        federation: FederationOut,
+        federationLedger: FederationLedger,
       ) =>
         new IngressPipeline({
           registry,
@@ -433,6 +475,10 @@ class RuntimeLifecycle implements OnApplicationShutdown {
           clock,
           events,
           cache,
+          // Step 19 fanout and the ADR-008 §2 direction row. Both optional in the
+          // pipeline's own contract, so a P1-shaped node with federation off is unchanged.
+          federation,
+          federationLedger,
         }),
       inject: [
         DomainRegistry,
@@ -451,6 +497,8 @@ class RuntimeLifecycle implements OnApplicationShutdown {
         Clock,
         EventBus,
         TaggedCache,
+        FederationOut,
+        FederationLedger,
       ],
     },
     {
@@ -458,6 +506,273 @@ class RuntimeLifecycle implements OnApplicationShutdown {
       useFactory: (mongo: MongoRuntime | null, redis: Redis | null, s3: S3Client | null) =>
         new RuntimeLifecycle(mongo, redis, s3),
       inject: [MONGO_RUNTIME, REDIS_RUNTIME, S3_RUNTIME],
+    },
+
+    // ── P2 · Federation ─────────────────────────────────────────────────────────────
+    // Every binding below follows the same shape as the P1 ports: a Mongo/Redis adapter
+    // when the node is durable, an in-memory double otherwise, chosen HERE and nowhere
+    // else. AR-12 holds — with no peers and no listen address the runtime binds nothing
+    // and the node behaves exactly as it did in P1.
+    {
+      provide: FEDERATION_CONFIG,
+      useFactory: (): FederationConfig => loadFederationConfig(process.env, serverIdOf),
+    },
+    {
+      provide: NODE_IDENTITY,
+      useFactory:
+        (signer: NodeSigner, config: FederationConfig) => (): NodeIdentity => ({
+          serverId: signer.serverId,
+          publicKey: signer.publicKey,
+          displayName: config.displayName,
+          software: 'jagoo-bahee',
+          version: '2.0.0',
+          endpoints: config.endpoints,
+          planes: config.planes,
+          acceptedClasses: config.acceptedClasses,
+          // Advertised on the handshake so a peer can filter its streams. Empty means "ask
+          // me for everything"; the frozen contract has no way to say "I host none".
+          communities: [],
+          channels: [],
+        }),
+      inject: [NodeSigner, FEDERATION_CONFIG],
+    },
+    {
+      provide: PeerDirectory,
+      useFactory: async (mongo: MongoRuntime | null) => {
+        if (!mongo) return new InMemoryPeerDirectory();
+        const directory = new MongoPeerDirectory(mongo.db);
+        await directory.ensureIndexes();
+        return directory;
+      },
+      inject: [MONGO_RUNTIME],
+    },
+    {
+      provide: FederationLedger,
+      useFactory: async (mongo: MongoRuntime | null) => {
+        if (!mongo) return new InMemoryFederationLedger();
+        const ledger = new MongoFederationLedger(mongo.db);
+        // FD-05 — the unique `(content_id, direction)` index is DECLARED, not assumed.
+        // v1's dedupe was a race because this line did not exist.
+        await ledger.ensureIndexes();
+        return ledger;
+      },
+      inject: [MONGO_RUNTIME],
+    },
+    {
+      provide: FederationOutbox,
+      useFactory: async (mongo: MongoRuntime | null) => {
+        if (!mongo) return new InMemoryFederationOutbox();
+        const outbox = new MongoFederationOutbox(mongo.db);
+        await outbox.ensureIndexes();
+        return outbox;
+      },
+      inject: [MONGO_RUNTIME],
+    },
+    {
+      provide: PeerQuotaLimiter,
+      useFactory: (redis: Redis | null) =>
+        redis ? new RedisPeerQuotaLimiter(redis) : new InMemoryPeerQuotaLimiter(),
+      inject: [REDIS_RUNTIME],
+    },
+    {
+      provide: OperatorAlerts,
+      useFactory: (redis: Redis | null) =>
+        redis ? new RedisOperatorAlerts(redis) : new InMemoryOperatorAlerts(),
+      inject: [REDIS_RUNTIME],
+    },
+    {
+      provide: FederationSender,
+      useFactory: (
+        signer: NodeSigner,
+        clock: Clock,
+        random: RandomSource,
+        identity: () => NodeIdentity,
+      ) => new GrpcFederationSender({ signer, clock, random, identity }),
+      inject: [NodeSigner, Clock, RandomSource, NODE_IDENTITY],
+    },
+    {
+      provide: FederationInbox,
+      useFactory: (
+        pipeline: IngressPipeline,
+        peers: PeerDirectory,
+        ledger: FederationLedger,
+        reader: EnvelopeReader,
+        witness: WitnessLog,
+        quotas: PeerQuotaLimiter,
+        verifier: SignatureVerifier,
+        clock: Clock,
+        identity: () => NodeIdentity,
+        alerts: OperatorAlerts,
+        observability: Observability,
+        config: FederationConfig,
+      ) =>
+        new FederationInbox({
+          pipeline,
+          peers,
+          ledger,
+          reader,
+          witness,
+          quotas,
+          verifier,
+          clock,
+          identity,
+          alerts,
+          observability,
+          adminTrust: (serverId) =>
+            config.peers.find((peer) => peer.serverId === serverId)?.trust,
+        }),
+      inject: [
+        IngressPipeline,
+        PeerDirectory,
+        FederationLedger,
+        EnvelopeReader,
+        WitnessLog,
+        PeerQuotaLimiter,
+        SignatureVerifier,
+        Clock,
+        NODE_IDENTITY,
+        OperatorAlerts,
+        Observability,
+        FEDERATION_CONFIG,
+      ],
+    },
+    {
+      provide: FederationOutboxService,
+      useFactory: (
+        outbox: FederationOutbox,
+        peers: PeerDirectory,
+        ledger: FederationLedger,
+        sender: FederationSender,
+        reader: EnvelopeReader,
+        projections: ProjectionStore,
+        clock: Clock,
+        alerts: OperatorAlerts,
+      ) =>
+        new FederationOutboxService({
+          outbox,
+          peers,
+          ledger,
+          sender,
+          reader,
+          projections,
+          clock,
+          alerts,
+        }),
+      inject: [
+        FederationOutbox,
+        PeerDirectory,
+        FederationLedger,
+        FederationSender,
+        EnvelopeReader,
+        ProjectionStore,
+        Clock,
+        OperatorAlerts,
+      ],
+    },
+    // Step 19 fanout goes through the durable queue. The pipeline knows only `FederationOut`.
+    { provide: FederationOut, useExisting: FederationOutboxService },
+    {
+      provide: FederationSync,
+      useFactory: (
+        peers: PeerDirectory,
+        ledger: FederationLedger,
+        sender: FederationSender,
+        inbox: FederationInbox,
+        reader: EnvelopeReader,
+        pipeline: IngressPipeline,
+        clock: Clock,
+        signer: NodeSigner,
+      ) =>
+        new FederationSync({
+          peers,
+          ledger,
+          sender,
+          inbox,
+          reader,
+          pipeline,
+          clock,
+          selfServerId: () => signer.serverId,
+        }),
+      inject: [
+        PeerDirectory,
+        FederationLedger,
+        FederationSender,
+        FederationInbox,
+        EnvelopeReader,
+        IngressPipeline,
+        Clock,
+        NodeSigner,
+      ],
+    },
+    {
+      provide: FederationService,
+      useFactory: (
+        inbox: FederationInbox,
+        peers: PeerDirectory,
+        ledger: FederationLedger,
+        witness: WitnessLog,
+        signer: NodeSigner,
+        clock: Clock,
+        identity: () => NodeIdentity,
+        config: FederationConfig,
+      ) =>
+        new FederationService({
+          inbox,
+          peers,
+          ledger,
+          witness,
+          signer,
+          clock,
+          identity,
+          outboundOnly: config.outboundOnly,
+        }),
+      inject: [
+        FederationInbox,
+        PeerDirectory,
+        FederationLedger,
+        WitnessLog,
+        NodeSigner,
+        Clock,
+        NODE_IDENTITY,
+        FEDERATION_CONFIG,
+      ],
+    },
+    {
+      provide: FEDERATION_GRPC_SERVER,
+      useFactory: (service: FederationService, config: FederationConfig) =>
+        // FD-12 — no listen address means no bound port. The node still federates in both
+        // directions over connections it initiates (FD-11).
+        config.listen && !config.outboundOnly
+          ? new FederationGrpcServer(service, { listen: config.listen })
+          : null,
+      inject: [FederationService, FEDERATION_CONFIG],
+    },
+    {
+      provide: FederationRuntime,
+      useFactory: (
+        config: FederationConfig,
+        peers: PeerDirectory,
+        outbox: FederationOutboxService,
+        sync: FederationSync,
+        server: FederationGrpcServer | null,
+        sender: FederationSender,
+      ) =>
+        new FederationRuntime(
+          config,
+          peers,
+          outbox,
+          sync,
+          server,
+          sender instanceof GrpcFederationSender ? sender : null,
+        ),
+      inject: [
+        FEDERATION_CONFIG,
+        PeerDirectory,
+        FederationOutboxService,
+        FederationSync,
+        FEDERATION_GRPC_SERVER,
+        FederationSender,
+      ],
     },
   ],
 })

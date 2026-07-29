@@ -127,6 +127,29 @@ describe('import-boundary lint (P0-G6)', () => {
     );
   });
 
+  // ADR-007 — the federation gRPC runtime is an adapter concern. `core/domain` decides who
+  // may federate and what a peer may push; it must never learn what a channel is, or FG-01
+  // through FG-10 would stop being provable without a socket.
+  it('rejects core/domain importing the gRPC runtime', () => {
+    expectLintViolation(
+      lintProbe(
+        '__probe_grpc.ts',
+        `import { createServer } from 'nice-grpc';\nexport const s = createServer;\n`,
+      ),
+      'AR-01',
+    );
+  });
+
+  it('rejects core/domain importing grpc-js directly', () => {
+    expectLintViolation(
+      lintProbe(
+        '__probe_grpcjs.ts',
+        `import { ChannelCredentials } from '@grpc/grpc-js';\nexport const c = ChannelCredentials;\n`,
+      ),
+      'AR-01',
+    );
+  });
+
   // AR-05: the registry dispatches. A domain switch means Open/Closed has failed.
   it('rejects a switch on domain inside the core', () => {
     expectLintViolation(

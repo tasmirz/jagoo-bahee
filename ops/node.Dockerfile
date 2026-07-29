@@ -41,5 +41,8 @@ COPY --from=build /repo/backend/dist backend/dist
 # they cannot easily reimage.
 USER node
 
-EXPOSE 3000
+# 3000 REST/JSON for clients, 8444 gRPC for federation (Plans/05 §1). A node that sets no
+# FEDERATION_GRPC_LISTEN binds only the first — outbound-only is the FD-12 default for a
+# home or community node, and it federates fully over connections it initiates.
+EXPOSE 3000 8444
 CMD ["node", "backend/dist/main.js"]

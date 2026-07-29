@@ -4,9 +4,9 @@
 > Contracts are frozen (`Plans/05-CONTRACTS-FEDERATION.md`, `Plans/06-CONTRACTS-TRANSPORT.md`); this
 > phase implements against them and changes **nothing** in `proto/` or `registry.yaml`.
 
-**Scope of this push: T2.1–T2.9 only** — the block `Plans/10-IMPLEMENTATION-SEQUENCE.md` §8 marks
-never-cut ("T0.14–T0.17, T1.1–T1.7, T2.1–T2.9 … those three blocks are the project"). T2.10–T2.16 are
-deliberately deferred and tracked in §5 below, not silently dropped.
+**Status: COMPLETE — T2.1 through T2.16.** The original scope of this document was T2.1–T2.9 only,
+with T2.10–T2.16 deferred. That deferral was lifted and the full catalogue shipped; §5 now records
+what remains genuinely open rather than what was postponed.
 
 ---
 
@@ -94,50 +94,75 @@ under `proto/`. `pnpm proto:check` staying clean is the proof the freeze held.
 
 ## 4. Gate status
 
-| Gate | Status |
-|---|---|
-| FG-01 — `Announce` succeeds; peer lands at `PROBATION` via TOFU | ☐ |
-| FG-02 — a post on A appears, verified and projected, on B | ☐ |
-| FG-03 — vote, comment, and moderation action all project on B | ☐ |
-| FG-04 — partition, 20 envelopes, reconnect → exactly 20, zero duplicates | ☐ |
-| FG-05 — replay rejected by the unique index, not a racy read | ☐ CI-gated (needs real Mongo) |
-| FG-06 — a tampered envelope from a peer is rejected and not projected | ☐ |
+All ten run in CI as a dedicated blocking job (`federation`), over two independent stacks with real
+`nice-grpc` servers on loopback, real Ed25519 signatures and the real 19-step pipeline on both sides.
 
----
-
-## 5. Explicitly deferred, with owning task IDs
-
-Not dropped. Each is a row in `Plans/09-TASKS.md` and remains open.
-
-| Deferred | Task | Gate |
+| Gate | Status | Asserted by |
 |---|---|---|
-| Per-peer per-class quotas, auto-demotion on repeated breach | T2.10 | FG-09 |
-| Outbound-only mode for NATed nodes | T2.11 | FG-07 |
-| `ExchangeTreeHeads`, fork detection, operator alert | T2.12 | FG-08 |
-| `ExchangeDirectory` | T2.13 | — |
-| Discovery endpoints with full scoped endpoint lists | T2.14 | FD-17 |
-| Plane separation on the wire — full gate | T2.15 | FG-10 |
-| Compose two-node harness, all FG automated against containers | T2.16 | — |
-
-Two carry-forwards land early because they are cheap now and expensive to retrofit:
-
-- **A backpressure hint** (`DeliverAck.backpressure_hint_ms`) is produced by T2.4's acceptance line, so
-  the mechanism exists; the per-class allow-list and auto-demotion that make FG-09 pass are T2.10.
-- **The plane guard** — one plane per stream, a mismatched frame rejected `PLANE_MISMATCH` — is written
-  now per `P0-P2-IMPLEMENTATION-PLAN.md` §5.1 ("the guard is written now so it isn't forgotten later").
-  Only FORUM domains exist today, so the full FG-10 gate still belongs to T2.15.
-
-`ExchangeTreeHeads` and `ExchangeDirectory` are registered and return a typed `UNIMPLEMENTED` rather
-than being absent, so a peer gets an honest answer instead of a connection error.
-
-Also carried into T2.12: `verifyPeerSth` keeps peer tree heads in an **in-process `Map`** in both
-`LocalMerkleLog` and `MongoMerkleLog`, so fork-detection state is lost on restart. Persisting it is part
-of T2.12, noted here so it is not mistaken for working.
+| FG-01 — `Announce` succeeds; peer lands at `PROBATION` via TOFU | ☑ | `federation.e2e.spec.ts` |
+| FG-02 — a post on A appears, verified and projected, on B | ☑ | `federation.e2e.spec.ts` |
+| FG-03 — vote, comment, and moderation action all project on B | ☑ | `federation.e2e.spec.ts` — **this is the gate that found ADR-010** |
+| FG-04 — partition, 20 envelopes, reconnect → exactly 20, zero duplicates | ☑ | `federation.e2e.spec.ts` |
+| FG-05 — replay rejected by the unique index, not a racy read | ☑ | `federation.e2e.spec.ts` (branch entered) + `mongo/federation.integration.spec.ts` (index + real concurrency) |
+| FG-06 — a tampered envelope from a peer is rejected and not projected | ☑ | `federation.e2e.spec.ts`, incl. the non-canonical re-encoding probe |
+| FG-07 — an outbound-only node behind simulated NAT federates both ways | ☑ | `federation.e2e.spec.ts` + `federation.config.spec.ts` |
+| FG-08 — `ExchangeTreeHeads` detects a rewritten log; peer demoted and operator alerted | ☑ | `federation.e2e.spec.ts` |
+| FG-09 — a `PROBATION` peer's class-3 envelopes rejected, class 0–2 accepted | ☑ | `federation.e2e.spec.ts`, `quota.spec.ts`, `trust.spec.ts` |
+| FG-10 — Signal and Forum never share a stream frame sequence | ☑ | `federation.e2e.spec.ts`, `stream-filter` guard |
+| FD-17 — all endpoint scopes advertised, not just the public one | ☑ | `federation-discovery.spec.ts` |
 
 ---
 
-## 6. Definition of done
+## 5. What is genuinely still open
+
+Nothing from T2.1–T2.16 was dropped. These are the limits of what shipped, stated so none of them is
+mistaken for working.
+
+| Open | Why it is acceptable now | Who must close it |
+|---|---|---|
+| **Multi-hop community origin.** `originServerId` is the delivering peer, which equals the origin for a direct delivery and diverges under relay. | Every path this build exercises fetches a peer's own content from that peer: `Deliver` is push-from-origin, `StreamActivities`/`Backfill` are pull-from-origin. | **T3.11 `BridgeRelay`** — relay is exactly where the two stop coinciding. Fix is `origin_server_key` in a `jb:community:create:v2` row (ADR-010). |
+| **`WitnessLog.verifyPeerSth` keeps peer heads in an in-process `Map`** in both `LocalMerkleLog` and `MongoMerkleLog`. | The `MongoFederationLedger` persists peer tree heads and is what `FederationInbox.observePeerSth` actually compares against in production — that path IS durable and is asserted by `federation.integration.spec.ts`. The witness log's copy is a second, weaker signal. | Fold the witness log's copy into the ledger, or delete it. |
+| **`AnnounceResponse.vouches` is always empty.** Vouches are stored, weighed and enforced (`recordVouch`, `evaluateTrust`), but not yet gossiped in the handshake. | Trust still derives correctly from vouches this node holds; it simply does not yet learn a third party's vouches from a handshake. | T2.13's directory exchange is the natural carrier. |
+| **`bytes_per_min` is granted but not enforced.** Envelope-per-minute buckets are enforced per class; the byte budget is advertised in `Quota` and not spent. | Per-domain `max_bytes` already bounds a single envelope, and the envelope rate bounds the aggregate within an order of magnitude. | A second Lua bucket in `RedisPeerQuotaLimiter`, same shape as the first. |
+| **No TLS on the federation port.** `ChannelCredentials.createInsecure()` is the default. | Operators terminate TLS at their own proxy today, and every payload is independently signed — an interceptor can read but cannot forge. | P3, alongside uplink and source-IP work. |
+| **Admission cost is charged at origin, not per hop** (ADR-011). A peer could relay envelopes whose origin never paid. | Every anti-abuse gate is keyed to one node by design, so re-charging makes 29 of 30 Forum rows unfederatable. The peer's quota bounds the volume, its trust bounds the classes, FD-16 demotes it for repeated breach. | P4, if cross-node cost accounting becomes necessary: an origin-signed cost attestation, verifiable by any peer holding that node's key. |
+
+Two things landed early because they were cheap now and expensive to retrofit, and both are done:
+
+- **The backpressure hint** (`DeliverAck.backpressure_hint_ms`) — produced, honoured by the sender's
+  backoff, and asserted by FG-09.
+- **The plane guard** — one plane per stream, a mismatched frame rejected `PLANE_MISMATCH`, written
+  before any Signal domain exists per `P0-P2-IMPLEMENTATION-PLAN.md` §5.1. A guard added after the
+  second plane ships is a guard added after the leak.
+
+---
+
+## 6. Definition of done — met
 
 Per `Plans/10` §9 and CLAUDE.md §7.3. A federation RPC is done when it satisfies its port, re-runs the
 full pipeline on inbound, has an in-memory double alongside its production adapter, and is exercised by
-a test citing its FG or FD identifier. The phase closes when FG-01…FG-06 pass **in CI**, not by hand.
+a test citing its FG or FD identifier. The phase closes when the FG criteria pass **in CI**, not by hand.
+
+All six RPCs satisfy that. `pnpm test` runs 356 workspace tests; the `federation` CI job runs
+FG-01…FG-10 as a dedicated blocking gate; the `build` job runs the real-Mongo half of FG-05.
+
+## 7. The demo (`Plans/08` §P2)
+
+```bash
+pnpm ops:two-node          # node-a on :3001, node-b on :3002, gRPC on :8451/:8452
+                           # each lists the other by KEY — change a seed and you must
+                           # change the key its partner lists (FD-02)
+
+# post on A, watch it appear on B within a drain interval (1s here)
+curl http://localhost:3002/v1/feed
+
+# partition, publish, reconnect
+docker compose -f ops/docker-compose.yml stop node-b
+#   … publish 20 envelopes on A …
+docker compose -f ops/docker-compose.yml start node-b
+#   Backfill closes the gap exactly, from the durable cursor
+
+curl http://localhost:3001/v1/federation/peers   # trust levels, scoped endpoints
+curl http://localhost:3001/v1/federation/alerts  # FD-09 / FD-16 findings
+pnpm ops:two-node:down
+```

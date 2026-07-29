@@ -11,7 +11,7 @@
  */
 
 import { CommunityArchive, CommunityCreate, CommunityUpdate } from '@jagoo/sdk/proto';
-import type { Tx } from '../../../core/domain/domain-handler.js';
+import type { HandlerContext, Tx } from '../../../core/domain/domain-handler.js';
 import {
   allowed,
   denied,
@@ -111,10 +111,18 @@ export class CommunityCreateHandler implements DomainHandler<CommunityCreate> {
     return validateMetadata(body.title, body.description, body.rules_markdown) ?? valid;
   }
 
-  async authorize(body: CommunityCreate, env: ParsedEnvelope): Promise<AuthDecision> {
+  async authorize(
+    body: CommunityCreate,
+    env: ParsedEnvelope,
+    ctx?: HandlerContext,
+  ): Promise<AuthDecision> {
     // COM-02: the name must be free ON THIS ORIGIN. Two instances may each host a
     // `dhaka-relief`; the origin fingerprint in the ID keeps them distinct (COM-19).
-    const id = communityId(body.name, this.nodeSigner.serverId);
+    //
+    // The origin is the node the create envelope was PUBLISHED to, not the node projecting
+    // it. Using the local key here would make a federated community collide with a
+    // same-named local one and be refused — see ADR-010.
+    const id = communityId(body.name, ctx?.originServerId ?? this.nodeSigner.serverId);
     const existing = await this.projections
       .collection<CommunityDoc>(COMMUNITIES_COLLECTION)
       .findOne({ id });
@@ -125,8 +133,15 @@ export class CommunityCreateHandler implements DomainHandler<CommunityCreate> {
     return allowed;
   }
 
-  async project(body: CommunityCreate, env: ParsedEnvelope, tx: Tx): Promise<void> {
-    const id = communityId(body.name, this.nodeSigner.serverId);
+  async project(
+    body: CommunityCreate,
+    env: ParsedEnvelope,
+    tx: Tx,
+    ctx?: HandlerContext,
+  ): Promise<void> {
+    // Plans/02 §7: a community ID is stable across nodes. It therefore cannot be derived
+    // from the key of whichever node happens to be projecting it (ADR-010).
+    const id = communityId(body.name, ctx?.originServerId ?? this.nodeSigner.serverId);
     const owner = hexKey(env.authorKey);
     const createdAtMs = Number(env.createdAtMs);
 

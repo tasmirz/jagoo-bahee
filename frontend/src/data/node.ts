@@ -183,3 +183,127 @@ export function useFederations(baseUrl: string | null) {
     retry: 0,
   });
 }
+
+// ── P2 · federation (Plans/05 §7) ──────────────────────────────────────────────────
+
+/** Narrowest first. The same order the node's own path selector prefers (TP-01, G-04). */
+export const SCOPE_ORDER: readonly string[] = [
+  'LAN',
+  'ISP_LOCAL',
+  'NATIONAL',
+  'GLOBAL',
+  'MESH',
+  'RETICULUM',
+];
+
+export interface FederationPeerEndpoint {
+  readonly uri: string;
+  readonly scope: string;
+  readonly asn: number | null;
+  readonly ispName: string | null;
+  readonly inboundCapable: boolean;
+}
+
+export interface FederationPeer {
+  readonly serverId: string;
+  readonly serverKey: string;
+  readonly displayName: string;
+  /** BLOCKED peers are never listed by the node — a blocklist is a list of targets. */
+  readonly trust: 'PROBATION' | 'NORMAL' | 'TRUSTED' | 'UNSPECIFIED';
+  readonly planes: readonly number[];
+  readonly endpoints: readonly FederationPeerEndpoint[];
+  readonly vouchCount: number;
+  readonly lastSeenMs: number;
+}
+
+export interface FederationPeersDocument {
+  readonly items: readonly FederationPeer[];
+  readonly count: number;
+}
+
+/**
+ * The node's real peer directory.
+ *
+ * Distinct from `/federations`, which lists operator-configured auxiliary services. These
+ * are peers the node has actually handshaked with, at the trust level TOFU and vouches
+ * placed them at.
+ *
+ * ── TP-05 / TP-06: this is pre-positioning, not decoration ─────────────────────────
+ * Every response is cached by `OfflineApi`, and entries are never evicted for age. When
+ * the gateway drops, the ISP-local addresses must already be on the device — discovery
+ * cannot depend on the network that just failed. A stale ISP-local address is infinitely
+ * more useful than no address.
+ */
+export function useFederationPeers(baseUrl: string | null) {
+  return useQuery<CachedValue<FederationPeersDocument>>({
+    queryKey: ['node', baseUrl, 'federation', 'peers'],
+    queryFn: () =>
+      new OfflineApi(`${baseUrl!.replace(/\/+$/, '')}/`).get<FederationPeersDocument>(
+        '/v1/federation/peers',
+      ),
+    enabled: baseUrl !== null,
+    refetchInterval: 60_000,
+    retry: 0,
+  });
+}
+
+export interface NodeTreeHead {
+  readonly serverId: string;
+  readonly serverKey: string;
+  readonly treeSize: number;
+  readonly rootHash: string;
+  readonly timestampMs: number;
+  readonly signature: string;
+}
+
+/** The node's current signed tree head — what its receipts are anchored to. */
+export function useNodeTreeHead(baseUrl: string | null) {
+  return useQuery<CachedValue<NodeTreeHead>>({
+    queryKey: ['node', baseUrl, 'federation', 'sth'],
+    queryFn: () =>
+      new OfflineApi(`${baseUrl!.replace(/\/+$/, '')}/`).get<NodeTreeHead>('/v1/federation/sth'),
+    enabled: baseUrl !== null,
+    refetchInterval: 60_000,
+    retry: 0,
+  });
+}
+
+export interface OperatorAlertItem {
+  readonly id: string;
+  readonly severity: 'INFO' | 'WARNING' | 'CRITICAL';
+  readonly code: string;
+  readonly subject: string;
+  readonly detail: string;
+  readonly raisedAtMs: number;
+}
+
+/**
+ * FD-09 / FD-16 findings.
+ *
+ * Public on purpose. A node that detected a peer rewriting its log has produced evidence,
+ * and evidence that only the operator can see is evidence a compromised operator can hide.
+ */
+export function useFederationAlerts(baseUrl: string | null) {
+  return useQuery<CachedValue<{ readonly items: readonly OperatorAlertItem[] }>>({
+    queryKey: ['node', baseUrl, 'federation', 'alerts'],
+    queryFn: () =>
+      new OfflineApi(`${baseUrl!.replace(/\/+$/, '')}/`).get('/v1/federation/alerts'),
+    enabled: baseUrl !== null,
+    refetchInterval: 60_000,
+    retry: 0,
+  });
+}
+
+/** Narrowest working scope first, so the list reads in the order the node would dial. */
+export function sortByScope(
+  endpoints: readonly FederationPeerEndpoint[],
+): readonly FederationPeerEndpoint[] {
+  return [...endpoints].sort(
+    (left, right) => scopeRank(left.scope) - scopeRank(right.scope),
+  );
+}
+
+function scopeRank(scope: string): number {
+  const index = SCOPE_ORDER.indexOf(scope);
+  return index < 0 ? SCOPE_ORDER.length : index;
+}

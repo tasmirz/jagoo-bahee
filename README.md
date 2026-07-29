@@ -47,6 +47,22 @@ the first-run home-server address to the computer's LAN address.
 
 For host-side backend development, run `pnpm ops:up` and `pnpm dev:backend` separately.
 
+## Run two federating nodes
+
+```powershell
+pnpm ops:two-node
+Invoke-RestMethod http://localhost:3001/v1/federation/peers
+```
+
+Two independent nodes with separate databases — node-a on `:3001`, node-b on `:3002`, federation
+gRPC on `:8451` and `:8452` — each listing the other by public key. A post published on one appears,
+re-verified and projected, on the other within a drain interval. Stop node-b, publish more, start it
+again: `Backfill` closes the gap from a durable cursor. Stop both with `pnpm ops:two-node:down`.
+
+Peer trust, scoped endpoints and transparency findings are visible at
+`/v1/federation/peers`, `/v1/federation/sth` and `/v1/federation/alerts`, and in the app's
+**Network & services** screen. Configuration is documented in [ops/README.md](ops/README.md).
+
 ## Repository map
 
 - `services/audit-log/` — independent third-party acknowledgement archive
@@ -73,6 +89,7 @@ pnpm build
 pnpm proto:check
 pnpm vectors
 pnpm smoke:local
+pnpm --filter @jagoo/backend exec vitest run src/federation   # FG-01..FG-10
 ```
 
 Contributor conventions and PR expectations are in [AGENTS.md](AGENTS.md).

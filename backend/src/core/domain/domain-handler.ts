@@ -68,6 +68,29 @@ export function registerRollback(tx: Tx, action: () => void): void {
   hooks?.onRollback?.(action);
 }
 
+/**
+ * Provenance the pipeline knows and the envelope cannot carry.
+ *
+ * The context CLAUDE.md §4.3 has always shown in the `DomainHandler` sketch. It exists for
+ * exactly one kind of question: "which node did this originate on?"
+ *
+ * ── Why an identifier can need this ────────────────────────────────────────────────
+ * A community ID is `<name>@<origin_fp>` and Plans/02 §7 requires it to be STABLE ACROSS
+ * NODES. The origin fingerprint is a server key, and no field of the signed envelope names
+ * a server — so a receiving node that derived it from ITS OWN key would project the same
+ * community under a different ID than the one every post's `scope` refers to. That is not
+ * a cosmetic mismatch: it is the community becoming unreachable the moment it federates,
+ * and it is the exact class of defect ID-01 exists to catch.
+ *
+ * This is provenance, never content. It is not signed, never re-encoded, and never
+ * influences whether an envelope is valid — only how a projection is keyed. See ADR-010
+ * for the multi-hop limitation and the contract change that removes it.
+ */
+export interface HandlerContext {
+  /** `jbs1…` — this node for a local publish, the delivering peer for a federated one. */
+  readonly originServerId: string;
+}
+
 export interface DomainHandler<TBody = unknown> {
   readonly domain: string;
   readonly plane: Plane;
@@ -76,10 +99,10 @@ export interface DomainHandler<TBody = unknown> {
   validate(body: TBody, env: ParsedEnvelope): ValidationResult;
 
   /** Reads projections; writes nothing. */
-  authorize(body: TBody, env: ParsedEnvelope): Promise<AuthDecision>;
+  authorize(body: TBody, env: ParsedEnvelope, ctx?: HandlerContext): Promise<AuthDecision>;
 
   /** Writes, in the same transaction as the witness-log append. */
-  project(body: TBody, env: ParsedEnvelope, tx: Tx): Promise<void>;
+  project(body: TBody, env: ParsedEnvelope, tx: Tx, ctx?: HandlerContext): Promise<void>;
 
   /** Notifications, fanout hints. Must not be able to roll the transaction back. */
   afterCommit?(body: TBody, env: ParsedEnvelope): Promise<void>;

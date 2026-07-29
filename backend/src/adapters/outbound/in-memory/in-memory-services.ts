@@ -37,6 +37,7 @@ import {
   PeerDirectory,
   SCOPE_PREFERENCE,
   type BackfillReport,
+  type FanoutOptions,
   type ReachabilityScope,
   type PeerRecord,
   type SelectedPath,
@@ -230,6 +231,9 @@ export class InMemoryPeerDirectory extends PeerDirectory {
   async upsert(record: PeerRecord): Promise<void> {
     this.peers.set(record.serverId, record);
   }
+  async all(): Promise<readonly PeerRecord[]> {
+    return [...this.peers.values()];
+  }
   async forScope(scope: ReachabilityScope): Promise<readonly PeerRecord[]> {
     return [...this.peers.values()].filter((p) => p.endpoints.some((e) => e.scope === scope));
   }
@@ -253,15 +257,30 @@ export class NarrowestScopePathSelector extends PathSelector {
   }
 }
 
+/**
+ * Records what step 19 asked for, without sending anything.
+ *
+ * `excludePeers` is retained rather than collapsed away because it is the FD-14 assertion
+ * surface: a two-node test proves the loop is closed by requiring the exclusion to be
+ * present, and a double that dropped it would make that test vacuous.
+ */
 export class InMemoryFederationOut extends FederationOut {
-  readonly queued: { envelope: ParsedEnvelope; targets: readonly string[] }[] = [];
+  readonly queued: {
+    envelope: ParsedEnvelope;
+    targets: readonly string[];
+    excludePeers: readonly string[];
+  }[] = [];
 
-  async enqueue(envelope: ParsedEnvelope, targets: readonly string[] = []): Promise<void> {
-    this.queued.push({ envelope, targets });
+  async enqueue(envelope: ParsedEnvelope, options: FanoutOptions = {}): Promise<void> {
+    this.queued.push({
+      envelope,
+      targets: options.targets ?? [],
+      excludePeers: options.excludePeers ?? [],
+    });
   }
 
-  async backfillFrom(_peerKey: string, _fromIndex: number): Promise<BackfillReport> {
-    return { received: 0, accepted: 0, rejected: 0 };
+  async backfillFrom(_peerId: string, _fromIndex: number): Promise<BackfillReport> {
+    return { received: 0, accepted: 0, rejected: 0, duplicates: 0 };
   }
 }
 

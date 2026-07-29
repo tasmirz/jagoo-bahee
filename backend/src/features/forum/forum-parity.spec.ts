@@ -36,6 +36,7 @@ import {
 } from '@jagoo/sdk/proto';
 import { Plane as SdkPlane, revocationAuthorizationBytes } from '@jagoo/sdk';
 import { ed25519 } from '@jagoo/sdk/crypto';
+import { InMemoryNodeSigner } from '../../adapters/outbound/in-memory/in-memory-node.js';
 import {
   buildHarness,
   signEnvelope,
@@ -77,7 +78,16 @@ import {
   type NotificationDoc,
 } from './shared/notification.projection.js';
 
-const SERVER_ID_PREFIX = 'jbs1';
+/**
+ * The node this harness runs as.
+ *
+ * Taken from the harness's OWN signer rather than a hand-written literal. A community's
+ * origin fingerprint is the node that accepted the create envelope (ADR-010), and the
+ * pipeline supplies it through `HandlerContext` — so a test that invented a second,
+ * different server id would be asserting against a node that does not exist, and would
+ * pass or fail for reasons unrelated to the behaviour under test.
+ */
+let originServerId: string;
 
 /** A second identity, for tests that need someone who is not the author. */
 const OTHER_SEED = new Uint8Array(32).fill(9);
@@ -111,9 +121,10 @@ function certify(key: Uint8Array): void {
 }
 
 beforeEach(async () => {
+  originServerId = new InMemoryNodeSigner().serverId;
   h = await buildHarness((registry, projections) => {
     for (const handler of forumHandlers(projections, {
-      serverId: `${SERVER_ID_PREFIX}test`,
+      serverId: originServerId,
       publicKey: new Uint8Array(32).fill(7),
       sign: () => new Uint8Array(64),
     })) {
@@ -133,7 +144,7 @@ beforeEach(async () => {
   });
   const community = await h.projections
     .collection<CommunityDoc>(COMMUNITIES_COLLECTION)
-    .findOne({ id: `dhaka_relief@${SERVER_ID_PREFIX}test` });
+    .findOne({ id: `dhaka_relief@${originServerId}` });
   communityId = community!.id;
   expect(created.contentId).toMatch(/^jb1/);
 });
@@ -142,7 +153,7 @@ beforeEach(async () => {
 
 describe('community (T1.21, COM-01, COM-19)', () => {
   it('COM-19 — identity is <name>@<origin_fp>, never a row ID', () => {
-    expect(communityId).toBe(`dhaka_relief@${SERVER_ID_PREFIX}test`);
+    expect(communityId).toBe(`dhaka_relief@${originServerId}`);
   });
 
   it('the creator is a member AND a moderator from the first moment', async () => {

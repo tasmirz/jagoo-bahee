@@ -30,3 +30,21 @@ export {
   UnknownDomainError,
   type BuildEnvelopeInput,
 } from './envelope-builder.js';
+export {
+  announceRequestSigningBytes,
+  announceResponseSigningBytes,
+  serverVouchSigningBytes,
+  treeHeadExchangeSigningBytes,
+  directoryExchangeSigningBytes,
+  federationCallAuthBytes,
+  type AnnounceRequestFields,
+  type AnnounceResponseFields,
+  type DirectoryExchangeFields,
+  type FederationEndpoint,
+  type FederationPeerRecord,
+  type FederationTreeHead,
+  type PeerObservationFields,
+  type QuotaFields,
+  type ServerVouchFields,
+  type TreeHeadExchangeFields,
+} from './federation-signing.js';

@@ -199,6 +199,24 @@ services:
   # Two independent nodes with SEPARATE databases. Sharing a database would let a test
   # pass because both nodes read the same rows rather than because federation actually
   # transferred and re-verified anything — the exact false green this harness must avoid.
+  #
+  # ── The demo Plans/08 asks for ──────────────────────────────────────────────────────
+  #   pnpm ops:two-node
+  #   post on http://localhost:3001  ->  appears on http://localhost:3002 within seconds
+  #   docker compose stop node-b; post 20 more; docker compose start node-b
+  #   -> Backfill closes the gap exactly, with no duplicates
+  #
+  # ── FEDERATION_PEERS is `base64key@scope=uri[;scope=uri][#trust]` ──────────────────
+  # The KEY is the peer identity (FD-02); the URI is mutable metadata, so a peer that
+  # changes address keeps its identity, its history and its trust. These two keys are
+  # derived from the NODE_SIGNING_SEEDs below — change a seed and you must change the key
+  # its partner lists, or the handshake signature will not verify.
+  #
+  # `#TRUSTED` is an operator decision, which `evaluateTrust` honours over every derived
+  # rule. It is used here so the harness exercises STH gossip and directory exchange,
+  # which are TRUSTED-only (FD-08). A real deployment would let TOFU place peers at
+  # PROBATION and let them earn reach — FD-01 exists precisely so an allowlist is never
+  # the only path.
   node-a:
     profiles: ['federation']
     build:
@@ -210,6 +228,8 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: development
       PORT: '3000'
@@ -217,6 +237,11 @@ services:
       REDIS_URL: 'redis://redis:6379/0'
       NODE_NAME: 'node-a'
       NODE_SIGNING_SEED: 'ERERERERERERERERERERERERERERERERERERERERERE='
+      FEDERATION_GRPC_LISTEN: '0.0.0.0:8444'
+      FEDERATION_ENDPOINTS: 'LAN=grpc://node-a:8444'
+      FEDERATION_PEERS: 'oJql9HpnWYAv+VX43C0qFKXJnSO+l/hkEn/5ODRVpPA=@LAN=grpc://node-b:8444#TRUSTED'
+      FEDERATION_DRAIN_INTERVAL_MS: '1000'
+      FEDERATION_GOSSIP_INTERVAL_MS: '30000'
       POW_SECRET: 'MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM='
       AUTH_ACCESS_SECRET: 'ERERERERERERERERERERERERERERERERERERERERERE='
       AUTH_REFRESH_SECRET: 'IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI='
@@ -226,6 +251,19 @@ services:
       S3_SECRET_KEY: 'jagoo-dev-only'
     ports:
       - '3001:3000'
+      # The federation port is published so an operator can point a THIRD node at this
+      # harness from the host. Peers inside the compose network dial `node-a:8444`.
+      - '8451:8444'
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
   node-b:
     profiles: ['federation']
@@ -238,6 +276,8 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: development
       PORT: '3000'
@@ -245,6 +285,11 @@ services:
       REDIS_URL: 'redis://redis:6379/1'
       NODE_NAME: 'node-b'
       NODE_SIGNING_SEED: 'IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI='
+      FEDERATION_GRPC_LISTEN: '0.0.0.0:8444'
+      FEDERATION_ENDPOINTS: 'LAN=grpc://node-b:8444'
+      FEDERATION_PEERS: '0EqyMnQrtKs6E2i9RhXk5tAiSrcaAWuvhSCjMsl3hzc=@LAN=grpc://node-a:8444#TRUSTED'
+      FEDERATION_DRAIN_INTERVAL_MS: '1000'
+      FEDERATION_GOSSIP_INTERVAL_MS: '30000'
       POW_SECRET: 'REREREREREREREREREREREREREREREREREREREREREQ='
       AUTH_ACCESS_SECRET: 'MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM='
       AUTH_REFRESH_SECRET: 'REREREREREREREREREREREREREREREREREREREREREQ='
@@ -254,6 +299,17 @@ services:
       S3_SECRET_KEY: 'jagoo-dev-only'
     ports:
       - '3002:3000'
+      - '8452:8444'
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
 volumes:
   mongo-data:

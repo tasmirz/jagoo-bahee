@@ -1,0 +1,370 @@
+/**
+ * `FederationSender` over gRPC — the OUTBOUND adapter (T2.1, T2.11, ADR-007).
+ *
+ * ── FD-11 / FG-07: every call here is one this node initiated ───────────────────────
+ * `Deliver` is client-streaming and `StreamActivities` is caller-initiated server
+ * streaming, so a node behind CGNAT pushes its content and receives its peers' content
+ * over connections it opened itself. No inbound port, no port forwarding, no UPnP. That is
+ * not a fallback mode — it is the default for a home or community node (FD-12), and it is
+ * why this file, not the server, is the minimum viable federation participant.
+ *
+ * ── The channel is per peer and is reused ──────────────────────────────────────────
+ * A long-lived HTTP/2 connection is the point: `Plans/05` §1 chose gRPC for federation
+ * precisely because links between servers are few, long-lived and operator-controlled.
+ * Dialling per call would pay a handshake for every envelope and defeat the choice.
+ */
+
+import { createChannel, createClient, type Channel } from 'nice-grpc';
+import { ChannelCredentials } from '@grpc/grpc-js';
+import {
+  AnnounceRequest,
+  BackfillRequest,
+  DirectoryExchange,
+  StreamRequest,
+  TreeHeadExchange,
+  TrustLevel,
+  type PeerEndpoint as WireEndpoint,
+} from '@jagoo/sdk/proto';
+import { announceRequestSigningBytes } from '@jagoo/sdk';
+import { serverId as serverIdOf } from '@jagoo/sdk/core';
+import type { Plane } from '../../../core/domain/envelope.js';
+import { SCOPE_PREFERENCE } from '../../../core/ports/network.port.js';
+import {
+  FederationSender,
+  PeerTrust,
+  type AnnounceOutcome,
+  type DeliverOutcome,
+  type PeerEndpoint,
+  type PeerRecord,
+  type PeerSthReport,
+  type StreamFilter,
+} from '../../../core/ports/network.port.js';
+import type { NodeSigner } from '../../../core/ports/node-signer.port.js';
+import type { Clock, RandomSource } from '../../../core/ports/system.port.js';
+import type { SignedTreeHead } from '../../../core/ports/transparency.port.js';
+import { FederationWireDefinition } from '../../inbound/grpc/raw-envelope-codec.js';
+import type { FederationRpcClient } from '../../inbound/grpc/federation.contract.js';
+import { signCallMetadata } from '../../inbound/grpc/peer-auth.js';
+import { fromWireErrorCode } from '../../inbound/grpc/error-map.js';
+import { WIRE_BY_SCOPE, type NodeIdentity } from '../../../core/app/federation-inbox.js';
+
+const WIRE_TO_TRUST: Readonly<Record<number, PeerTrust>> = {
+  [TrustLevel.TRUST_LEVEL_UNSPECIFIED]: PeerTrust.UNSPECIFIED,
+  [TrustLevel.TRUST_LEVEL_BLOCKED]: PeerTrust.BLOCKED,
+  [TrustLevel.TRUST_LEVEL_PROBATION]: PeerTrust.PROBATION,
+  [TrustLevel.TRUST_LEVEL_NORMAL]: PeerTrust.NORMAL,
+  [TrustLevel.TRUST_LEVEL_TRUSTED]: PeerTrust.TRUSTED,
+};
+
+const SCOPE_BY_WIRE: Readonly<Record<number, PeerEndpoint['scope']>> = {
+  1: 'GLOBAL',
+  2: 'NATIONAL',
+  3: 'ISP_LOCAL',
+  4: 'LAN',
+  5: 'MESH',
+  6: 'RETICULUM',
+};
+
+export interface FederationClientDeps {
+  readonly signer: NodeSigner;
+  readonly clock: Clock;
+  readonly random: RandomSource;
+  readonly identity: () => NodeIdentity;
+  /** Injected so tests can dial an in-process server without TLS. */
+  readonly credentials?: ChannelCredentials;
+}
+
+export class GrpcFederationSender extends FederationSender {
+  private readonly channels = new Map<string, Channel>();
+
+  constructor(private readonly deps: FederationClientDeps) {
+    super();
+  }
+
+  async announce(peer: PeerRecord): Promise<AnnounceOutcome> {
+    const client = this.clientFor(peer);
+    const identity = this.deps.identity();
+    const nowMs = this.deps.clock.nowMs();
+    const nonce = this.deps.random.bytes(16);
+
+    const fields = {
+      serverKey: identity.publicKey,
+      displayName: identity.displayName,
+      software: identity.software,
+      version: identity.version,
+      endpoints: identity.endpoints.map(toSignableEndpoint),
+      communities: identity.communities,
+      channels: identity.channels,
+      planes: identity.planes as readonly number[],
+      acceptedClasses: identity.acceptedClasses as readonly number[],
+      currentSth: undefined,
+      timestampMs: BigInt(nowMs),
+      nonce,
+    };
+
+    const response = await client.announce(
+      AnnounceRequest.fromPartial({
+        server_key: identity.publicKey,
+        display_name: identity.displayName,
+        software: identity.software,
+        version: identity.version,
+        endpoints: identity.endpoints.map(toWireEndpoint),
+        communities: [...identity.communities],
+        channels: [...identity.channels],
+        planes: [...identity.planes] as unknown as number[],
+        accepted_classes: [...identity.acceptedClasses] as unknown as number[],
+        timestamp_ms: BigInt(nowMs),
+        nonce,
+        signature: this.deps.signer.sign(announceRequestSigningBytes(fields)),
+      }),
+      { metadata: this.callMetadata('Announce') },
+    );
+
+    return {
+      peerKey: response.server_key,
+      assigned: WIRE_TO_TRUST[response.assigned] ?? PeerTrust.UNSPECIFIED,
+      endpoints: response.endpoints.map(fromWireEndpoint),
+      sth: response.current_sth ? fromWireSth(response.current_sth) : null,
+      quota: response.granted_quota
+        ? {
+            envelopesPerMin: response.granted_quota.envelopes_per_min,
+            bytesPerMin: Number(response.granted_quota.bytes_per_min),
+            maxConcurrentStreams: response.granted_quota.max_concurrent_streams,
+            allowedClasses: response.granted_quota.allowed_classes as never,
+          }
+        : null,
+    };
+  }
+
+  /**
+   * FG-10 — one call, one plane.
+   *
+   * The plane is a required parameter rather than something inferred from the batch,
+   * because inferring it would make "the batch happened to be homogeneous" and "the batch
+   * is guaranteed homogeneous" indistinguishable at the call site.
+   */
+  async deliver(
+    peer: PeerRecord,
+    _plane: Plane,
+    envelopes: readonly Uint8Array[],
+  ): Promise<DeliverOutcome> {
+    const client = this.clientFor(peer);
+    const metadata = this.callMetadata('Deliver');
+    const ack = await client.deliver(
+      (async function* () {
+        for (const raw of envelopes) yield raw;
+      })(),
+      { metadata },
+    );
+    return {
+      accepted: ack.accepted,
+      rejected: ack.rejected.map((rejection) => ({
+        contentId: rejection.content_id,
+        code: fromWireErrorCode(rejection.code),
+        detail: rejection.detail,
+      })),
+      backpressureHintMs: ack.backpressure_hint_ms,
+      ourLogSize: Number(ack.our_log_size),
+    };
+  }
+
+  async *streamActivities(
+    peer: PeerRecord,
+    filter: StreamFilter,
+    signal: AbortSignal,
+  ): AsyncIterable<Uint8Array> {
+    const client = this.clientFor(peer);
+    for await (const raw of client.streamActivities(
+      StreamRequest.fromPartial({
+        communities: [...(filter.communities ?? [])],
+        channels: [...(filter.channels ?? [])],
+        planes: [...(filter.planes ?? [])] as unknown as number[],
+        classes: [...(filter.classes ?? [])] as unknown as number[],
+        since_index: BigInt(filter.sinceIndex ?? 0),
+      }),
+      { metadata: this.callMetadata('StreamActivities'), signal },
+    )) {
+      yield raw;
+    }
+  }
+
+  async *backfill(
+    peer: PeerRecord,
+    filter: StreamFilter & { fromIndex: number; toIndex?: number; max?: number },
+  ): AsyncIterable<Uint8Array> {
+    const client = this.clientFor(peer);
+    for await (const raw of client.backfill(
+      BackfillRequest.fromPartial({
+        communities: [...(filter.communities ?? [])],
+        channels: [...(filter.channels ?? [])],
+        planes: [...(filter.planes ?? [])] as unknown as number[],
+        from_index: BigInt(filter.fromIndex),
+        to_index: BigInt(filter.toIndex ?? 0),
+        max: filter.max ?? 0,
+      }),
+      { metadata: this.callMetadata('Backfill') },
+    )) {
+      yield raw;
+    }
+  }
+
+  async exchangeTreeHeads(peer: PeerRecord): Promise<PeerSthReport> {
+    const client = this.clientFor(peer);
+    const identity = this.deps.identity();
+    const response = await client.exchangeTreeHeads(
+      TreeHeadExchange.fromPartial({
+        server_key: identity.publicKey,
+        observed: [],
+        signature: new Uint8Array(0),
+      }),
+      { metadata: this.callMetadata('ExchangeTreeHeads') },
+    );
+    return {
+      peerKey: response.server_key,
+      sth: response.sth ? fromWireSth(response.sth) : null,
+      observed: response.observed.map((observation) => ({
+        peerKey: observation.peer_key,
+        sth: observation.sth ? fromWireSth(observation.sth) : null,
+        observedAtMs: Number(observation.observed_at_ms),
+      })),
+    };
+  }
+
+  async exchangeDirectory(peer: PeerRecord): Promise<readonly PeerRecord[]> {
+    const client = this.clientFor(peer);
+    const response = await client.exchangeDirectory(
+      DirectoryExchange.fromPartial({
+        peers: [],
+        generated_at_ms: BigInt(this.deps.clock.nowMs()),
+        signature: new Uint8Array(0),
+      }),
+      { metadata: this.callMetadata('ExchangeDirectory') },
+    );
+    return response.peers.map((record) => ({
+      // FD-02 — the identity IS the key. An empty id here was silently upserted under `_id:
+      // ''`, so every peer a directory named collapsed into one junk record whose key and
+      // endpoints came from different nodes. That record then poisoned FD-10's observation
+      // relay and produced a FALSE FORK BLOCK against an honest peer.
+      serverId: record.server_key.length > 0 ? serverIdOf(record.server_key) : '',
+      publicKey: record.server_key,
+      displayName: record.display_name,
+      endpoints: record.endpoints.map(fromWireEndpoint),
+      trust: WIRE_TO_TRUST[record.trust] ?? PeerTrust.UNSPECIFIED,
+      planes: record.planes as never,
+      communities: record.communities,
+      channels: record.channels,
+      isBridge: record.is_bridge,
+      bridgedAsns: record.bridged_asns,
+      lastSeenMs: Number(record.last_seen_ms),
+    }));
+  }
+
+  private callMetadata(method: string) {
+    return signCallMetadata(
+      method,
+      this.deps.signer.publicKey,
+      (message) => this.deps.signer.sign(message),
+      this.deps.clock.nowMs(),
+      this.deps.random.bytes(16),
+    );
+  }
+
+  /**
+   * G-04 — dial the NARROWEST scope this peer advertises that we can use.
+   *
+   * Not an optimisation. Preferring `LAN` over `ISP_LOCAL` over `NATIONAL` over `GLOBAL`
+   * during NORMAL operation is what keeps the resilience path warm: a path only exercised
+   * during a blackout is untested code that will fail during a blackout.
+   */
+  private clientFor(peer: PeerRecord): FederationRpcClient {
+    const endpoint = this.narrowestEndpoint(peer);
+    if (!endpoint) throw new Error(`peer ${peer.serverId} advertises no dialable endpoint`);
+    const address = endpoint.address.replace(/^grpcs?:\/\//, '');
+
+    let channel = this.channels.get(address);
+    if (!channel) {
+      channel = createChannel(
+        address,
+        this.deps.credentials ?? ChannelCredentials.createInsecure(),
+      );
+      this.channels.set(address, channel);
+    }
+    // See `federation.contract.ts`: nice-grpc's derived request/response types are
+    // unusable because ts-proto's `Exact<>` generic is resolved through `Parameters<>`.
+    // `FederationRpcClient` states the same contract in the generated message types.
+    return createClient(FederationWireDefinition, channel) as unknown as FederationRpcClient;
+  }
+
+  private narrowestEndpoint(peer: PeerRecord): PeerEndpoint | null {
+    for (const scope of SCOPE_PREFERENCE) {
+      const endpoint = peer.endpoints.find(
+        (candidate) => candidate.scope === scope && candidate.address.startsWith('grpc'),
+      );
+      if (endpoint) return endpoint;
+    }
+    return peer.endpoints.find((candidate) => candidate.address.startsWith('grpc')) ?? null;
+  }
+
+  close(): void {
+    for (const channel of this.channels.values()) channel.close();
+    this.channels.clear();
+  }
+}
+
+function toSignableEndpoint(endpoint: PeerEndpoint) {
+  return {
+    uri: endpoint.address,
+    scope: WIRE_BY_SCOPE[endpoint.scope] ?? 0,
+    asn: endpoint.asn ?? 0,
+    ispName: endpoint.isp ?? '',
+    region: endpoint.region ?? '',
+    inboundCapable: endpoint.inboundCapable ?? false,
+    lastOkAtMs: BigInt(endpoint.lastOkAtMs ?? 0),
+    rttMs: endpoint.rttMs ?? 0,
+    consecutiveFailures: endpoint.consecutiveFailures ?? 0,
+  };
+}
+
+function toWireEndpoint(endpoint: PeerEndpoint) {
+  return {
+    uri: endpoint.address,
+    scope: WIRE_BY_SCOPE[endpoint.scope] ?? 0,
+    asn: endpoint.asn ?? 0,
+    isp_name: endpoint.isp ?? '',
+    region: endpoint.region ?? '',
+    inbound_capable: endpoint.inboundCapable ?? false,
+    last_ok_at_ms: BigInt(endpoint.lastOkAtMs ?? 0),
+    rtt_ms: endpoint.rttMs ?? 0,
+    consecutive_failures: endpoint.consecutiveFailures ?? 0,
+  };
+}
+
+function fromWireEndpoint(endpoint: WireEndpoint): PeerEndpoint {
+  return {
+    address: endpoint.uri,
+    scope: SCOPE_BY_WIRE[endpoint.scope] ?? 'GLOBAL',
+    asn: endpoint.asn,
+    isp: endpoint.isp_name,
+    region: endpoint.region,
+    inboundCapable: endpoint.inbound_capable,
+    lastOkAtMs: Number(endpoint.last_ok_at_ms),
+    rttMs: endpoint.rtt_ms,
+    consecutiveFailures: endpoint.consecutive_failures,
+  };
+}
+
+function fromWireSth(sth: {
+  server_key: Uint8Array;
+  tree_size: bigint;
+  root_hash: Uint8Array;
+  timestamp_ms: bigint;
+  signature: Uint8Array;
+}): SignedTreeHead {
+  return {
+    serverKey: sth.server_key,
+    treeSize: Number(sth.tree_size),
+    rootHash: sth.root_hash,
+    timestampMs: Number(sth.timestamp_ms),
+    signature: sth.signature,
+  };
+}

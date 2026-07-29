@@ -11,7 +11,15 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { certificateStatus, listAuditCertificates, type StoredAuditCertificate } from '../audit';
-import { useFederations } from '../data/node';
+import {
+  sortByScope,
+  useFederationAlerts,
+  useFederationPeers,
+  useFederations,
+  useNodeTreeHead,
+  type FederationPeer,
+} from '../data/node';
+import { translate, type Locale, type MessageKey } from '../i18n';
 import type { HomeNode } from '../data/node-config';
 import type { AppPalette } from '../theme';
 import { radius, spacing, type as typography } from '../theme';
@@ -189,23 +197,118 @@ function ServiceRow({
   );
 }
 
+/**
+ * One federated peer.
+ *
+ * ── Colour is never the sole carrier of meaning ────────────────────────────────────
+ * Trust and reachability each carry a TEXT label as well as an icon and a tint, because a
+ * user with a colour-vision difference, on a washed-out screen in daylight, must be able to
+ * tell a `TRUSTED` peer from a brand-new one. The scopes are listed narrowest-first, the
+ * same order the node itself prefers (TP-01), so "same ISP" is what the eye lands on —
+ * that is the address that still works when the gateway drops.
+ */
+function PeerRow({
+  colors,
+  locale,
+  peer,
+}: {
+  readonly colors: AppPalette;
+  readonly locale: Locale;
+  readonly peer: FederationPeer;
+}) {
+  const trustLabel = translate(locale, TRUST_LABEL[peer.trust] ?? 'trustUnknown');
+  const endpoints = sortByScope(peer.endpoints);
+  const tint =
+    peer.trust === 'TRUSTED'
+      ? colors.verified
+      : peer.trust === 'NORMAL'
+        ? colors.ember
+        : colors.constrained;
+  return (
+    <View
+      accessibilityLabel={`${peer.displayName || peer.serverId}, ${trustLabel}, ${peer.vouchCount} vouches`}
+      style={styles.serviceRow}
+    >
+      <View style={[styles.serviceIcon, { backgroundColor: colors.surface2 }]}>
+        <Ionicons color={tint} name="git-network-outline" size={19} />
+      </View>
+      <View style={styles.flex}>
+        <Text style={[typography.label, { color: colors.text }]}>
+          {peer.displayName || peer.serverId.slice(0, 18)}
+        </Text>
+        <Text numberOfLines={1} selectable style={[typography.mono, { color: colors.text2 }]}>
+          {peer.serverId}
+        </Text>
+        <View style={styles.peerTags}>
+          {/* The trust level, as words. Never only a colour. */}
+          <Text style={[typography.caption, { color: tint }]}>{trustLabel}</Text>
+          {peer.vouchCount > 0 ? (
+            <Text style={[typography.caption, { color: colors.text3 }]}>
+              {translate(locale, 'vouches', { count: String(peer.vouchCount) })}
+            </Text>
+          ) : null}
+          {endpoints.map((endpoint) => (
+            <Text
+              key={`${peer.serverId}-${endpoint.uri}`}
+              style={[typography.caption, { color: colors.text3 }]}
+            >
+              {translate(locale, SCOPE_LABEL[endpoint.scope] ?? 'reachGlobal')}
+            </Text>
+          ))}
+          {endpoints.length === 0 ? (
+            // FD-12: a node behind CGNAT advertises nothing and still federates fully. That
+            // is a normal deployment, so it must not read as a fault.
+            <Text style={[typography.caption, { color: colors.text3 }]}>outbound-only</Text>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const TRUST_LABEL: Readonly<Record<string, MessageKey>> = {
+  PROBATION: 'trustProbation',
+  NORMAL: 'trustNormal',
+  TRUSTED: 'trustTrusted',
+  UNSPECIFIED: 'trustUnknown',
+};
+
+const SCOPE_LABEL: Readonly<Record<string, MessageKey>> = {
+  LAN: 'reachLan',
+  ISP_LOCAL: 'reachIspLocal',
+  NATIONAL: 'reachNational',
+  GLOBAL: 'reachGlobal',
+  MESH: 'reachMesh',
+  RETICULUM: 'reachReticulum',
+};
+
 export function NetworkScreen({
   colors,
   homeNode,
   reach,
+  locale = 'en',
   onBack,
   onChangeServer,
 }: {
   readonly colors: AppPalette;
   readonly homeNode: HomeNode;
   readonly reach: ReachState;
+  readonly locale?: Locale;
   readonly onBack: () => void;
   readonly onChangeServer: () => void;
 }) {
   const federations = useFederations(homeNode.baseUrl);
+  const peerDirectory = useFederationPeers(homeNode.baseUrl);
+  const treeHeadQuery = useNodeTreeHead(homeNode.baseUrl);
+  const alertQuery = useFederationAlerts(homeNode.baseUrl);
   const auditLogs = homeNode.discovery.services.auditLogs;
   const mcaptcha = homeNode.discovery.services.mcaptcha;
-  const peers = federations.data?.value.items ?? [];
+  // Every one of these renders from cache when the request fails, which is the whole point:
+  // the peer list is most needed exactly when it cannot be refreshed.
+  const federationPeers = peerDirectory.data?.value.items ?? [];
+  const treeHead = treeHeadQuery.data?.value ?? null;
+  const alerts = alertQuery.data?.value.items ?? [];
+  const legacyServices = federations.data?.value.items ?? [];
   return (
     <Screen colors={colors}>
       <View style={[styles.detailHeader, { borderBottomColor: colors.border }]}>
@@ -283,31 +386,69 @@ export function NetworkScreen({
         </View>
 
         <Text style={[typography.h2, styles.sectionTitle, { color: colors.text }]}>
-          Federated nodes
+          {translate(locale, 'federatedNodes')}
         </Text>
-        {peers.length > 0 ? (
+        {treeHead ? (
+          <Text style={[typography.caption, { color: colors.text2 }]}>
+            {translate(locale, 'logSize', { count: String(treeHead.treeSize) })}
+          </Text>
+        ) : null}
+        {federationPeers.length > 0 ? (
           <View style={[styles.serviceList, { borderColor: colors.border }]}>
-            {peers.map((service, index) => (
-              <View key={service.id}>
-                <ServiceRow
-                  address={service.address}
-                  available={service.available}
-                  colors={colors}
-                  icon="git-network-outline"
-                  title={service.id}
-                />
-                {index < peers.length - 1 ? <Divider colors={colors} /> : null}
+            {federationPeers.map((peer, index) => (
+              <View key={peer.serverId}>
+                <PeerRow colors={colors} locale={locale} peer={peer} />
+                {index < federationPeers.length - 1 ? <Divider colors={colors} /> : null}
               </View>
             ))}
           </View>
         ) : (
           <StatusBanner
-            body="Posting still works locally. Federation peers appear here when the operator connects them."
+            body={translate(locale, 'noPeersBody')}
             colors={colors}
             icon="git-network-outline"
-            title="No connected peers"
+            title={translate(locale, 'noPeers')}
           />
         )}
+
+        {alerts.length > 0 ? (
+          <>
+            <Text style={[typography.h2, styles.sectionTitle, { color: colors.text }]}>
+              {translate(locale, 'peerAlerts')}
+            </Text>
+            {alerts.map((alert) => (
+              <StatusBanner
+                body={`${alert.subject} — ${alert.detail}`}
+                colors={colors}
+                icon="warning-outline"
+                key={alert.id}
+                title={alert.code}
+              />
+            ))}
+          </>
+        ) : null}
+
+        {legacyServices.length > 0 ? (
+          <>
+            <Text style={[typography.h2, styles.sectionTitle, { color: colors.text }]}>
+              Operator-configured links
+            </Text>
+            <View style={[styles.serviceList, { borderColor: colors.border }]}>
+              {legacyServices.map((service, index) => (
+                <View key={service.id}>
+                  <ServiceRow
+                    address={service.address}
+                    available={service.available}
+                    colors={colors}
+                    icon="git-network-outline"
+                    title={service.id}
+                  />
+                  {index < legacyServices.length - 1 ? <Divider colors={colors} /> : null}
+                </View>
+              ))}
+            </View>
+          </>
+        ) : null}
 
         <View style={styles.pageActions}>
           <Button
@@ -529,6 +670,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: radius.lg,
     overflow: 'hidden',
+  },
+  peerTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
   },
   serviceRow: {
     minHeight: 72,

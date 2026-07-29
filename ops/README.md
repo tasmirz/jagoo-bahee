@@ -42,6 +42,51 @@ Set `NODE_ENV=production` and provide:
 | `MCAPTCHA_SERVICES`                        | mCaptcha `host:port` values advertised to clients          |
 | `FEDERATION_SERVICES`                      | Connected peer endpoints listed by `/federations`          |
 
+### Federation (P2)
+
+Federation is **off unless configured** (AR-12). A node with none of these set behaves exactly as a
+single instance.
+
+| Variable                          | Purpose                                                                       |
+| --------------------------------- | ----------------------------------------------------------------------------- |
+| `FEDERATION_GRPC_LISTEN`          | `host:port` for the inbound gRPC server. **Omit for outbound-only** (FD-12).  |
+| `FEDERATION_ENDPOINTS`            | `SCOPE=uri`, comma separated — this node's own addresses, one per scope       |
+| `FEDERATION_PEERS`                | `base64key@SCOPE=uri[;SCOPE=uri][#TRUST]`, comma separated                    |
+| `FEDERATION_OUTBOUND_ONLY`        | `true` to advertise nothing even with a listen address                        |
+| `FEDERATION_DRAIN_INTERVAL_MS`    | Outbox drain cadence; defaults to `1000`                                      |
+| `FEDERATION_GOSSIP_INTERVAL_MS`   | STH gossip and directory exchange cadence; defaults to `300000` (FD-08)       |
+
+**A peer is its KEY, never its URL** (FD-02). The address is mutable metadata — a peer that changes
+domain keeps its identity, its history and its trust. Get a peer's key from its
+`GET /.well-known/jagoo-bahee` (`serverKey`, base64).
+
+**Scope is declared, never guessed.** `FEDERATION_ENDPOINTS` requires an explicit scope per address
+because FD-17 depends on a node knowing which of its own addresses is reachable from where, and
+inferring it from an IP range is wrong for exactly the CGNAT and multi-homed cases this system serves.
+List every scope, not just the public one — that is how a client on the same ISP learns the ISP-local
+address *before* the gateway drops.
+
+**`#TRUST` is an operator override**, honoured above every derived rule. Leave it off in normal
+operation: FD-01 exists so that an allowlist is never the only path to federate, and TOFU admits new
+peers at `PROBATION` where they earn reach through vouches or seven clean days.
+
+**Outbound-only is the default for a home or community node.** With no `FEDERATION_GRPC_LISTEN`, the
+node binds no port, advertises no address, and still federates fully in both directions — `Deliver`
+and `StreamActivities` both run over connections it opened (FD-11). No port forwarding, no UPnP.
+
+Two nodes that federate for real:
+
+```powershell
+pnpm ops:two-node          # node-a :3001 / gRPC :8451, node-b :3002 / gRPC :8452
+                           # separate databases, each listing the other by key
+Invoke-RestMethod http://localhost:3001/v1/federation/peers
+Invoke-RestMethod http://localhost:3001/v1/federation/alerts
+pnpm ops:two-node:down
+```
+
+Federation state — the direction ledger, peer directory, outbox and cursors — is **derived**, like
+every other projection. Only the envelope store is backup-critical.
+
 The service variables accept comma-separated HTTP(S) URLs or bare `host:port` values. The
 independent audit log listens on port 3100 in the local Compose stack and persists its
 append-only hash chain in the `audit-log-data` volume.
@@ -63,7 +108,8 @@ The machine-readable OpenAPI export is served at `/docs-json`. The protobuf file
 
 ## Verification and Recovery
 
-CI starts Mongo and Redis and runs the real VP-02, P1-G6, and cache integration gates.
+CI starts Mongo and Redis and runs the real VP-02, P1-G6, cache, and FD-05 federation-ledger
+integration gates, and runs FG-01…FG-10 as a separate blocking job.
 With those services running locally, execute the same focused checks:
 
 ```powershell

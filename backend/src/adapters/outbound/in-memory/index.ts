@@ -27,3 +27,8 @@ export {
   RecordingNotificationSink,
 } from './in-memory-services.js';
 export { InMemoryServiceDirectory } from './in-memory-service-directory.js';
+export {
+  InMemoryFederationLedger,
+  InMemoryFederationOutbox,
+} from './in-memory-federation.js';
+export { InMemoryPeerQuotaLimiter, InMemoryOperatorAlerts } from './in-memory-quota.js';

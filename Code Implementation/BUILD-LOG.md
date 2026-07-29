@@ -39,6 +39,13 @@ Rules earned the hard way. Violating one of these has already cost time.
 | L-13 | Never locate a file by counting `../` from `import.meta.url`. It works until the output layout changes depth, then silently reads the wrong path. Walk up to a marker file (`pnpm-workspace.yaml`) instead.                                                                                                                                                                                                | sdk interop                                                                        |
 | L-14 | Prove a proof system over a SWEEP of sizes, not one example. Both Merkle bugs returned correct answers for the tree shapes a hand-picked case would have used, and failed only at specific ones. Iterate every size in a range for anything recursive.                                                                                                                                                     | T1.5                                                                               |
 | L-15 | Under vitest, Nest DI cannot rely on `emitDecoratorMetadata` — esbuild does not emit it, so dependencies arrive as `undefined` with no wiring-time error. Inject explicitly with `@Inject(TOKEN)` (ADR-002).                                                                                                                                                                                               | T1.7                                                                               |
+| L-17 | **An identifier derived from the LOCAL node cannot be stable across nodes.** Any projection keyed on `nodeSigner.serverId` is wrong the first time a peer projects the same envelope. Before deriving an ID, ask: would a different node, given only these bytes, compute the same value? If not, it is a row ID wearing a better name (ID-01).                                                            | ADR-010, found by the P2 two-node gate on its first run                            |
+| L-18 | **A one-node test suite cannot see a two-node bug, and it will look green while the feature is broken.** The community-origin defect passed 230 single-node tests. Whenever a phase adds a second participant, the gate for that phase must instantiate two genuinely independent stacks — separate stores, keys, and logs — because sharing any of them reproduces the false green it exists to prevent. | FG-03                                                                              |
+| L-19 | **A port whose consumers need different halves must be split, or the composition root cannot construct it.** `FederationOut` carrying both `enqueue` and `backfillFrom` made the outbox depend on the pipeline while the pipeline depended on the outbox. Interface Segregation is not tidiness here — the cycle is a hard build failure, and narrowing the port removed it.                                | P2 wiring                                                                          |
+| L-20 | **A green in-process gate does not mean the deployed artefact runs.** FG-01…FG-10 passed while the production Docker image could not boot: `@bufbuild/protobuf` was a *runtime* dependency of generated sdk code but declared nowhere, resolved only by hoisting from the ROOT dev tree, and `pnpm install --prod` drops it. Run the real image, not just the test harness, before claiming a phase.       | `pnpm ops:two-node`                                                                |
+| L-21 | **An identifier defaulted to `''` becomes one shared database row.** `exchangeDirectory` returned `serverId: ''`; every peer a directory named upserted onto `_id: ''`, producing one document with one node's key and another's endpoints — which then poisoned FD-10's observation relay into a FALSE FORK BLOCK. Never persist an entity whose identity field is empty; discard it and say why.        | container run                                                                      |
+| L-22 | **Any check that can BLOCK a peer must verify the claim belongs to that peer.** FD-10 relays tree heads labelled by the RELAYER. Without matching `sth.serverKey` to the peer it is attributed to, any peer could get any other blocked by relaying a mislabelled head — and BLOCKED needs an operator to lift, so a false positive is a long-tailed denial of service.                                   | container run                                                                      |
+| L-23 | **Node-local secrets cannot gate federated content.** Proof of work, credits, blind credentials and nullifiers are each keyed to ONE node by design. A proof minted for A is meaningless on B, so re-charging on arrival makes every gated domain unfederatable. Admission cost is charged at origin; the receiver's protection is the per-peer quota (ADR-011).                                          | container run                                                                      |
 
 ---
 
@@ -501,7 +508,6 @@ is clean.
 
 ## P2 — Federation ★ PRIMARY
 
-_(not started)_
 ### 2026-07-29 — portable acknowledgements, service discovery, and client proof vault
 
 - Added root `/health` discovery for the node's requested/local addresses, audit-log services,
@@ -516,3 +522,133 @@ _(not started)_
   responsive network/proof screens following `Plans/design.md`.
 - Acceptance is covered by SDK-backed HTTP tests, audit-service tests, Expo onboarding/shell
   tests, and the normal lint/typecheck gates. See ADR-009.
+
+---
+
+### 2026-07-29 — P2 complete: two independent instances exchange, verify, and project content [P2]
+
+**Built:** T2.1–T2.16, the whole catalogue. `P2-FEDERATION-PLAN.md` §4 holds the gate table.
+
+- **SDK** — `signer/federation-signing.ts`. Length-prefixed signing bytes for `AnnounceRequest`,
+  `AnnounceResponse`, `ServerVouch`, `TreeHeadExchange`, `DirectoryExchange`, plus a
+  method-bound per-call auth token. 11 tests, every one of them a pair of payloads a
+  concatenating encoder would render identically.
+- **Pure domain** — `core/domain/federation/{trust,announce,backoff,quota,stream-filter}.ts`.
+  The whole `Plans/05` §3 promotion table, the handshake checks, the retry schedule, the
+  token bucket, and the FG-10 plane guard, as functions of their arguments. 51 tests,
+  including "7 days clean promotes to NORMAL" as a unit test rather than a seven-day one.
+- **Ports** — `network.port.ts` gains five trust levels, a richer `PeerRecord`,
+  `FederationSender`, `FederationLedger`, `FederationOutbox`, `PeerQuotaLimiter` and
+  `IngressOrigin`; `alerts.port.ts` is new.
+- **App** — `FederationInbox` (announce/TOFU, deliver, quota, select, fork detection),
+  `FederationOutboxService` (fanout, drain, backoff, dead-letter), `FederationSync`
+  (handshake, backfill, live pull, gossip, directory).
+- **Adapters** — `nice-grpc` server and client over the generated `FederationDefinition`
+  (ADR-007), the ADR-008 §1 passthrough codec, per-call peer authentication over metadata,
+  Mongo ledger/directory/outbox, Redis Lua quota buckets and durable alerts, in-memory
+  doubles for all of it.
+- **HTTP** — `/.well-known/jagoo-bahee`, `/.well-known/nodeinfo`, `/nodeinfo/2.1`,
+  `/v1/federation/{peers,sth,directory,alerts}`.
+- **Client** — the network screen now reads the real peer directory, showing trust and
+  reachability as WORDS as well as colour, narrowest scope first, in Bangla and English,
+  rendered from cache when the request fails.
+- **Ops/CI** — `pnpm ops:two-node` brings up two nodes with separate databases, real gRPC
+  on 8444, and each listing the other by key. A dedicated blocking CI job runs FG-01…FG-10.
+
+**Verified:** lint 5/5 · typecheck 6/6 · build 5/5 · **356 workspace tests pass** (backend
+257, sdk 65, frontend 32, audit-log 2) with 3 real-infrastructure tests skipped locally ·
+`pnpm vectors` 3 implementations agree on 16 vectors · `proto:check` in sync · `buf lint`
+clean · `pnpm smoke:local` passes · `git diff --check` clean. **Zero rows added to
+`registry.yaml` and zero edits under `proto/`** — `proto:check` staying clean is the proof
+the freeze held.
+
+**Broke — one real defect, found by the gate on its first run:**
+
+1. **A federated community was unmoderatable, and it looked fine.** `CommunityCreateHandler`
+   computed `communityId(name, this.nodeSigner.serverId)` — the **projecting** node. So B
+   stored A's community as `dhaka_relief@jbs1<B>` while every post's `scope` said
+   `@jbs1<A>`. Posts still landed (their handler tolerates a missing community, because
+   federation legitimately delivers a post before its community), so the feed looked
+   correct; every moderation action failed with `community is not known here`, and every
+   membership and permission check on B resolved against a document no envelope refers to.
+   This is ID-01 arriving through a different door than v1's Mongo ObjectIds, and **230
+   single-node tests could not see it** — with one node, "the projecting node" and "the
+   origin node" are the same node. Fixed by threading origin through the `HandlerContext`
+   CLAUDE.md §4.3 always documented; see **ADR-010**, which also records the multi-hop
+   limitation and the v2 contract change that removes it.
+2. **The composition root would not construct.** `FederationOut` carried both `enqueue`
+   (which the pipeline needs) and `backfillFrom` (which needs the pipeline). Narrowing the
+   port to step-19 fanout and moving catch-up to `FederationSync` removed the cycle — an
+   Interface Segregation violation that manifested as a hard build failure rather than as
+   an aesthetic complaint.
+3. **nice-grpc's derived request/response types are unusable with ts-proto.**
+   `TsProtoMessageIn` resolves `fromPartial<I extends Exact<DeepPartial<T>, I>>` through
+   `Parameters<>`, which collapses the generic to its own constraint and produces
+   intersections like `string[] & { [x: string]: never }` that no value satisfies. The
+   runtime is entirely fine. Stated the contract once in `federation.contract.ts` in the
+   generated message types, and cast at the two lines where the type systems meet, rather
+   than scattering `as never` through the adapter.
+
+**Learned:** **L-17**, **L-18**, **L-19** in the table above.
+
+**Deferred, deliberately, with owners:** persisting `verifyPeerSth`'s in-process `Map`
+inside `LocalMerkleLog`/`MongoMerkleLog` (the Mongo *ledger* persists peer heads and is what
+production uses; the witness log's copy is still per-process). Multi-hop community origin
+(ADR-010). Both are recorded in `P2-FEDERATION-PLAN.md` §5.
+
+**Next:** P3 — ISP availability and bridging. `T3.11 BridgeRelay` is the phase that must not
+ship before ADR-010's contract fix, because relay is exactly where the delivering peer stops
+being the origin.
+
+---
+
+### 2026-07-29 — running the real image found four things the green gate could not [P2]
+
+FG-01…FG-10 were passing. `pnpm ops:two-node` then failed at every stage in turn, and each
+failure was real.
+
+**1. The production image could not boot.** `Error: Cannot find module '@bufbuild/protobuf/wire'`.
+The generated sdk imports it at RUNTIME, but it was declared nowhere — resolved only by hoisting
+from the root's dev tree, which `pnpm install --prod` correctly drops. Every in-process test and
+every host-side `node backend/dist/main.js` run had hidden it. Declared as a real dependency of
+`@jagoo/sdk`. **L-20.**
+
+**2. A junk peer record, from one defaulted field.** `GrpcFederationSender.exchangeDirectory`
+returned `serverId: ''`. `FederationSync.exchangeDirectories` upserted it, so every peer a
+directory named collapsed onto `_id: ''` — one document holding one node's key beside another
+node's endpoints. Fixed by deriving the id from the key (FD-02), discarding records that cannot be
+named, and skipping this node's own record. **L-21.**
+
+**3. That junk record then made two honest nodes block each other.** FD-10 relays observations
+labelled by the RELAYER, so the mismatched record fed node-a its own tree head under node-b's key.
+Sizes coincided, roots did not, and each node recorded a fork against the other — `BLOCKED`, which
+only an operator can lift. `observePeerSth` now discards a head whose `serverKey` does not match
+the peer it is attributed to. This is a security fix, not a tidy-up: without it any peer can get
+any other peer blocked. **L-22.**
+
+**4. No gated domain could federate at all.** With delivery finally working, every envelope was
+rejected on arrival — `INSUFFICIENT_CREDITS: valid proof of work required`, then
+`NO_CERTIFICATE` for everything that depended on the certificate that had just been refused. The
+proof was valid; it was minted against node A's `POW_SECRET`, and node B has its own. Every
+anti-abuse gate is keyed to one node BY DESIGN, so this is structural: re-charging on arrival
+makes 29 of 30 Forum rows unfederatable. Admission cost is now charged at origin, and the
+receiver's protection is the per-peer per-class quota P2 built for exactly this
+(**ADR-011**). **L-23.**
+
+Two smaller fixes on the way through: the gRPC service returned `UNKNOWN: Unknown server error
+occurred` when refusing a blocked peer, so the sender's outbox treated a permanent refusal as
+transient and retried forever — the streaming paths now return the typed status. And `seed:demo`
+reported a bare `HTTP 404` with no indication of which of its dozen calls failed, and used a
+hardcoded nullifier salt that made it single-use per epoch.
+
+**Verified after the fixes, in containers:** two nodes, separate databases, mutual handshake at
+`TRUSTED`; a seeded post on node-a projected on node-b; the community keyed
+`welcome@jbs12bfl…` — **node-a's** server id — on both, which is ADR-010 working in a real
+deployment. Then node-b stopped, nine envelopes published on node-a and held in the durable
+outbox, node-b restarted: 12/12 envelopes on both nodes, 12 inbound ledger rows, zero dead
+letters, zero duplicates.
+
+**Learned:** **L-20** through **L-23**. The general form: *the gate proves the logic; only the
+artefact proves the deployment.* Every one of these four sat behind a boundary the in-process
+harness does not cross — packaging, a second database, a third party's relayed claim, and two
+nodes with different secrets.

@@ -24,7 +24,7 @@
  */
 
 import type { ParsedEnvelope } from '../domain/envelope.js';
-import type { Tx } from '../domain/domain-handler.js';
+import type { HandlerContext, Tx } from '../domain/domain-handler.js';
 import { EnvelopeRejected, RejectionCode } from '../domain/errors.js';
 import type { DomainRegistry } from '../domain/domain-registry.js';
 import { acceptDomain, acceptPlane, acceptVersion } from '../domain/accept.js';
@@ -52,7 +52,14 @@ import {
 } from '../ports/storage.port.js';
 import type { CertificateStore, SignatureVerifier } from '../ports/identity.port.js';
 import type { WitnessLog } from '../ports/transparency.port.js';
-import type { FederationOut } from '../ports/network.port.js';
+import {
+  DuplicateFederationEntryError,
+  FederationDirection,
+  LOCAL_ORIGIN,
+  type FederationLedger,
+  type FederationOut,
+  type IngressOrigin,
+} from '../ports/network.port.js';
 import type { NodeSigner } from '../ports/node-signer.port.js';
 import type { Clock } from '../ports/system.port.js';
 import type { EventBus } from '../ports/events.port.js';
@@ -76,6 +83,8 @@ export interface IngressDeps {
   readonly nodeSigner: NodeSigner;
   readonly clock: Clock;
   readonly federation?: FederationOut;
+  /** ADR-008 §2 — the `(content_id, direction)` dedupe row, written inside the same tx. */
+  readonly federationLedger?: FederationLedger;
   readonly events?: EventBus;
   readonly cache?: TaggedCache;
   readonly clockWindow?: ClockWindow;
@@ -90,8 +99,17 @@ export class IngressPipeline {
    * Returns a receipt on acceptance, and on a duplicate returns the ORIGINAL receipt
    * rather than an error (ER-01). Any other failure throws `EnvelopeRejected` carrying the
    * typed code from `Plans/02` §6.
+   *
+   * ── `origin` changes what happens AFTER acceptance, never whether it happens ───────
+   * FD-03 is unconditional: an envelope arriving over gRPC from a peer runs exactly these
+   * steps, in exactly this order, with exactly these checks. Peer trust affects quota
+   * only, and quota is spent at the transport boundary before this method is called.
+   * All `origin` does here is record the direction row (ADR-008 §2) and tell step 19 which
+   * peer NOT to relay back to (FD-14) — otherwise A fans out to B, B accepts and fans out
+   * to A, and every envelope makes a full network round trip forever. Content dedupe makes
+   * that loop terminate; it does not make it free.
    */
-  async accept(raw: Uint8Array): Promise<Receipt> {
+  async accept(raw: Uint8Array, origin: IngressOrigin = LOCAL_ORIGIN): Promise<Receipt> {
     const d = this.deps;
 
     // ── 1. SIZE — on raw bytes, before parse ──────────────────────────────────────────
@@ -141,11 +159,36 @@ export class IngressPipeline {
 
     // ── 13. ANTI-ABUSE — the first step permitted to mutate state ─────────────────────
     // Everything above this line is read-only, which is what VP-01 guarantees.
-    await acceptAntiAbuse(envelope, spec, d.antiAbuse);
+    //
+    // ── Why a federated envelope does not pay again (ADR-011) ────────────────────────
+    // Every anti-abuse gate is keyed to ONE node. `StatelessArgon2Pow` is keyed on that
+    // node's `POW_SECRET`, credits are that node's ledger, blind credentials are signed by
+    // that node's issuer, and nullifiers are spent in that node's registry. A proof minted
+    // for node A is not merely unverifiable on node B — it is meaningless there, and B
+    // rejecting it is B saying "this was not bought from me".
+    //
+    // Charging again on arrival would therefore make EVERY gated domain unfederatable,
+    // which is the PRIMARY goal traded away for a cost the sender already paid once. So
+    // admission cost is charged at origin, and the receiving node's protection is the
+    // per-peer, per-class quota spent at the transport boundary before this method is
+    // called (FD-15) plus the trust level that bounds which classes a peer may push at all
+    // (FG-09).
+    //
+    // FD-03 is untouched. Verification — canonical form, signature, certificate, clock,
+    // dedupe, replay, authorisation, body validity — runs identically for every envelope
+    // from every transport. What is skipped is a PAYMENT, not a CHECK.
+    if (!origin.peerId) {
+      await acceptAntiAbuse(envelope, spec, d.antiAbuse);
+    }
 
     // ── 14. AUTHORISE — against projections, writes nothing ──────────────────────────
+    // The context carries provenance the envelope cannot: which node this originated on.
+    // It never affects VALIDITY — only how an origin-scoped identifier is keyed (ADR-010).
+    const context: HandlerContext = {
+      originServerId: origin.originServerId ?? d.nodeSigner.serverId,
+    };
     const body = this.decodeBody(handler, envelope);
-    const decision = await handler.authorize(body, envelope);
+    const decision = await handler.authorize(body, envelope, context);
     if (!decision.allowed) {
       throw new EnvelopeRejected(RejectionCode.FORBIDDEN, decision.reason);
     }
@@ -167,7 +210,20 @@ export class IngressPipeline {
           throw new EnvelopeRejected(RejectionCode.REPLAY, 'nonce has already been used');
         }
         const stored = await d.writer.put(envelope, raw, tx);
-        await handler.project(body, envelope, tx);
+        // ADR-008 §2 — the inbound direction row shares this transaction, so a replay
+        // that races past step 11 is stopped by a unique index rather than by a read.
+        if (origin.peerId) {
+          await d.federationLedger?.record(
+            {
+              contentId: envelope.contentId,
+              direction: FederationDirection.IN,
+              peerId: origin.peerId,
+              recordedAtMs: acceptedAtMs,
+            },
+            tx,
+          );
+        }
+        await handler.project(body, envelope, tx, context);
         const leafIndex = await d.witness.append(envelope.contentId, tx);
         const createdReceipt = await this.signReceipt(
           envelope.contentId,
@@ -181,6 +237,11 @@ export class IngressPipeline {
       });
     } catch (error) {
       if (error instanceof DuplicateContentError) {
+        return this.receiptForExisting(error.contentId);
+      }
+      // FD-05: the duplicate-key error IS the dedupe result. Reaching this branch is the
+      // normal outcome of a replayed delivery, not an exceptional condition.
+      if (error instanceof DuplicateFederationEntryError) {
         return this.receiptForExisting(error.contentId);
       }
       throw error;
@@ -198,7 +259,9 @@ export class IngressPipeline {
       // The acceptance receipt is authoritative; observers are best-effort here.
     }
     try {
-      await d.federation?.enqueue(envelope);
+      await d.federation?.enqueue(envelope, {
+        ...(origin.peerId ? { excludePeers: [origin.peerId] } : {}),
+      });
     } catch {
       // See the durable outbox note above.
     }

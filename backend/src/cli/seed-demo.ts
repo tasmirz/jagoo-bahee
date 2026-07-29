@@ -26,7 +26,12 @@ async function json<T>(url: string, path: string, init?: RequestInit): Promise<T
     headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...init?.headers },
   });
   const payload = (await response.json()) as T & { detail?: string };
-  if (!response.ok) throw new Error(payload.detail ?? `HTTP ${response.status}`);
+  // Name the request. A bare "HTTP 404" from a seeding tool tells an operator nothing about
+  // which of a dozen calls failed, and sends them reading source instead of fixing config.
+  if (!response.ok) {
+    const reason = payload.detail ?? `HTTP ${response.status}`;
+    throw new Error(`${init?.method ?? 'GET'} ${path} — ${reason}`);
+  }
   return payload;
 }
 
@@ -87,7 +92,13 @@ async function solvePow(challenge: PowChallenge, authorKey: Uint8Array): Promise
 export async function seedDemo(
   url = process.env.NODE_URL ?? 'http://127.0.0.1:3000',
 ): Promise<string> {
-  const seed = digest(process.env.DEMO_IDENTITY_SEED ?? 'jagoo-bahee-demo-identity-v1');
+  const identity = process.env.DEMO_IDENTITY_SEED ?? 'jagoo-bahee-demo-identity-v1';
+  const seed = digest(identity);
+  // The epoch nullifier salt follows the identity. A hardcoded salt made the seeder
+  // single-use per epoch — a second run spent a nullifier the first had already claimed and
+  // failed with "epoch quota is exhausted", which is anti-abuse working correctly against a
+  // tool that should not have been asking twice.
+  const salt = identity;
   const publicKey = ed25519.derivePublicKey(seed);
   const validFrom = BigInt(Date.now() - 60_000);
   const validUntil = BigInt(Date.now() + 365 * 24 * 60 * 60 * 1000);
@@ -191,7 +202,7 @@ export async function seedDemo(
             ).finish(),
             {
               credential,
-              nullifier: digest(`jb:community:create:v1\0${epoch}\0jagoo-demo`),
+              nullifier: digest(`jb:community:create:v1\0${epoch}\0${salt}`),
               epoch,
               pow,
             },
@@ -218,7 +229,7 @@ export async function seedDemo(
     ).finish(),
     {
       credential,
-      nullifier: digest(`jb:post:create:v1\0${epoch}\0jagoo-demo`),
+      nullifier: digest(`jb:post:create:v1\0${epoch}\0${salt}`),
       epoch,
       pow: new Uint8Array(0),
     },

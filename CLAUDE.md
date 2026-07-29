@@ -53,14 +53,22 @@ package. The root holds only workspace-level configuration — `package.json`, `
 goes in `backend/`, client code in `frontend/`, shared code in a `packages/*` package. A `.ts`/`.tsx`
 file at the root is a design-pattern violation, not a shortcut.
 
-**State: P0 complete. P1 code-complete; final real-infrastructure CI acceptance pending.**
-`P0-SKELETON-PLAN.md` §10 and `P1-CORE-NODE-PLAN.md` §6 hold the gate-by-gate evidence tables.
+**State: P0 and P1 complete. P2 complete — federation, the PRIMARY goal, is met.**
+`P0-SKELETON-PLAN.md` §10, `P1-CORE-NODE-PLAN.md` §6 and `P2-FEDERATION-PLAN.md` §4 hold the
+gate-by-gate evidence tables.
 
 What works today: all 30 Forum domains use the 19-step ingress pipeline; Mongo, Redis, S3/filesystem
 blobs, projection rebuild, Merkle receipts, auth, certificates/revocation, anti-abuse, the frozen
 read API, SSE, tagged caching, notifications, operator controls, request security, and aggregate-only
 observability are implemented. The Expo client follows `Plans/design.md`, exposes all 14 P1 feature
 families, manages its SecureStore identity, and publishes real signed posts through the node.
+
+**Federation (P2) works end to end.** All six `Federation` RPCs are served over `nice-grpc`
+(ADR-007): TOFU admission at `PROBATION`, vouch-based promotion, `Deliver` with per-peer per-class
+quotas and backpressure, `StreamActivities`, resumable `Backfill`, STH gossip with fork detection,
+and directory exchange. Inbound envelopes re-run all 19 steps and are **projected**, never archived.
+A durable outbox drains by priority class then FIFO, with exponential backoff and a dead-letter path.
+`pnpm ops:two-node` brings up two nodes with separate databases that federate for real.
 
 `pnpm smoke:local` is the dependency-free end-to-end acceptance path. It certifies a key,
 authenticates, acquires a blind credential, creates a community, publishes a signed post, and reads
@@ -127,19 +135,26 @@ pnpm dev:backend                  # NestJS, watch mode
 pnpm dev:frontend                 # Expo dev client  (NOT Expo Go — native modules required)
 pnpm --filter @jagoo/backend exec nest start --debug
 
+# P2 federation
+pnpm ops:two-node                 # node-a :3001 + node-b :3002, gRPC :8451/:8452, separate DBs
+pnpm ops:two-node:down
+pnpm --filter @jagoo/backend exec vitest run src/federation    # ★ FG-01..FG-10
+
 # Operational
 pnpm --filter @jagoo/backend rebuild-projections
-pnpm ops:two-node                 # node-a + node-b federation harness (P2)
+pnpm smoke:local                  # dependency-free end-to-end acceptance
 ```
 
 Rust and Python are invoked through `pnpm vectors`; run them directly with `cargo test -p jb-core`
 and `python -m pytest tools/vectors`.
 
 **Current verified baseline (2026-07-29):** `pnpm vectors` → 3 implementations agree on 16
-vectors; `pnpm test` → 227 passing (SDK 54, backend 149, frontend 24) plus 3 infrastructure
-tests skipped without Mongo/Redis; lint, typecheck, native/backend build, and `proto:check` pass.
-The dependency-free signed smoke flow and running-node/OpenAPI smoke pass. CI starts a Mongo
-replica set and Redis and runs those three adapter tests as mandatory gates.
+vectors; `pnpm test` → **356 passing** (backend 257, SDK 65, frontend 32, audit-log 2) plus 3
+infrastructure tests skipped without Mongo/Redis; lint, typecheck, native/backend build,
+`proto:lint` and `proto:check` pass; `pnpm smoke:local` passes. CI starts a Mongo replica set and
+Redis and runs four adapter tests as mandatory gates, and runs FG-01…FG-10 as a **separate blocking
+job** — burying the project's primary goal inside the general test job would let a green summary
+hide it being skipped.
 
 Two environment notes that will otherwise cost you an hour:
 
@@ -232,6 +247,37 @@ needs multi-document transactions. `ops/docker-compose.yml` initialises `rs0` au
 The **envelope store is the only backup-critical dataset.** Projections are derived and must be fully
 reconstructible by `rebuild-projections`, byte-identical. If a projection cannot be rebuilt from the
 envelope log alone, that is a defect in the handler, not a reason to back up projections.
+
+### 4.6 Federation (P2) — how a second instance changes things
+
+Six gRPC RPCs, server↔server only (`Plans/05`). Clients never speak gRPC: HTTP/2 has a distinctive
+fingerprint and degrades badly on lossy mobile links, and operators — unlike clients — choose their
+peers.
+
+Four rules carry almost all of the weight:
+
+- **A peer's bytes are never re-encoded.** The gRPC layer uses a passthrough codec (ADR-008 §1). The
+  canonical decoder establishes canonicality by re-encoding and comparing, so a ts-proto round trip in
+  the adapter would silently *repair* a non-canonical envelope from an untrusted peer and it would
+  then validate — the v1 signature-confusion bug, arriving over the network, past the exact gate built
+  to foreclose it.
+- **Trust affects quota only, never verification** (FD-03). Inbound envelopes re-run all 19 steps. A
+  `TRUSTED` peer's forged envelope is rejected exactly as a stranger's is.
+- **Deduplication is a unique database index**, `(content_id, direction)`, not a read-then-write
+  (FD-05, ADR-008 §2). v1's catch was unreachable because the index was never declared.
+- **An envelope is never relayed back to its sender** (FD-14). `IngressPipeline.accept(raw, origin)`
+  carries the origin; step 19 excludes it from fanout. Content dedupe makes the loop terminate; it
+  does not make it free.
+
+**An identifier must be derivable by any node from the signed bytes.** Anything keyed on
+`nodeSigner.serverId` is wrong the moment a peer projects the same envelope — that is ID-01 wearing a
+better name, and it is what ADR-010 exists to record. Before deriving an ID, ask: *would a different
+node, given only these bytes, compute the same value?*
+
+Federation is **off unless configured** (AR-12), and a node with no listen address is
+**outbound-only** — which is not degraded. `Deliver` is client-streaming and `StreamActivities` is
+caller-initiated, so a node behind CGNAT federates fully in both directions over connections it
+opened. That is the default for a home or community node (FD-12), not a fallback.
 
 ---
 
@@ -358,7 +404,7 @@ Never disable these to get a build green. They exist because each one caught a r
 | **Cross-language canonical vectors** — TS ≡ Rust ≡ Python, byte-identical | P0 · the single highest-value gate in the project |
 | Import-boundary lint (`core/domain` purity, signer boundary)              | P0                                                |
 | Regenerate-and-diff on generated code                                     | P0                                                |
-| Two-node federation suite                                                 | P2                                                |
+| **Two-node federation suite (FG-01…FG-10)** — its own CI job              | P2 · the PRIMARY goal                             |
 | Network-namespace ISP suite                                               | P3                                                |
 | Build-without-Reticulum suite                                             | P6                                                |
 
@@ -396,6 +442,10 @@ Two rules follow, and they apply to every gate added from here:
 | Build order, parallel lanes, descope ladder                | `Plans/10-IMPLEMENTATION-SEQUENCE.md` |
 | Feature requirement IDs by module                          | `Plans/requirements/R0`–`R14`         |
 | What we actually built and why                             | `Code Implementation/BUILD-LOG.md`    |
+| Why federation uses `nice-grpc` and not Nest microservices | `Code Implementation/ADR-007`         |
+| Raw-bytes ingress, the direction ledger, envelope origin   | `Code Implementation/ADR-008`         |
+| Why a community ID cannot come from the projecting node    | `Code Implementation/ADR-010`         |
+| Why a federated envelope does not pay anti-abuse twice     | `Code Implementation/ADR-011`         |
 
 Cite requirement IDs (`FD-05`, `VP-02`, `SEP-04`, `TP-11`) in code comments and test names. They are the
 link between the specification and the implementation, and `NFR-M08` requires every MUST to have one.
@@ -422,6 +472,25 @@ Things that look like reasonable engineering choices but are wrong **in this spe
 - **Only exercising the fallback path during a fallback.** Path selection prefers the _narrowest_ working
   scope (`LAN` > `ISP_LOCAL` > `NATIONAL` > `GLOBAL`) continuously, so the resilience path is warm and
   tested at the moment it becomes the only path. Code that only runs during a blackout fails during a blackout.
+- **Publishing a list of blocked peers.** `/v1/federation/peers` and `ExchangeDirectory` omit `BLOCKED`
+  peers rather than labelling them. A directory naming who a node blocked is a list of targets for
+  whoever wanted them blocked. What IS published is the finding — `/v1/federation/alerts` names the
+  peer and why — because censorship evidence is only useful if it is visible.
+- **Dropping a peer's connection when it exceeds quota.** It reconnects immediately, pays the handshake
+  again, and arrives in the same state, so refusing costs more than accepting would have.
+  `backpressure_hint_ms` lets a well-behaved peer self-regulate, and a peer that ignores it is the one
+  FD-16 demotes.
+- **Deriving a federated identifier from the local node's key.** See §4.6 and ADR-010. This looked
+  correct for the entire life of P1 because with one node the projecting node *is* the origin node.
+- **Charging anti-abuse again on a federated envelope.** Proof of work, credits, blind credentials
+  and nullifiers are each keyed to ONE node deliberately, so a proof minted at the origin is not
+  merely unverifiable elsewhere — it is meaningless. Re-charging makes every gated domain
+  unfederatable. Cost is charged at origin; the receiver's protection is the per-peer quota
+  (ADR-011). Verification is unaffected: what is skipped is a payment, not a check.
+- **Trusting a claim ABOUT a peer that arrives FROM another peer.** FD-10 relays tree-head
+  observations labelled by the relayer. Any check that can `BLOCK` must first verify the claim
+  belongs to the peer it names, or one peer can silence another — and `BLOCKED` needs an operator
+  to lift.
 - **Post-quantum signatures everywhere.** One ML-DSA signature is eleven LoRa transmissions before any
   content. The PQ budget goes to _confidentiality_ (hybrid X25519 + ML-KEM-768 key agreement, because
   traffic captured today is decrypted later) and not to per-message signatures, which stay Ed25519 at 64 B.
