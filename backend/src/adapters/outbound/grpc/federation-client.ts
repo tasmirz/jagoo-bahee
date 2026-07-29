@@ -34,11 +34,17 @@ import {
   PeerTrust,
   type AnnounceOutcome,
   type DeliverOutcome,
+  type PathSelector,
   type PeerEndpoint,
   type PeerRecord,
   type PeerSthReport,
   type StreamFilter,
 } from '../../../core/ports/network.port.js';
+import {
+  registerUplinkResolver,
+  uplinkChannelOptions,
+  uplinkTarget,
+} from '../transport/uplink-resolver.js';
 import type { NodeSigner } from '../../../core/ports/node-signer.port.js';
 import type { Clock, RandomSource } from '../../../core/ports/system.port.js';
 import type { SignedTreeHead } from '../../../core/ports/transparency.port.js';
@@ -56,6 +62,13 @@ const WIRE_TO_TRUST: Readonly<Record<number, PeerTrust>> = {
   [TrustLevel.TRUST_LEVEL_TRUSTED]: PeerTrust.TRUSTED,
 };
 
+interface DialedPeer {
+  readonly client: FederationRpcClient;
+  readonly endpoint: PeerEndpoint;
+  /** Wraps one RPC so its outcome reaches `PathSelector.recordOutcome` (TP-02, TP-12). */
+  readonly observe: <T>(call: () => Promise<T>) => Promise<T>;
+}
+
 const SCOPE_BY_WIRE: Readonly<Record<number, PeerEndpoint['scope']>> = {
   1: 'GLOBAL',
   2: 'NATIONAL',
@@ -72,6 +85,16 @@ export interface FederationClientDeps {
   readonly identity: () => NodeIdentity;
   /** Injected so tests can dial an in-process server without TLS. */
   readonly credentials?: ChannelCredentials;
+  /**
+   * P3 — the uplink-aware path selector (T3.3, T3.4, TP-08).
+   *
+   * Optional, and its absence is the P2 behaviour: dial the narrowest endpoint the peer
+   * advertises, let the OS pick the interface. Present, it also decides WHICH uplink carries
+   * the connection and binds the socket to that uplink's source address, and it is told
+   * whether the dial worked so TP-12's backoff and TP-02's per-scope metric are fed by what
+   * actually happened rather than by what was attempted.
+   */
+  readonly paths?: PathSelector;
 }
 
 export class GrpcFederationSender extends FederationSender {
@@ -79,10 +102,12 @@ export class GrpcFederationSender extends FederationSender {
 
   constructor(private readonly deps: FederationClientDeps) {
     super();
+    if (deps.paths) registerUplinkResolver();
   }
 
   async announce(peer: PeerRecord): Promise<AnnounceOutcome> {
-    const client = this.clientFor(peer);
+    const dialed = await this.dial(peer);
+    const client = dialed.client;
     const identity = this.deps.identity();
     const nowMs = this.deps.clock.nowMs();
     const nonce = this.deps.random.bytes(16);
@@ -102,7 +127,7 @@ export class GrpcFederationSender extends FederationSender {
       nonce,
     };
 
-    const response = await client.announce(
+    const response = await dialed.observe(() => client.announce(
       AnnounceRequest.fromPartial({
         server_key: identity.publicKey,
         display_name: identity.displayName,
@@ -118,7 +143,7 @@ export class GrpcFederationSender extends FederationSender {
         signature: this.deps.signer.sign(announceRequestSigningBytes(fields)),
       }),
       { metadata: this.callMetadata('Announce') },
-    );
+    ));
 
     return {
       peerKey: response.server_key,
@@ -160,14 +185,14 @@ export class GrpcFederationSender extends FederationSender {
     _plane: Plane,
     envelopes: readonly Uint8Array[],
   ): Promise<DeliverOutcome> {
-    const client = this.clientFor(peer);
+    const dialed = await this.dial(peer);
     const metadata = this.callMetadata('Deliver');
-    const ack = await client.deliver(
+    const ack = await dialed.observe(() => dialed.client.deliver(
       (async function* () {
         for (const raw of envelopes) yield raw;
       })(),
       { metadata },
-    );
+    ));
     return {
       accepted: ack.accepted,
       rejected: ack.rejected.map((rejection) => ({
@@ -185,7 +210,7 @@ export class GrpcFederationSender extends FederationSender {
     filter: StreamFilter,
     signal: AbortSignal,
   ): AsyncIterable<Uint8Array> {
-    const client = this.clientFor(peer);
+    const { client } = await this.dial(peer);
     for await (const raw of client.streamActivities(
       StreamRequest.fromPartial({
         communities: [...(filter.communities ?? [])],
@@ -204,7 +229,7 @@ export class GrpcFederationSender extends FederationSender {
     peer: PeerRecord,
     filter: StreamFilter & { fromIndex: number; toIndex?: number; max?: number },
   ): AsyncIterable<Uint8Array> {
-    const client = this.clientFor(peer);
+    const { client } = await this.dial(peer);
     for await (const raw of client.backfill(
       BackfillRequest.fromPartial({
         communities: [...(filter.communities ?? [])],
@@ -221,7 +246,7 @@ export class GrpcFederationSender extends FederationSender {
   }
 
   async exchangeTreeHeads(peer: PeerRecord): Promise<PeerSthReport> {
-    const client = this.clientFor(peer);
+    const { client } = await this.dial(peer);
     const identity = this.deps.identity();
     const response = await client.exchangeTreeHeads(
       TreeHeadExchange.fromPartial({
@@ -243,7 +268,7 @@ export class GrpcFederationSender extends FederationSender {
   }
 
   async exchangeDirectory(peer: PeerRecord): Promise<readonly PeerRecord[]> {
-    const client = this.clientFor(peer);
+    const { client } = await this.dial(peer);
     const response = await client.exchangeDirectory(
       DirectoryExchange.fromPartial({
         peers: [],
@@ -282,29 +307,64 @@ export class GrpcFederationSender extends FederationSender {
   }
 
   /**
-   * G-04 — dial the NARROWEST scope this peer advertises that we can use.
+   * G-04 + TP-08 — dial the NARROWEST scope this peer advertises that we can use, bound to
+   * the uplink that reaches it.
    *
    * Not an optimisation. Preferring `LAN` over `ISP_LOCAL` over `NATIONAL` over `GLOBAL`
    * during NORMAL operation is what keeps the resilience path warm: a path only exercised
    * during a blackout is untested code that will fail during a blackout.
+   *
+   * The returned `observe` wrapper is how TP-02 and TP-12 get their input. It is a wrapper
+   * rather than a `try` at each call site because there are six RPCs and the one that forgets
+   * to report is the one whose endpoint never backs off.
    */
-  private clientFor(peer: PeerRecord): FederationRpcClient {
-    const endpoint = this.narrowestEndpoint(peer);
+  private async dial(peer: PeerRecord): Promise<DialedPeer> {
+    const selected = await this.deps.paths?.select(peer);
+    const endpoint = selected?.endpoint ?? this.narrowestEndpoint(peer);
     if (!endpoint) throw new Error(`peer ${peer.serverId} advertises no dialable endpoint`);
-    const address = endpoint.address.replace(/^grpcs?:\/\//, '');
+    const hostPort = endpoint.address.replace(/^grpcs?:\/\//, '');
 
-    let channel = this.channels.get(address);
+    // Keyed by (source address, destination) — two uplinks to one peer are two connections,
+    // and sharing a channel between them would silently collapse the multi-homing TG-01
+    // exists to prove.
+    const sourceIp = selected?.sourceIp ?? '';
+    const key = `${sourceIp}|${hostPort}`;
+
+    let channel = this.channels.get(key);
     if (!channel) {
-      channel = createChannel(
-        address,
-        this.deps.credentials ?? ChannelCredentials.createInsecure(),
-      );
-      this.channels.set(address, channel);
+      const credentials = this.deps.credentials ?? ChannelCredentials.createInsecure();
+      channel = sourceIp
+        ? createChannel(uplinkTarget(sourceIp, hostPort), credentials, uplinkChannelOptions(hostPort))
+        : createChannel(hostPort, credentials);
+      this.channels.set(key, channel);
     }
+
     // See `federation.contract.ts`: nice-grpc's derived request/response types are
     // unusable because ts-proto's `Exact<>` generic is resolved through `Parameters<>`.
     // `FederationRpcClient` states the same contract in the generated message types.
-    return createClient(FederationWireDefinition, channel) as unknown as FederationRpcClient;
+    const client = createClient(
+      FederationWireDefinition,
+      channel,
+    ) as unknown as FederationRpcClient;
+
+    const observe = async <T>(call: () => Promise<T>): Promise<T> => {
+      const startedAt = this.deps.clock.nowMs();
+      try {
+        const result = await call();
+        await this.deps.paths?.recordOutcome(
+          peer,
+          endpoint,
+          true,
+          Math.max(0, this.deps.clock.nowMs() - startedAt),
+        );
+        return result;
+      } catch (error) {
+        await this.deps.paths?.recordOutcome(peer, endpoint, false);
+        throw error;
+      }
+    };
+
+    return { client, endpoint, observe };
   }
 
   private narrowestEndpoint(peer: PeerRecord): PeerEndpoint | null {

@@ -6,6 +6,8 @@ import {
   ChannelUpdate,
   ChannelVouch,
   VouchLevel,
+  type BroadcastCategory,
+  type ClaimKind,
 } from '@jagoo/sdk/proto';
 import type { BroadcastCategory, ClaimKind } from '@jagoo/sdk/proto';
 import { channelId } from '@jagoo/sdk';

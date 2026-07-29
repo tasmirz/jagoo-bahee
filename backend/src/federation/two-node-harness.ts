@@ -28,7 +28,25 @@ import { IngressPipeline } from '../core/app/ingress.js';
 import { FederationInbox, type NodeIdentity } from '../core/app/federation-inbox.js';
 import { FederationOutboxService } from '../core/app/federation-outbox.js';
 import { FederationSync } from '../core/app/federation-sync.js';
-import { PeerTrust, type PeerRecord } from '../core/ports/network.port.js';
+import { PathRouter } from '../core/app/path-router.js';
+import { BridgeRelayService } from '../core/app/bridge-relay.js';
+import { TransportSupervisor } from '../core/app/transport-supervisor.js';
+import {
+  DISABLED_BRIDGE,
+  type BridgeConfig,
+} from '../core/domain/transport/bridge-policy.js';
+import { PeerTrust, type PeerEndpoint, type PeerRecord } from '../core/ports/network.port.js';
+import { ConfiguredUplinkManager } from '../adapters/outbound/transport/configured-uplinks.js';
+import {
+  ScriptedScopeProbe,
+  scopeTarget,
+} from '../adapters/outbound/in-memory/in-memory-transport.js';
+import { InMemoryObservability } from '../adapters/outbound/in-memory/in-memory-observability.js';
+import {
+  IMPLICIT_UPLINK,
+  type ProbeConfig,
+  type UplinkConfig,
+} from '../composition/transport.config.js';
 import {
   FixedClock,
   InMemoryEnvelopeStore,
@@ -87,6 +105,13 @@ export interface FederatedNode {
   readonly server: FederationGrpcServer;
   readonly sender: GrpcFederationSender;
   readonly identity: () => NodeIdentity;
+  // ── P3 ────────────────────────────────────────────────────────────────────────────
+  readonly uplinks: ConfiguredUplinkManager;
+  readonly paths: PathRouter;
+  readonly bridge: BridgeRelayService;
+  readonly supervisor: TransportSupervisor;
+  readonly prober: ScriptedScopeProbe;
+  readonly observability: InMemoryObservability;
   port: number;
 }
 
@@ -96,6 +121,20 @@ export interface NodeOptions {
   /** FD-12 — an outbound-only node still binds a loopback port in this harness so the
    * test can prove it never advertises it, which is the behaviour FG-07 turns on. */
   readonly outboundOnly?: boolean;
+  /**
+   * P3 — this node's uplinks. Absent means the AR-12 default: one implicit uplink that
+   * declares every scope, binds nothing and probes nothing.
+   *
+   * The P2 suite therefore runs through the P3 path router unchanged, which is the evidence
+   * that "transport is off unless configured" holds by construction rather than by
+   * assertion — FG-01…FG-10 staying green IS the AR-12 test.
+   */
+  readonly uplinks?: readonly UplinkConfig[];
+  readonly bridge?: BridgeConfig;
+  /** Scopes to probe. Empty means "unmeasurable, therefore assumed live". */
+  readonly probeScopes?: readonly PeerEndpoint['scope'][];
+  /** Extra scoped endpoints this node advertises beyond the LAN loopback one. */
+  readonly advertise?: (port: number) => readonly PeerEndpoint[];
 }
 
 export async function startNode(options: NodeOptions): Promise<FederatedNode> {
@@ -134,12 +173,47 @@ export async function startNode(options: NodeOptions): Promise<FederatedNode> {
     channels: [],
   });
 
+  // ── P3 transport ──────────────────────────────────────────────────────────────────
+  const observability = new InMemoryObservability();
+  const prober = new ScriptedScopeProbe();
+  const uplinkConfigs = options.uplinks ?? [IMPLICIT_UPLINK];
+  const probe: ProbeConfig = {
+    targets: Object.fromEntries(
+      (options.probeScopes ?? []).map((scope) => [scope, [scopeTarget(scope)]]),
+    ),
+    intervalMs: 0,
+    failureThreshold: 1,
+    timeoutMs: 100,
+  };
+  const uplinks = new ConfiguredUplinkManager({
+    uplinks: uplinkConfigs,
+    probe,
+    prober,
+    clock,
+  });
+  const paths = new PathRouter({
+    uplinks,
+    peers,
+    clock,
+    random: new SequentialRandom(),
+    observability,
+  });
+
   const sender = new GrpcFederationSender({
     signer,
     clock,
     random: new SequentialRandom(),
     identity,
     credentials: ChannelCredentials.createInsecure(),
+    paths,
+  });
+
+  const bridge = new BridgeRelayService({
+    config: options.bridge ?? DISABLED_BRIDGE,
+    peers,
+    paths,
+    uplinks,
+    clock,
   });
 
   const outbox = new FederationOutboxService({
@@ -151,6 +225,7 @@ export async function startNode(options: NodeOptions): Promise<FederatedNode> {
     projections,
     clock,
     alerts,
+    bridge,
   });
 
   const pipeline = new IngressPipeline({
@@ -209,13 +284,23 @@ export async function startNode(options: NodeOptions): Promise<FederatedNode> {
     ...(options.outboundOnly ? { outboundOnly: true } : {}),
   });
 
+  const supervisor = new TransportSupervisor({
+    uplinks,
+    peers,
+    sync,
+    clock,
+    bridge,
+    observability,
+    alerts,
+  });
+
   // `127.0.0.1:0` — the OS picks the port, so two nodes in one suite never collide and the
   // suite never depends on a port being free.
   const server = new FederationGrpcServer(service, { listen: '127.0.0.1:0' });
   const port = await server.start();
-  endpoints = [
-    { address: `grpc://127.0.0.1:${port}`, scope: 'LAN', inboundCapable: true },
-  ];
+  endpoints = options.advertise
+    ? options.advertise(port)
+    : [{ address: `grpc://127.0.0.1:${port}`, scope: 'LAN', inboundCapable: true }];
 
   return {
     name: options.name,
@@ -240,6 +325,12 @@ export async function startNode(options: NodeOptions): Promise<FederatedNode> {
     server,
     sender,
     identity,
+    uplinks,
+    paths,
+    bridge,
+    supervisor,
+    prober,
+    observability,
     port,
   };
 }
@@ -261,12 +352,15 @@ export async function introduce(
   from: FederatedNode,
   to: FederatedNode,
   trust: PeerTrust = PeerTrust.PROBATION,
+  endpoints?: readonly PeerEndpoint[],
 ): Promise<void> {
   await from.peers.upsert({
     serverId: serverIdOf(to.signer.publicKey),
     publicKey: to.signer.publicKey,
     displayName: to.name,
-    endpoints: [{ address: `grpc://127.0.0.1:${to.port}`, scope: 'LAN', inboundCapable: true }],
+    endpoints: endpoints ?? [
+      { address: `grpc://127.0.0.1:${to.port}`, scope: 'LAN', inboundCapable: true },
+    ],
     trust,
     planes: [Plane.FORUM, Plane.SIGNAL],
     acceptedClasses: [Priority.BROADCAST, Priority.DIRECT, Priority.CHECKIN, Priority.BULK],
