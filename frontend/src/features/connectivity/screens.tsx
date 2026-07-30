@@ -805,7 +805,8 @@ export function NetworkScreen({
             variant="ghost"
           />
         </View>
-      </View>
+      </Page>
+      {/* Sibling of the page, not a child: the sheet is an overlay over the whole screen. */}
       {removing ? (
         <RemoveServerSheet
           colors={colors}
@@ -819,7 +820,7 @@ export function NetworkScreen({
           profile={removing}
         />
       ) : null}
-    </Screen>
+    </View>
   );
 }
 

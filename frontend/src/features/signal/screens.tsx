@@ -421,59 +421,22 @@ export function SignalHomeScreen({
             </Text>
           </View>
         </View>
-      </View>
-      {/*
-        Messaging is the primary action, not the third secondary button.
-        People arrive at this tab wanting to talk to someone; it used to be an equal-weight
-        chip beside "LXMF mesh", and reaching a first message meant eleven steps that began
-        with finding "Signal identity" and ended with pasting 64 hex characters.
-      */}
-      <Button colors={colors} label="Messages" icon="chatbubbles-outline" onPress={onMessages} system="signal" />
-      <SignalActions colors={colors} onChannels={onChannels} onCheckIn={onCheckIn} onMap={onMap} />
-      <Row gap={spacing.sm} wrap>
-        <Button colors={colors} label="Your identity and code" onPress={onIdentity} variant="secondary" system="signal" icon="qr-code-outline" />
-        <Button colors={colors} label="Radio (LXMF)" onPress={onMesh} variant="ghost" system="signal" icon="radio-outline" />
-      </Row>
-      {subscriptions.length === 0 ? (
-        <StatusBanner
-          action="Choose channels"
-          body="No broadcast enters this inbox until you follow its channel. Discovery remains available without exposing your follow list."
-          colors={colors}
-          icon="options-outline"
-          onAction={onChannels}
-          title="Filters stay on this device"
-        />
-      ) : null}
-      <SectionHeader colors={colors} title="Received alerts" />
-      {query.isError ? (
-        <StatusBanner
-          action="Retry"
-          body="Saved alerts remain available while this node is unreachable."
-          colors={colors}
-          icon="cloud-offline-outline"
-          onAction={() => void query.refetch()}
-          title="Could not refresh Signal"
-          tone="warning"
-        />
-      ) : null}
-      {query.isLoading ? (
-        <View style={styles.loadingStack}>
-          <Skeleton colors={colors} height={92} />
-          <Skeleton colors={colors} height={92} />
-        </View>
-      ) : ordered.length === 0 ? (
-        <EmptyState
-          body={subscriptions.length === 0 ? 'Follow a channel to receive its signed broadcasts.' : 'No alert matching your local subscription filters has arrived yet.'}
-          colors={colors}
-          icon="radio-outline"
-          system="signal"
-          title="Listening quietly"
-        />
-      ) : (
-        ordered.map((broadcast) => (
-          <AlertCard
-            acknowledged={acknowledged.has(broadcast.id)}
-            broadcast={broadcast}
+        {/*
+          Messaging is the primary action, not the third secondary button.
+          People arrive at this tab wanting to talk to someone; it used to be an equal-weight
+          chip beside "LXMF mesh", and reaching a first message meant eleven steps that began
+          with finding "Signal identity" and ended with pasting 64 hex characters.
+        */}
+        <Button colors={colors} label="Messages" icon="chatbubbles-outline" onPress={onMessages} system="signal" />
+        <SignalActions colors={colors} onChannels={onChannels} onCheckIn={onCheckIn} onMap={onMap} />
+        <Row gap={spacing.sm} wrap>
+          <Button colors={colors} label="Your identity and code" onPress={onIdentity} variant="secondary" system="signal" icon="qr-code-outline" />
+          <Button colors={colors} label="Radio (LXMF)" onPress={onMesh} variant="ghost" system="signal" icon="radio-outline" />
+        </Row>
+        {subscriptions.length === 0 ? (
+          <StatusBanner
+            action="Choose channels"
+            body="No broadcast enters this inbox until you follow its channel. Discovery remains available without exposing your follow list."
             colors={colors}
             icon="options-outline"
             onAction={onChannels}
