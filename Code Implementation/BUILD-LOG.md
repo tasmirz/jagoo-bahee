@@ -1732,3 +1732,68 @@ attempt at this bug was also green on unit tests and shipped still wrong. The Si
 path (create identity, register, authenticate, publish prekeys, claim username) has been
 exercised only by the compiler and by the handler tests behind it, not end to end against a
 running node.
+
+---
+
+## Uniform design, third pass — spacing gets exactly one owner per axis
+
+**Reported:** "the UI is broken in many places", with the Signal tab as the example — its
+heading, its buttons and its status banners sat flush against both edges of the phone while the
+cards beside them were inset, and the header sat far lower than the design.
+
+**Root cause: the inset was split between the shell and its children, on both axes.**
+
+*Horizontally.* `Page` applied no gutter at all. Instead `StatusBanner`, `SectionHeader`,
+`PostCard` and `SkeletonPostCard` each carried their own `marginHorizontal: spacing.md`, on the
+assumption that their page had none — while `Button`, `Row`, `EmptyState` and every plain `Text`
+carried nothing. Both halves of that arrangement are individually reasonable and they cannot
+coexist: any screen mixing the two families gets two different left edges. `features/signal/`
+mixed them on every screen, which is why it looked the worst; `mesh-screen.tsx` had no
+horizontal inset of its own anywhere and leaned entirely on the banner's.
+
+*Vertically.* `PageHeader` adds `insets.top` — it has to, because it is a sticky frosted surface
+that must extend under the status bar rather than start below it. `AppScene` wrapped every route
+in a `SafeAreaView` with `edges={['top', 'left', 'right']}`. Every screen using both paid the
+notch twice, ~47pt on a modern phone.
+
+**Fix.** One owner per axis. `Page` reads `useGutter()` (16 / 24 / 32 by breakpoint — it was
+already there as `useSemanticSpacing().screenInline`, with no callers), applies it once, and
+stacks its direct children with a `gap`; every shared component became gutter-free. A screen
+whose child owns the scroll container passes `gutter={false}` and `InfiniteList` applies the same
+`useGutter()` number to its content container, so a card in a list and a heading above it still
+line up. `AppScene` now defaults to `edges={['left', 'right']}`; the two onboarding routes, which
+have no `PageHeader` and draw their own full-bleed hero, opt back into `top`.
+
+**Also in this pass.** Eight screens still on the deprecated `Screen` shell moved to `Page`,
+which removed three more hand-rolled copies of the 760pt reading measure and two more hand-rolled
+headers. Two screens were rendering *bare* `TextInput`s with a single `marginBottom` and no
+border, background, placeholder colour or minimum height — `CommunityCreateScreen` (the copy in
+`features/forum/screens.tsx`) and `EditPostScreen`; both now use `design-system/forms`. The
+post-detail screen was one flat `gap: spacing.sm` run in which the title had exactly as much air
+above it as the vote row, so nothing marked where the post ended and the tools began; it is now
+an article block, a bordered action bar, and a comments section. `EditPostScreen`'s body editor
+was an uncontrolled `defaultValue` that captured whatever had arrived at mount — usually nothing
+— so a slow fetch left it blank and "Save changes" would have published that blank. Comment
+indent went from 8 × 16pt to 6 × 12pt: 128pt of a 320pt phone was disappearing before the left
+rail and the page gutter, which wrapped Bangla body text two or three words to the line.
+
+**Gate:** `src/design-system/gutter.test.tsx`. Per §7.4 it asserts the failing shape as well as
+the passing one — re-adding `marginHorizontal` to `StatusBanner` was confirmed to fail it — and
+it covers both axes: the page insets its column, a `gutter={false}` page does not, `InfiniteList`
+picks the inset up, the shared children carry none, and `AppScene` does not claim `top` unless
+asked.
+
+**Lesson (L-…):** when two layers can each supply a value, neither will consistently, and the
+result looks like "some screens are broken" rather than like one bug. Name the owner in the
+component's own doc comment and put a test on it, because the next person adding a screen will
+otherwise copy whichever neighbour they happened to open.
+
+**Verified:** `pnpm vectors` → 3 implementations agree on 16 vectors; `pnpm test` → 6/6 tasks,
+frontend 31 suites / 163 tests (8 new gutter tests), backend 40 files / 3 skipped without
+Mongo/Redis, SDK 13, audit-log 1; `pnpm lint` → 0 errors workspace-wide; `pnpm typecheck` clean
+apart from the pre-existing `load-env.ts` dotenv error.
+
+**Not claimed:** not re-run on a device. Every change here is a layout constant or a shell swap
+pinned by the compiler and by `gutter.test.tsx`; "it looks right on the phone" has not been
+re-observed since the change.
+

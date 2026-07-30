@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Clipboard, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Clipboard, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { verifyAuditCertificate } from '@jagoo/sdk';
 import type { FeatureDestination } from '../catalog';
@@ -19,15 +19,19 @@ import {
 import type { AppPalette, ThemeMode } from '../../design-system';
 import { radius, spacing, type as typography } from '../../design-system';
 import {
-  PageHeader,
   Button,
+  Card,
+  ChipGroup,
   Divider,
   EmptyState,
-  IconButton,
+  Page,
+  PageHeader,
+  PasswordField,
   Pill,
   PressScale,
-  Screen,
   StatusBanner,
+  TextAreaField,
+  TextField,
   type ReachState,
 } from '../../design-system';
 import { certificateStatus, listAuditCertificates, type StoredAuditCertificate } from '../../audit';
@@ -43,18 +47,21 @@ interface CommonProps {
   readonly onOpenNetwork?: () => void;
 }
 
-function ContentColumn({ children }: { readonly children: React.ReactNode }) {
-  const { width } = useWindowDimensions();
-  return <View style={[styles.column, width >= 760 ? styles.columnWide : null]}>{children}</View>;
-}
+/*
+ * The local `ContentColumn` that used to live here duplicated `layout.contentMax` as a literal
+ * `760` and centred content without giving it a gutter. `Page` now does both, responsively, so
+ * every screen in this file uses the same shell as the rest of the app.
+ */
 
 export function AuditScreen({
   colors,
+  mode,
   baseUrl,
   contentId,
   onBack,
 }: {
   readonly colors: AppPalette;
+  readonly mode: ThemeMode;
   readonly baseUrl: string;
   readonly contentId: string;
   readonly onBack: () => void;
@@ -100,29 +107,29 @@ export function AuditScreen({
       ]
     : [];
   return (
-    <Screen colors={colors}>
-      <View style={[styles.detailHeader, { borderBottomColor: colors.border }]}>
-        <IconButton colors={colors} icon="arrow-back" label="Back" onPress={onBack} />
-        <Text accessibilityRole="header" style={[typography.h2, { color: colors.text }]}>
-          Publication proof
-        </Text>
-        <IconButton
-          colors={colors}
-          disabled={!record}
-          icon="share-outline"
-          label="Export proof"
-          onPress={
-            record
-              ? () =>
-                  void Share.share({
-                    message: JSON.stringify(record.certificate),
-                    title: `Jagoo acknowledgement ${record.certificate.identifier}`,
-                  })
-              : undefined
-          }
-        />
-      </View>
-      <ContentColumn>
+    <View style={styles.page}>
+      <PageHeader
+        colors={colors}
+        mode={mode}
+        title="Publication proof"
+        onBack={onBack}
+        actions={
+          record
+            ? [
+                {
+                  icon: 'share-outline',
+                  label: 'Export proof',
+                  onPress: () =>
+                    void Share.share({
+                      message: JSON.stringify(record.certificate),
+                      title: `Jagoo acknowledgement ${record.certificate.identifier}`,
+                    }),
+                },
+              ]
+            : []
+        }
+      />
+      <Page colors={colors}>
         {record || provenance ? (
           <>
             <View style={styles.auditHero}>
@@ -211,7 +218,7 @@ export function AuditScreen({
                 tone={status.status === 'online' ? 'verified' : 'warning'}
               />
             ) : null}
-            {record ? <View style={styles.pageActions}>
+            {record ? (
               <Button
                 colors={colors}
                 label="Ask server for status"
@@ -222,12 +229,12 @@ export function AuditScreen({
                   )
                 }
               />
-            </View> : null}
+            ) : null}
           </>
         ) : post.isLoading ? (
-          <View style={[styles.cryptoEvidence, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Card colors={colors}>
             <Text style={[typography.body, { color: colors.text2 }]}>Loading and verifying cryptographic evidence…</Text>
-          </View>
+          </Card>
         ) : (
           <EmptyState
             colors={colors}
@@ -236,8 +243,8 @@ export function AuditScreen({
             body="This post was not published from this device, so its request certificate is not in your vault."
           />
         )}
-      </ContentColumn>
-    </Screen>
+      </Page>
+    </View>
   );
 }
 
@@ -255,9 +262,9 @@ export function InboxScreen({
   readonly onBack?: () => void;
 }) {
   return (
-    <Screen colors={colors}>
+    <View style={styles.page}>
       <PageHeader colors={colors} mode={mode} reach={reach} onBack={onBack} onReach={onOpenNetwork} title="Inbox" />
-      <ContentColumn>
+      <Page colors={colors}>
         <StatusBanner
           action="Open Signal"
           colors={colors}
@@ -268,8 +275,8 @@ export function InboxScreen({
           tone="verified"
         />
         <MessagingWorkspace colors={colors} homeNode={homeNode} />
-      </ContentColumn>
-    </Screen>
+      </Page>
+    </View>
   );
 }
 
@@ -356,30 +363,19 @@ function IdentityPanel({
             ? 'Configured on this device · locked'
             : 'No Forum identity is configured'}
       </Text>
-      <TextInput
-        accessibilityLabel="Identity passphrase"
+      <PasswordField
+        colors={colors}
+        label="App passphrase"
         onChangeText={setPassphrase}
-        placeholder="App passphrase (8+ characters)"
-        placeholderTextColor={colors.text3}
-        secureTextEntry
-        style={[
-          styles.input,
-          typography.body,
-          { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text },
-        ]}
+        placeholder="8+ characters"
         value={passphrase}
       />
-      <TextInput
-        accessibilityLabel="Recovery salt, if this identity uses one"
+      <PasswordField
+        colors={colors}
+        hint="Only if you chose one when this identity was created."
+        label="Recovery salt"
         onChangeText={setRecoverySalt}
-        placeholder="Recovery salt (only if you chose one)"
-        placeholderTextColor={colors.text3}
-        secureTextEntry
-        style={[
-          styles.input,
-          typography.body,
-          { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text },
-        ]}
+        placeholder="Leave empty unless you set one"
         value={recoverySalt}
       />
       {!summary?.configured ? (
@@ -391,18 +387,12 @@ function IdentityPanel({
             icon="key-outline"
             onPress={() => void create()}
           />
-          <TextInput
-            accessibilityLabel="Recovery phrase to import"
-            multiline
+          <TextAreaField
+            colors={colors}
+            label="Or restore an existing identity"
+            minHeight={96}
             onChangeText={setImportPhrase}
-            placeholder="Or paste a 24-word recovery phrase"
-            placeholderTextColor={colors.text3}
-            style={[
-              styles.input,
-              styles.recoveryInput,
-              typography.body,
-              { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text },
-            ]}
+            placeholder="Paste a 24-word recovery phrase"
             value={importPhrase}
           />
           <Button
@@ -444,17 +434,12 @@ function IdentityPanel({
               void refresh();
             }}
           />
-          <TextInput
-            accessibilityLabel='Type "REVOKE" to publish a Forum key revocation'
+          <TextField
             autoCapitalize="characters"
+            colors={colors}
+            label='Type "REVOKE" to publish a key revocation'
             onChangeText={setRevokeConfirm}
-            placeholder='Type "REVOKE" to revoke this key'
-            placeholderTextColor={colors.text3}
-            style={[
-              styles.input,
-              typography.body,
-              { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text },
-            ]}
+            placeholder="REVOKE"
             value={revokeConfirm}
           />
           <Button
@@ -547,11 +532,13 @@ function IdentityPanel({
 
 export function FeatureScreen({
   colors,
+  mode,
   feature,
   homeNode,
   onBack,
 }: {
   readonly colors: AppPalette;
+  readonly mode: ThemeMode;
   readonly feature: FeatureDestination;
   readonly homeNode: HomeNode;
   readonly onBack: () => void;
@@ -559,15 +546,9 @@ export function FeatureScreen({
   const signal = feature.id === 'messaging';
   const accent = signal ? colors.signal : colors.ember;
   return (
-    <Screen colors={colors}>
-      <View style={[styles.detailHeader, { borderBottomColor: colors.border }]}>
-        <IconButton colors={colors} icon="arrow-back" label="Back" onPress={onBack} />
-        <Text style={[typography.overline, { color: colors.text2 }]}>
-          {feature.area}
-        </Text>
-        <View style={{ width: 44 }} />
-      </View>
-      <ContentColumn>
+    <View style={styles.page}>
+      <PageHeader colors={colors} mode={mode} title={feature.title} subtitle={feature.area} onBack={onBack} />
+      <Page colors={colors}>
         <View style={[styles.featureHero, { borderBottomColor: colors.border }]}>
           <View style={styles.flex}>
             <Text style={[typography.overline, { color: accent }]}>
@@ -597,18 +578,20 @@ export function FeatureScreen({
           }
           tone="verified"
         />
-      </ContentColumn>
-    </Screen>
+      </Page>
+    </View>
   );
 }
 
 export function SearchScreen({
   colors,
+  mode,
   baseUrl,
   onBack,
   onOpenPost,
 }: {
   readonly colors: AppPalette;
+  readonly mode: ThemeMode;
   readonly baseUrl: string;
   readonly onBack: () => void;
   readonly onOpenPost: (contentId: string) => void;
@@ -625,22 +608,18 @@ export function SearchScreen({
   const results = useNodeSearch(baseUrl, debouncedQuery, kindParameter);
   const items = results.data?.value.items ?? [];
   return (
-    <Screen colors={colors}>
-      <View style={[styles.detailHeader, { borderBottomColor: colors.border }]}>
-        <IconButton colors={colors} icon="arrow-back" label="Back" onPress={onBack} />
-        <TextInput
+    <View style={styles.page}>
+      <PageHeader colors={colors} mode={mode} title="Search" onBack={onBack} />
+      <Page colors={colors}>
+        <TextField
           accessibilityLabel="Search"
           autoFocus
+          colors={colors}
           onChangeText={setQuery}
           placeholder="Search communities, posts…"
-          placeholderTextColor={colors.text3}
-          style={[styles.searchInput, typography.body, { color: colors.text }]}
           value={query}
         />
-        <View style={{ width: 44 }} />
-      </View>
-      <ContentColumn>
-        <ScrollView horizontal contentContainerStyle={styles.pills}>
+        <ChipGroup>
           {['All', 'Posts', 'Comments', 'Communities', 'People'].map((item) => (
             <Pill
               key={item}
@@ -650,37 +629,39 @@ export function SearchScreen({
               selected={kind === item}
             />
           ))}
-        </ScrollView>
+        </ChipGroup>
         {query && items.length > 0 ? (
-          items.map((item, index) => {
-            const title = item.title ?? item.name ?? item.displayName ?? 'Search result';
-            const body = item.bodyMarkdown ?? item.description ?? item.community ?? '';
-            return (
-              <PressScale
-                key={item.contentId ?? item.id ?? `${title}-${index}`}
-                label={`Open ${title}`}
-                onPress={item.contentId ? () => onOpenPost(item.contentId!) : undefined}
-              >
-                <View style={[styles.searchResult, { borderBottomColor: colors.border }]}>
-                  <View style={[styles.searchResultMark, { backgroundColor: colors.surface2 }]}>
-                    <Ionicons
-                      name={item.title ? 'document-text-outline' : 'people-outline'}
-                      size={18}
-                      color={colors.ember}
-                    />
+          <View style={styles.rowGroup}>
+            {items.map((item, index) => {
+              const title = item.title ?? item.name ?? item.displayName ?? 'Search result';
+              const body = item.bodyMarkdown ?? item.description ?? item.community ?? '';
+              return (
+                <PressScale
+                  key={item.contentId ?? item.id ?? `${title}-${index}`}
+                  label={`Open ${title}`}
+                  onPress={item.contentId ? () => onOpenPost(item.contentId!) : undefined}
+                >
+                  <View style={[styles.searchResult, { borderBottomColor: colors.border }]}>
+                    <View style={[styles.searchResultMark, { backgroundColor: colors.surface2 }]}>
+                      <Ionicons
+                        name={item.title ? 'document-text-outline' : 'people-outline'}
+                        size={18}
+                        color={colors.ember}
+                      />
+                    </View>
+                    <View style={styles.flex}>
+                      <Text style={[typography.label, { color: colors.text }]}>{title}</Text>
+                      {body ? (
+                        <Text numberOfLines={2} style={[typography.body, { color: colors.text2 }]}>
+                          {body}
+                        </Text>
+                      ) : null}
+                    </View>
                   </View>
-                  <View style={styles.flex}>
-                    <Text style={[typography.label, { color: colors.text }]}>{title}</Text>
-                    {body ? (
-                      <Text numberOfLines={2} style={[typography.body, { color: colors.text2 }]}>
-                        {body}
-                      </Text>
-                    ) : null}
-                  </View>
-                </View>
-              </PressScale>
-            );
-          })
+                </PressScale>
+              );
+            })}
+          </View>
         ) : query && !results.isLoading ? (
           <EmptyState
             colors={colors}
@@ -696,17 +677,20 @@ export function SearchScreen({
             body="Find public Forum content. Your search history stays on this device."
           />
         )}
-      </ContentColumn>
-    </Screen>
+      </Page>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
+  /** `PageHeader` is sticky and owns the top inset, so the page below it simply fills. */
+  page: { flex: 1 },
+  flex: { flex: 1, minWidth: 0 },
   center: { textAlign: 'center' },
-  column: { width: '100%', alignSelf: 'center' },
-  columnWide: { maxWidth: 760 },
-  pills: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, gap: spacing.xs },
+  /** A group of related controls reads as one surface instead of a loose vertical run. */
+  formCard: { gap: spacing.md },
+  /** A run of rows reads as one block, so it groups its own hairlines instead of page gaps. */
+  rowGroup: { gap: 0 },
   post: {
     marginHorizontal: spacing.md,
     marginBottom: spacing.sm,
@@ -760,7 +744,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  auditList: { marginHorizontal: spacing.md, borderWidth: 1, borderRadius: radius.lg },
+  auditList: { borderWidth: 1, borderRadius: radius.lg },
   auditRow: {
     padding: spacing.md,
     flexDirection: 'row',
@@ -769,8 +753,6 @@ const styles = StyleSheet.create({
   },
   auditDetail: { maxWidth: '42%', textAlign: 'right' },
   cryptoEvidence: {
-    marginHorizontal: spacing.md,
-    marginTop: spacing.md,
     padding: spacing.md,
     borderWidth: 1,
     borderRadius: radius.lg,
@@ -844,8 +826,6 @@ const styles = StyleSheet.create({
   },
   profileActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   identityPanel: {
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.md,
     padding: spacing.md,
     borderWidth: 1,
     borderRadius: radius.lg,
@@ -869,8 +849,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   featureHero: {
-    marginHorizontal: spacing.md,
-    paddingVertical: spacing.xl,
+    paddingBottom: spacing.lg,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -879,7 +858,6 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, minHeight: 48 },
   searchResult: {
     minHeight: 76,
-    paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
@@ -964,57 +942,79 @@ export function CommunityCreateScreen({
     reach === 'blackout' || reach === 'constrained' ? 'Queue creation' : 'Create Community';
 
   return (
-    <Screen colors={colors}>
+    <View style={styles.page}>
       <PageHeader colors={colors} mode={mode} reach={reach} onReach={onOpenNetwork} title="New Community" />
-      <ContentColumn>
+      <Page colors={colors}>
         {publishResult ? (
-          <View style={{ marginBottom: spacing.lg }}>
-            <StatusBanner
-              colors={colors}
-              icon={
-                publishResult.tone === 'verified'
-                  ? 'shield-checkmark-outline'
-                  : 'alert-circle-outline'
-              }
-              title={publishResult.title}
-              body={publishResult.body}
-              tone={publishResult.tone}
-            />
-          </View>
+          <StatusBanner
+            colors={colors}
+            icon={
+              publishResult.tone === 'verified'
+                ? 'shield-checkmark-outline'
+                : 'alert-circle-outline'
+            }
+            title={publishResult.title}
+            body={publishResult.body}
+            tone={publishResult.tone}
+          />
         ) : null}
-        <TextInput
-          placeholder="Community Name (e.g. general)"
-          value={name}
-          onChangeText={setName}
-          editable={!publishing}
-          autoCapitalize="none"
-          autoCorrect={false}
-          style={{ marginBottom: spacing.md }}
-        />
-        <TextInput
-          placeholder="Display Title"
-          value={title}
-          onChangeText={setTitle}
-          editable={!publishing}
-          style={{ marginBottom: spacing.md }}
-        />
-        <TextInput
-          placeholder="Description"
-          value={description}
-          onChangeText={setDescription}
-          editable={!publishing}
-          multiline
-          numberOfLines={3}
-          style={{ marginBottom: spacing.md, minHeight: 80 }}
-        />
+        {/*
+          These four controls were bare `TextInput`s with a single `marginBottom` — no border,
+          no background, no placeholder colour and no minimum height, which on Android renders
+          as a bottom-hairline-only field and on iOS as invisible text on the page background.
+          `design-system/forms` is the one place that look is defined.
+        */}
+        <Card colors={colors} style={styles.formCard}>
+          <TextField
+            colors={colors}
+            label="Community name"
+            value={name}
+            onChangeText={setName}
+            editable={!publishing}
+            autoCapitalize="none"
+            autoCorrect={false}
+            maxLength={21}
+            placeholder="general"
+            hint="Lowercase letters, numbers and underscores. This is permanent."
+          />
+          <TextField
+            colors={colors}
+            label="Display title"
+            value={title}
+            onChangeText={setTitle}
+            editable={!publishing}
+            maxLength={100}
+            placeholder="What people see at the top"
+          />
+          <TextAreaField
+            colors={colors}
+            label="Description"
+            value={description}
+            onChangeText={setDescription}
+            maxLength={500}
+            minHeight={96}
+            placeholder="Who is this community for?"
+          />
+          <TextAreaField
+            colors={colors}
+            label="Rules"
+            value={rules}
+            onChangeText={setRules}
+            minHeight={96}
+            placeholder="One clear rule per line"
+            hint="Rules are signed under your Forum identity and published with the community."
+          />
+        </Card>
         <Button
-          label={publishing ? 'Creating...' : submitLabel}
+          label={publishing ? 'Creating…' : submitLabel}
           onPress={publish}
           colors={colors}
+          icon="add-circle-outline"
           system="ember"
+          loading={publishing}
           disabled={publishing || name.trim().length === 0}
         />
-      </ContentColumn>
-    </Screen>
+      </Page>
+    </View>
   );
 }

@@ -2,6 +2,7 @@ import * as mockReact from 'react';
 import { Image, Text, Text as mockTextComponent } from 'react-native';
 import renderer, { act } from 'react-test-renderer';
 import { QueryClientProvider } from '@tanstack/react-query';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import BootstrapRoute from '../index';
 import { useApp } from '../../src/application/app-provider';
 import { queryClient } from '../../src/data';
@@ -18,6 +19,8 @@ jest.mock('expo-router', () => ({
       accessibilityLabel: `Redirect to ${href}`,
     });
   },
+  // `PageHeader` asks the router whether it can go back before deciding to draw a back control.
+  useRouter: () => ({ canGoBack: () => false, back: () => undefined, push: () => undefined }),
 }));
 
 jest.mock('../../src/application/app-provider', () => ({
@@ -53,6 +56,16 @@ const savedNode: HomeNode = {
     },
     endpoints: { federations: '/federations', verify: '/verify', status: '/status' },
   },
+};
+
+/**
+ * `PageHeader` reads real safe-area insets, which only exist under a provider. Production gets
+ * one from `app-provider`; a bare `renderer.create` has to supply its own or every screen that
+ * uses the shared header throws instead of rendering.
+ */
+const TEST_INSETS = initialWindowMetrics ?? {
+  frame: { x: 0, y: 0, width: 390, height: 844 },
+  insets: { top: 47, left: 0, right: 0, bottom: 34 },
 };
 
 const originalFetch = globalThis.fetch;
@@ -189,12 +202,15 @@ describe('feature destinations', () => {
     await act(async () => {
       view = renderer.create(
         <QueryClientProvider client={queryClient}>
-          <FeatureScreen
-            colors={palettes.light}
-            feature={feature}
-            homeNode={savedNode}
-            onBack={() => undefined}
-          />
+          <SafeAreaProvider initialMetrics={TEST_INSETS}>
+            <FeatureScreen
+              colors={palettes.light}
+              mode="light"
+              feature={feature}
+              homeNode={savedNode}
+              onBack={() => undefined}
+            />
+          </SafeAreaProvider>
         </QueryClientProvider>,
       );
       await Promise.resolve();
@@ -215,12 +231,15 @@ describe('CommunityCreateScreen', () => {
     await act(async () => {
       view = renderer.create(
         <QueryClientProvider client={queryClient}>
-          <CommunityCreateScreen
-            colors={palettes.light}
-            homeNode={savedNode}
-            onBack={() => undefined}
-            onCreated={() => undefined}
-          />
+          <SafeAreaProvider initialMetrics={TEST_INSETS}>
+            <CommunityCreateScreen
+              colors={palettes.light}
+              mode="light"
+              homeNode={savedNode}
+              onBack={() => undefined}
+              onCreated={() => undefined}
+            />
+          </SafeAreaProvider>
         </QueryClientProvider>,
       );
       await Promise.resolve();

@@ -26,7 +26,7 @@ export default function BootstrapRoute() {
   if (homeNode && session.configured && !session.unlocked) {
     const active = identityProfiles.find((profile) => profile.homeNode.baseUrl === homeNode.baseUrl);
     return (
-      <AppScene colors={colors}>
+      <AppScene colors={colors} edges={['top', 'left', 'right']}>
         <SignInScreen
           colors={colors}
           homeNode={homeNode}
@@ -41,7 +41,7 @@ export default function BootstrapRoute() {
   }
   if (homeNode) return <Redirect href="/(tabs)" />;
   return (
-    <AppScene colors={colors}>
+    <AppScene colors={colors} edges={['top', 'left', 'right']}>
       <WelcomeFlow
         colors={colors}
         identityProfiles={identityProfiles}

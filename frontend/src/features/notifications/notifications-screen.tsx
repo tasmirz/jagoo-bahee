@@ -79,17 +79,15 @@ export function NotificationsScreen({
         }
       />
       <Page colors={colors}>
-        <View style={styles.filterRow}>
-          <SegmentedControl
-            colors={colors}
-            value={filter}
-            onChange={setFilter}
-            options={[
-              { value: 'all', label: `All (${allItems.length})` },
-              { value: 'unread', label: `Unread (${unreadCount})` },
-            ]}
-          />
-        </View>
+        <SegmentedControl
+          colors={colors}
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: 'all', label: `All (${allItems.length})` },
+            { value: 'unread', label: `Unread (${unreadCount})` },
+          ]}
+        />
         {items.length === 0 && !isLoading ? (
           <EmptyState
             colors={colors}
@@ -98,31 +96,33 @@ export function NotificationsScreen({
             body="Replies, mentions, awards, moderation actions, and new followers will show up here."
           />
         ) : (
-          items.map((item) => (
-            <Pressable
-              key={item.id}
-              accessibilityRole="button"
-              onPress={() => {
-                void markRead(item.id, true);
-                onOpenContent(item.contentId);
-              }}
-              style={[styles.row, { borderBottomColor: colors.border }]}
-            >
-              <View style={[styles.iconWrap, { backgroundColor: colors.surface2 }]}>
-                <Ionicons name={KIND_ICON[item.kind]} size={18} color={colors.ember} />
-              </View>
-              <View style={styles.flex}>
-                <Text maxFontSizeMultiplier={maxFontScale.body} style={[typography.body, { color: colors.text }]}>
-                  u/{item.actorKey.slice(0, 8)}… {KIND_TEXT[item.kind]}
-                </Text>
-                <Text maxFontSizeMultiplier={maxFontScale.caption} style={[typography.caption, { color: colors.text2 }]}>
-                  {relativeTime(item.createdAtMs)}
-                </Text>
-              </View>
-              {!item.read ? <View style={[styles.unreadDot, { backgroundColor: colors.ember }]} /> : null}
-              <Button colors={colors} variant="ghost" label="Dismiss" onPress={() => void dismiss(item.id)} />
-            </Pressable>
-          ))
+          <View style={styles.rowGroup}>
+            {items.map((item) => (
+              <Pressable
+                key={item.id}
+                accessibilityRole="button"
+                onPress={() => {
+                  void markRead(item.id, true);
+                  onOpenContent(item.contentId);
+                }}
+                style={[styles.row, { borderBottomColor: colors.border }]}
+              >
+                <View style={[styles.iconWrap, { backgroundColor: colors.surface2 }]}>
+                  <Ionicons name={KIND_ICON[item.kind]} size={18} color={colors.ember} />
+                </View>
+                <View style={styles.flex}>
+                  <Text maxFontSizeMultiplier={maxFontScale.body} style={[typography.body, { color: colors.text }]}>
+                    u/{item.actorKey.slice(0, 8)}… {KIND_TEXT[item.kind]}
+                  </Text>
+                  <Text maxFontSizeMultiplier={maxFontScale.caption} style={[typography.caption, { color: colors.text2 }]}>
+                    {relativeTime(item.createdAtMs)}
+                  </Text>
+                </View>
+                {!item.read ? <View style={[styles.unreadDot, { backgroundColor: colors.ember }]} /> : null}
+                <Button colors={colors} variant="ghost" label="Dismiss" onPress={() => void dismiss(item.id)} />
+              </Pressable>
+            ))}
+          </View>
         )}
       </Page>
     </View>
@@ -131,10 +131,10 @@ export function NotificationsScreen({
 
 const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
-  filterRow: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  // Gutter-free by contract — `Page` owns the screen's inline inset.
+  rowGroup: { gap: 0 },
   row: {
     minHeight: 64,
-    paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',

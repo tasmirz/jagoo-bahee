@@ -1,6 +1,6 @@
 import { FlatList, RefreshControl, StyleSheet, View, type FlatListProps } from 'react-native';
 import type { AppPalette } from './tokens';
-import { spacing } from './tokens';
+import { spacing, useGutter } from './tokens';
 import { useContentInsets } from './layout';
 
 /**
@@ -29,6 +29,7 @@ export function InfiniteList<T>({
   ListFooterComponent,
   ListEmptyComponent,
   contentContainerStyle,
+  gutter = true,
   ...rest
 }: {
   readonly data: readonly T[];
@@ -38,8 +39,15 @@ export function InfiniteList<T>({
   readonly onRefresh?: () => void;
   readonly refreshing?: boolean;
   readonly colors?: AppPalette;
+  /**
+   * A list inside a `Page gutter={false}` owns the screen's inline inset, because the scroll
+   * view itself has to reach the screen edge. Same number, same hook as `Page` — so rows line
+   * up with the header and controls above them instead of being 16px out at every breakpoint.
+   */
+  readonly gutter?: boolean;
 } & Omit<FlatListProps<T>, 'data' | 'keyExtractor' | 'renderItem' | 'onEndReached' | 'onRefresh' | 'refreshing'>) {
   const { bottom } = useContentInsets();
+  const inline = useGutter();
   return (
     <View style={styles.container}>
       <FlatList
@@ -51,7 +59,10 @@ export function InfiniteList<T>({
         ListHeaderComponent={ListHeaderComponent}
         ListFooterComponent={ListFooterComponent}
         ListEmptyComponent={ListEmptyComponent}
-        contentContainerStyle={[{ paddingBottom: bottom, flexGrow: 1 }, contentContainerStyle]}
+        contentContainerStyle={[
+          { paddingBottom: bottom, paddingHorizontal: gutter ? inline : 0, flexGrow: 1 },
+          contentContainerStyle,
+        ]}
         showsVerticalScrollIndicator={false}
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"

@@ -16,6 +16,7 @@ import {
   maxFontScale,
   radius,
   spacing,
+  useGutter,
   type as typography,
   type AppPalette,
   type ReachState,
@@ -78,6 +79,7 @@ export function CommunityScreen({
   readonly onCreatePost: () => void;
 }) {
   const queryClient = useQueryClient();
+  const gutter = useGutter();
   const baseUrl = homeNode.baseUrl;
   const communityPath = `/v1/communities/${encodeURIComponent(communityId)}`;
   const community = useNodeDocument<NodeCommunity>(
@@ -133,14 +135,19 @@ export function CommunityScreen({
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <PageHeader colors={colors} mode={mode} title={item ? `r/${item.name}` : 'Community'} onBack={onBack} reach={reach} onReach={onOpenNetwork} />
-      <Page colors={colors} scroll={false}>
+      {/* The feed list owns the scroll container, so it applies the gutter (see `Page`). */}
+      <Page colors={colors} scroll={false} gutter={false} gap={0}>
         {community.isError && !item ? (
-          <ErrorState colors={colors} title="Community unavailable" body="No saved copy is available yet." onRetry={() => void community.refetch()} />
+          <View style={{ paddingHorizontal: gutter }}>
+            <ErrorState colors={colors} title="Community unavailable" body="No saved copy is available yet." onRetry={() => void community.refetch()} />
+          </View>
         ) : !item ? (
-          <SkeletonPostCard colors={colors} />
+          <View style={{ paddingHorizontal: gutter, paddingTop: spacing.md }}>
+            <SkeletonPostCard colors={colors} />
+          </View>
         ) : (
           <>
-            <View style={styles.hero}>
+            <View style={[styles.hero, { paddingHorizontal: gutter }]}>
               <View style={[styles.avatar, { backgroundColor: colors.ember }]}>
                 <Text maxFontSizeMultiplier={maxFontScale.h2} style={[typography.h2, { color: colors.onAccent }]}>
                   {item.name.slice(0, 2).toUpperCase()}
@@ -155,7 +162,7 @@ export function CommunityScreen({
                 </Text>
               </View>
             </View>
-            <View style={styles.actionsRow}>
+            <View style={[styles.actionsRow, { paddingHorizontal: gutter }]}>
               <View style={styles.flex}>
                 <Button
                   colors={colors}
@@ -171,21 +178,23 @@ export function CommunityScreen({
               ) : null}
             </View>
             {notice ? (
-              <Text accessibilityLiveRegion="polite" maxFontSizeMultiplier={maxFontScale.caption} style={[typography.caption, styles.notice, { color: notice.error ? colors.blackout : colors.verified }]}>
+              <Text accessibilityLiveRegion="polite" maxFontSizeMultiplier={maxFontScale.caption} style={[typography.caption, styles.notice, { paddingHorizontal: gutter, color: notice.error ? colors.blackout : colors.verified }]}>
                 {notice.text}
               </Text>
             ) : null}
             {item.archived ? (
-              <StatusBanner colors={colors} icon="archive-outline" title="Community archived" body="Existing content remains readable, but this community is not accepting new posts." tone="warning" />
+              <View style={{ paddingHorizontal: gutter, paddingTop: spacing.sm }}>
+                <StatusBanner colors={colors} icon="archive-outline" title="Community archived" body="Existing content remains readable, but this community is not accepting new posts." tone="warning" />
+              </View>
             ) : null}
 
-            <View style={styles.tabsRow}>
+            <View style={[styles.tabsRow, { paddingHorizontal: gutter }]}>
               <SegmentedControl colors={colors} value={tab} onChange={setTab} options={[{ value: 'posts', label: 'Posts' }, { value: 'about', label: 'About' }]} />
             </View>
             <Divider colors={colors} />
 
             {tab === 'about' ? (
-              <View style={styles.about}>
+              <View style={[styles.about, { paddingHorizontal: gutter }]}>
                 <Text maxFontSizeMultiplier={maxFontScale.body} style={[typography.body, { color: colors.text2 }]}>
                   {item.description || 'No description has been published.'}
                 </Text>
@@ -201,7 +210,9 @@ export function CommunityScreen({
                 ) : null}
               </View>
             ) : feed.isError && posts.length === 0 ? (
-              <ErrorState colors={colors} title="Posts unavailable" body="The community loaded, but its feed did not." onRetry={() => void feed.refetch()} />
+              <View style={{ paddingHorizontal: gutter }}>
+                <ErrorState colors={colors} title="Posts unavailable" body="The community loaded, but its feed did not." onRetry={() => void feed.refetch()} />
+              </View>
             ) : (
               <InfiniteList
                 data={posts}
@@ -248,12 +259,13 @@ export function CommunityScreen({
 
 const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
-  hero: { padding: spacing.lg, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  // Horizontal insets come from `useGutter()` at each call site so they track the breakpoint.
+  hero: { paddingVertical: spacing.lg, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
   avatar: { width: 56, height: 56, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
-  actionsRow: { flexDirection: 'row', gap: spacing.xs, paddingHorizontal: spacing.md },
-  notice: { paddingHorizontal: spacing.md, paddingTop: spacing.xs },
-  tabsRow: { paddingHorizontal: spacing.md, paddingTop: spacing.md, paddingBottom: spacing.xs },
-  about: { padding: spacing.md, gap: spacing.sm },
+  actionsRow: { flexDirection: 'row', gap: spacing.xs },
+  notice: { paddingTop: spacing.xs },
+  tabsRow: { paddingTop: spacing.md, paddingBottom: spacing.xs },
+  about: { paddingVertical: spacing.md, gap: spacing.sm },
   fab: {
     position: 'absolute',
     right: spacing.md,

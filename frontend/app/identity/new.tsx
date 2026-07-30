@@ -7,7 +7,7 @@ export default function NewIdentityRoute() {
   const router = useRouter();
   const { colors, connectHomeNode, identityProfiles } = useApp();
   return (
-    <AppScene colors={colors}>
+    <AppScene colors={colors} edges={['top', 'left', 'right']}>
       <WelcomeFlow
         colors={colors}
         // Without this, restoring a phrase this device already holds writes a SECOND vault

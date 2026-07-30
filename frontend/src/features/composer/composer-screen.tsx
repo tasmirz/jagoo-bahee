@@ -21,6 +21,7 @@ import {
   maxFontScale,
   radius,
   spacing,
+  useGutter,
   type as typography,
   type AppPalette,
   type ThemeMode,
@@ -93,6 +94,7 @@ export function ComposerScreen({
   readonly onPublished: (contentId: string) => void;
 }) {
   const queryClient = useQueryClient();
+  const gutter = useGutter();
   const [communityId, setCommunityId] = useState(initialCommunityId ?? '');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [communityQuery, setCommunityQuery] = useState('');
@@ -274,7 +276,7 @@ export function ComposerScreen({
         actions={[]}
       />
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Page colors={colors}>
+        <Page colors={colors} gap={spacing.md}>
           <View style={styles.column}>
             <Pressable
               accessibilityRole="button"
@@ -371,7 +373,8 @@ export function ComposerScreen({
             {error ? <StatusBanner colors={colors} icon="alert-circle-outline" title="Post was not published" body={error} tone="danger" /> : null}
           </View>
         </Page>
-        <View style={[styles.footer, { borderTopColor: colors.border, backgroundColor: colors.bg }]}>
+        {/* Sticky submit bar — same inline inset and reading measure as the form above it. */}
+        <View style={[styles.footer, { paddingHorizontal: gutter, borderTopColor: colors.border, backgroundColor: colors.bg }]}>
           <Button
             colors={colors}
             disabled={!canPublish}
@@ -410,7 +413,8 @@ export function ComposerScreen({
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   flexShrink: { flexShrink: 1 },
-  column: { padding: spacing.md, gap: spacing.md },
+  // Gutter-free by contract — `Page` owns the screen's inline inset.
+  column: { gap: spacing.md },
   select: {
     minHeight: 52,
     borderWidth: 1,
@@ -432,7 +436,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  footer: { padding: spacing.md, borderTopWidth: StyleSheet.hairlineWidth },
+  footer: { paddingVertical: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth },
   pickerList: { maxHeight: 320 },
   pickerRow: {
     minHeight: 56,

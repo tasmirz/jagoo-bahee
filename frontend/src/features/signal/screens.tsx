@@ -17,6 +17,7 @@ import {
   Pill,
   Row,
   SectionHeader,
+  SegmentedControl,
   Skeleton,
   StatusBanner,
   TextAreaField,
@@ -411,13 +412,14 @@ export function SignalHomeScreen({
     <View style={styles.page}>
       <PageHeader colors={colors} mode={mode} reach={reach} title="Signal" onReach={onNetwork} />
       <Page colors={colors}>
-      <View style={styles.hero}>
-        <View style={[styles.signalMark, { backgroundColor: colors.signal }]} />
-        <View style={styles.flex}>
-          <Text style={[typography.h1, { color: colors.text }]}>Know who is speaking.</Text>
-          <Text style={[typography.body, { color: colors.text2 }]}>
-            Identified crisis broadcasts and private coordination, isolated from your Forum identity.
-          </Text>
+        <View style={styles.hero}>
+          <View style={[styles.signalMark, { backgroundColor: colors.signal }]} />
+          <View style={styles.heroText}>
+            <Text style={[typography.h1, { color: colors.text }]}>Know who is speaking.</Text>
+            <Text style={[typography.body, { color: colors.text2 }]}>
+              Identified crisis broadcasts and private coordination, isolated from your Forum identity.
+            </Text>
+          </View>
         </View>
       </View>
       {/*
@@ -473,12 +475,48 @@ export function SignalHomeScreen({
             acknowledged={acknowledged.has(broadcast.id)}
             broadcast={broadcast}
             colors={colors}
-            key={broadcast.id}
-            onAcknowledge={() => void acknowledge(broadcast.id)}
-            onChannel={() => onChannel(broadcast.channel)}
+            icon="options-outline"
+            onAction={onChannels}
+            title="Filters stay on this device"
           />
-        ))
-      )}
+        ) : null}
+        <SectionHeader colors={colors} title="Received alerts" />
+        {query.isError ? (
+          <StatusBanner
+            action="Retry"
+            body="Saved alerts remain available while this node is unreachable."
+            colors={colors}
+            icon="cloud-offline-outline"
+            onAction={() => void query.refetch()}
+            title="Could not refresh Signal"
+            tone="warning"
+          />
+        ) : null}
+        {query.isLoading ? (
+          <View style={styles.loadingStack}>
+            <Skeleton colors={colors} height={92} />
+            <Skeleton colors={colors} height={92} />
+          </View>
+        ) : ordered.length === 0 ? (
+          <EmptyState
+            body={subscriptions.length === 0 ? 'Follow a channel to receive its signed broadcasts.' : 'No alert matching your local subscription filters has arrived yet.'}
+            colors={colors}
+            icon="radio-outline"
+            system="signal"
+            title="Listening quietly"
+          />
+        ) : (
+          ordered.map((broadcast) => (
+            <AlertCard
+              acknowledged={acknowledged.has(broadcast.id)}
+              broadcast={broadcast}
+              colors={colors}
+              key={broadcast.id}
+              onAcknowledge={() => void acknowledge(broadcast.id)}
+              onChannel={() => onChannel(broadcast.channel)}
+            />
+          ))
+        )}
       </Page>
     </View>
   );
@@ -507,46 +545,51 @@ export function SignalChannelsScreen({
     <View style={styles.page}>
       <PageHeader colors={colors} mode={mode} reach={reach} title="Channels" onBack={onBack} onReach={onNetwork} />
       <Page colors={colors}>
-      <Field colors={colors} label="Find a broadcaster" onChangeText={setQueryText} value={queryText} />
-      <Button colors={colors} label="Create or publish" onPress={onStudio} system="signal" />
-      {rows.map((channel) => (
-        <Pressable
-          accessibilityRole="button"
-          key={channel.id}
-          onPress={() => onChannel(channel.id)}
-          style={({ pressed }) => [
-            styles.listRow,
-            { borderBottomColor: colors.border, opacity: pressed ? 0.65 : 1 },
-          ]}
-        >
-          <View style={[styles.channelAvatar, { backgroundColor: colors.surface2 }]}>
-            <Ionicons name="radio-outline" color={colors.signal} size={22} />
+        <Field colors={colors} label="Find a broadcaster" onChangeText={setQueryText} value={queryText} />
+        <Button colors={colors} icon="add-circle-outline" label="Create or publish" onPress={onStudio} system="signal" />
+        {rows.length > 0 ? (
+          <View style={styles.rowGroup}>
+            {rows.map((channel) => (
+              <Pressable
+                accessibilityRole="button"
+                key={channel.id}
+                onPress={() => onChannel(channel.id)}
+                style={({ pressed }) => [
+                  styles.listRow,
+                  { borderBottomColor: colors.border, opacity: pressed ? 0.65 : 1 },
+                ]}
+              >
+                <View style={[styles.channelAvatar, { backgroundColor: colors.surface2 }]}>
+                  <Ionicons name="radio-outline" color={colors.signal} size={22} />
+                </View>
+                <View style={styles.listRowBody}>
+                  <Row gap={spacing.xs} wrap>
+                    <Text style={[typography.h2, { color: colors.text }]}>{channel.name}</Text>
+                    <Pill colors={colors} label={channel.verification} />
+                  </Row>
+                  <Text numberOfLines={2} style={[typography.body, { color: colors.text2 }]}>
+                    {channel.description}
+                  </Text>
+                  {channel.confusableWith.length > 0 ? (
+                    <Text style={[typography.caption, { color: colors.constrained }]}>
+                      Similar-looking name — verify the fingerprint
+                    </Text>
+                  ) : null}
+                </View>
+                <Ionicons name="chevron-forward" color={colors.text2} size={18} />
+              </Pressable>
+            ))}
           </View>
-          <View style={styles.flex}>
-            <Row gap={spacing.xs} wrap>
-              <Text style={[typography.h2, { color: colors.text }]}>{channel.name}</Text>
-              <Pill colors={colors} label={channel.verification} />
-            </Row>
-            <Text numberOfLines={2} style={[typography.body, { color: colors.text2 }]}>
-              {channel.description}
-            </Text>
-            {channel.confusableWith.length > 0 ? (
-              <Text style={[typography.caption, { color: colors.constrained }]}>
-                Similar-looking name — verify the fingerprint
-              </Text>
-            ) : null}
-          </View>
-        </Pressable>
-      ))}
-      {!query.isLoading && rows.length === 0 ? (
-        <EmptyState
-          body="Connected nodes have not announced a matching identified channel."
-          colors={colors}
-          icon="search-outline"
-          system="signal"
-          title="No channel found"
-        />
-      ) : null}
+        ) : null}
+        {!query.isLoading && rows.length === 0 ? (
+          <EmptyState
+            body="Connected nodes have not announced a matching identified channel."
+            colors={colors}
+            icon="search-outline"
+            system="signal"
+            title="No channel found"
+          />
+        ) : null}
       </Page>
     </View>
   );
@@ -647,7 +690,7 @@ export function SignalChannelScreen({
             <View style={[styles.channelAvatarLarge, { backgroundColor: colors.surface2 }]}>
               <Ionicons name="radio-outline" color={colors.signal} size={30} />
             </View>
-            <View style={styles.flex}>
+            <View style={styles.heroText}>
               <Text style={[typography.h1, { color: colors.text }]}>{channel.name}</Text>
               <Text style={[typography.body, { color: colors.text2 }]}>{channel.description}</Text>
             </View>
@@ -939,97 +982,101 @@ export function SignalCrisisScreen(props: SignalScreenProps) {
     <View style={styles.page}>
       <PageHeader colors={colors} mode={themeMode} reach={reach} title="Crisis desk" onBack={onBack} onReach={onNetwork} />
       <Page colors={colors}>
-      <Row gap={spacing.xs} wrap>
-        {(['checkin', 'missing', 'resource'] as const).map((value) => (
-          <Pill
-            colors={colors}
-            key={value}
-            label={value === 'checkin' ? 'Check in' : value === 'missing' ? 'Missing person' : 'Resource'}
-            onPress={() => setMode(value)}
-            selected={mode === value}
-          />
-        ))}
-      </Row>
-      {mode === 'checkin' ? (
-        <>
-          <Text style={[typography.h1, { color: colors.text }]}>How are you?</Text>
-          <Row gap={spacing.xs} wrap>
-            {[
-              [1, 'Safe'],
-              [2, 'Need help'],
-              [3, 'Medical'],
-              [4, 'Moving'],
-              [5, 'Unreachable'],
-            ].map(([value, label]) => (
-              <Pill
-                colors={colors}
-                key={value}
-                label={label as string}
-                onPress={() => setStatus(value as number)}
-                selected={status === value}
-              />
-            ))}
-          </Row>
-          <Field colors={colors} label="Short note (80 characters)" onChangeText={setNote} value={note} />
-          <StatusBanner
-            body="Check-ins cost zero credits and require no anti-abuse credential."
-            colors={colors}
-            icon="hand-left-outline"
-            title="Safety is never rate-limited"
-            tone="verified"
-          />
-        </>
-      ) : mode === 'missing' ? (
-        <>
-          <Field colors={colors} label="Person's name" onChangeText={setName} value={name} />
-          <Field colors={colors} keyboardType="number-pad" label="Age" onChangeText={setAge} value={age} />
-          <Field colors={colors} label="Last seen place" onChangeText={setPlace} value={place} />
-          <Field colors={colors} label="Description" multiline onChangeText={setDetail} value={detail} />
-        </>
-      ) : (
-        <>
-          <Row gap={spacing.xs} wrap>
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((value) => (
-              <Pill
-                colors={colors}
-                key={value}
-                label={['', 'Shelter', 'Water', 'Food', 'Medical', 'Fuel', 'Power', 'Internet', 'Road'][value]!}
-                onPress={() => setResourceKind(value)}
-                selected={resourceKind === value}
-              />
-            ))}
-          </Row>
-          <Row gap={spacing.xs} wrap>
-            {[1, 2, 3, 4, 5].map((value) => (
-              <Pill
-                colors={colors}
-                key={value}
-                label={['', 'Available', 'Limited', 'Exhausted', 'Blocked', 'Damaged'][value]!}
-                onPress={() => setResourceState(value)}
-                selected={resourceState === value}
-              />
-            ))}
-          </Row>
-          <Field colors={colors} label="Area or landmark" onChangeText={setPlace} value={place} />
-          <Field colors={colors} label="What did you observe?" multiline onChangeText={setDetail} value={detail} />
-        </>
-      )}
-      <Button
-        colors={colors}
-        disabled={busy}
-        label={busy ? 'Signing…' : 'Sign and publish'}
-        onPress={() => void publish()}
-        system="signal"
-      />
-      {notice ? (
-        <StatusBanner
-          body={notice}
+        <SegmentedControl
           colors={colors}
-          icon={notice.startsWith('Signed') ? 'shield-checkmark-outline' : 'warning-outline'}
-          title={notice.startsWith('Signed') ? 'Published' : 'Could not publish'}
-          tone={notice.startsWith('Signed') ? 'verified' : 'danger'}
+          onChange={setMode}
+          options={[
+            { value: 'checkin', label: 'Check in' },
+            { value: 'missing', label: 'Missing' },
+            { value: 'resource', label: 'Resource' },
+          ]}
+          value={mode}
         />
-      ) : null}
+        {mode === 'checkin' ? (
+          <>
+            <Card colors={colors} style={styles.formCard}>
+              <Text style={[typography.h2, { color: colors.text }]}>How are you?</Text>
+              <Row gap={spacing.xs} wrap>
+                {[
+                  [1, 'Safe'],
+                  [2, 'Need help'],
+                  [3, 'Medical'],
+                  [4, 'Moving'],
+                  [5, 'Unreachable'],
+                ].map(([value, label]) => (
+                  <Pill
+                    colors={colors}
+                    key={value}
+                    label={label as string}
+                    onPress={() => setStatus(value as number)}
+                    selected={status === value}
+                  />
+                ))}
+              </Row>
+              <Field colors={colors} label="Short note (80 characters)" onChangeText={setNote} value={note} />
+            </Card>
+            <StatusBanner
+              body="Check-ins cost zero credits and require no anti-abuse credential."
+              colors={colors}
+              icon="hand-left-outline"
+              title="Safety is never rate-limited"
+              tone="verified"
+            />
+          </>
+        ) : mode === 'missing' ? (
+          <Card colors={colors} style={styles.formCard}>
+            <Field colors={colors} label="Person's name" onChangeText={setName} value={name} />
+            <Field colors={colors} keyboardType="number-pad" label="Age" onChangeText={setAge} value={age} />
+            <Field colors={colors} label="Last seen place" onChangeText={setPlace} value={place} />
+            <Field colors={colors} label="Description" multiline onChangeText={setDetail} value={detail} />
+          </Card>
+        ) : (
+          <Card colors={colors} style={styles.formCard}>
+            <Text style={[typography.label, { color: colors.text }]}>What kind of resource?</Text>
+            <Row gap={spacing.xs} wrap>
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((value) => (
+                <Pill
+                  colors={colors}
+                  key={value}
+                  label={['', 'Shelter', 'Water', 'Food', 'Medical', 'Fuel', 'Power', 'Internet', 'Road'][value]!}
+                  onPress={() => setResourceKind(value)}
+                  selected={resourceKind === value}
+                />
+              ))}
+            </Row>
+            <Text style={[typography.label, { color: colors.text }]}>What is its state?</Text>
+            <Row gap={spacing.xs} wrap>
+              {[1, 2, 3, 4, 5].map((value) => (
+                <Pill
+                  colors={colors}
+                  key={value}
+                  label={['', 'Available', 'Limited', 'Exhausted', 'Blocked', 'Damaged'][value]!}
+                  onPress={() => setResourceState(value)}
+                  selected={resourceState === value}
+                />
+              ))}
+            </Row>
+            <Field colors={colors} label="Area or landmark" onChangeText={setPlace} value={place} />
+            <Field colors={colors} label="What did you observe?" multiline onChangeText={setDetail} value={detail} />
+          </Card>
+        )}
+        <Button
+          colors={colors}
+          disabled={busy}
+          icon="send-outline"
+          label={busy ? 'Signing…' : 'Sign and publish'}
+          onPress={() => void publish()}
+          system="signal"
+        />
+        {notice ? (
+          <StatusBanner
+            body={notice}
+            colors={colors}
+            icon={notice.startsWith('Signed') ? 'shield-checkmark-outline' : 'warning-outline'}
+            title={notice.startsWith('Signed') ? 'Published' : 'Could not publish'}
+            tone={notice.startsWith('Signed') ? 'verified' : 'danger'}
+          />
+        ) : null}
       </Page>
     </View>
   );
@@ -1095,19 +1142,23 @@ export function SignalMapScreen({ colors, mode, homeNode, reach, onNetwork, onBa
           </Text>
         ) : null}
       </View>
-      {points.map((point) => (
-        <View key={`legend:${point.id}`} style={[styles.listRow, { borderBottomColor: colors.border }]}>
-          <Ionicons
-            name={point.kind === 'check-in' ? 'hand-left-outline' : 'location-outline'}
-            color={point.kind === 'check-in' ? colors.verified : colors.signal}
-            size={20}
-          />
-          <View style={styles.flex}>
-            <Text style={[typography.label, { color: colors.text }]}>{point.label}</Text>
-            <Text style={[typography.caption, { color: colors.text2 }]}>{point.area.placeName}</Text>
-          </View>
+      {points.length > 0 ? (
+        <View style={styles.rowGroup}>
+          {points.map((point) => (
+            <View key={`legend:${point.id}`} style={[styles.listRow, { borderBottomColor: colors.border }]}>
+              <Ionicons
+                name={point.kind === 'check-in' ? 'hand-left-outline' : 'location-outline'}
+                color={point.kind === 'check-in' ? colors.verified : colors.signal}
+                size={20}
+              />
+              <View style={styles.listRowBody}>
+                <Text style={[typography.label, { color: colors.text }]}>{point.label}</Text>
+                <Text style={[typography.caption, { color: colors.text2 }]}>{point.area.placeName}</Text>
+              </View>
+            </View>
+          ))}
         </View>
-      ))}
+      ) : null}
       </Page>
     </View>
   );
@@ -1187,58 +1238,58 @@ function VaultSetup({
   return (
     <>
       <SectionHeader colors={colors} title="Set up this device" />
-      <Field
-        colors={colors}
-        label="Vault passphrase (optional)"
-        onChangeText={onPassphrase}
-        placeholder="At least 8 characters, or leave empty"
-        secureTextEntry
-        value={passphrase}
-      />
-      <Text style={[typography.caption, { color: passphrase.length === 0 ? colors.constrained : colors.text2 }]}>
-        {passphrase.length === 0
-          ? '⚠ Without a passphrase, anyone who unlocks this phone can read your Signal messages. Your 24 words are still required to restore the identity elsewhere.'
-          : passphraseUsable
-            ? 'Needed every time you unlock. It is not recoverable — your 24 words are.'
-            : 'Use at least 8 characters, or clear the field to go without one.'}
-      </Text>
-
-      <RecoverySaltField
-        colors={colors}
-        value={salt}
-        onChangeText={onSalt}
-        hint="Mixed into your keys and never stored. The same 24 words with and without it are two different identities — if you lose the salt, the identity is gone."
-      />
-
-      <Button
-        colors={colors}
-        disabled={busy || !passphraseUsable}
-        icon="key-outline"
-        label="Create Signal identity"
-        onPress={onCreate}
-        system="signal"
-      />
+      <Card colors={colors} style={styles.formCard}>
+        <Field
+          colors={colors}
+          label="Vault passphrase (optional)"
+          onChangeText={onPassphrase}
+          placeholder="At least 8 characters, or leave empty"
+          secureTextEntry
+          value={passphrase}
+        />
+        <Text style={[typography.caption, { color: passphrase.length === 0 ? colors.constrained : colors.text2 }]}>
+          {passphrase.length === 0
+            ? '⚠ Without a passphrase, anyone who unlocks this phone can read your Signal messages. Your 24 words are still required to restore the identity elsewhere.'
+            : passphraseUsable
+              ? 'Needed every time you unlock. It is not recoverable — your 24 words are.'
+              : 'Use at least 8 characters, or clear the field to go without one.'}
+        </Text>
+        <RecoverySaltField
+          colors={colors}
+          value={salt}
+          onChangeText={onSalt}
+          hint="Mixed into your keys and never stored. The same 24 words with and without it are two different identities — if you lose the salt, the identity is gone."
+        />
+        <Button
+          colors={colors}
+          disabled={busy || !passphraseUsable}
+          icon="key-outline"
+          label="Create Signal identity"
+          onPress={onCreate}
+          system="signal"
+        />
+      </Card>
 
       <SectionHeader colors={colors} title="Or restore an existing one" />
-      <Field
-        colors={colors}
-        label="Signal recovery phrase"
-        multiline
-        onChangeText={onRestorePhrase}
-        placeholder="Paste the 24 words stored when this Signal identity was created"
-        value={restorePhrase}
-      />
-      <Text style={[typography.caption, { color: colors.text2 }]}>
-        {wordCount === 0 ? '24 words needed' : `${wordCount} of 24 words`}
-      </Text>
-      <Button
-        colors={colors}
-        disabled={busy || !passphraseUsable || wordCount !== 24}
-        label="Restore Signal identity"
-        onPress={onRestore}
-        system="signal"
-        variant="secondary"
-      />
+      <Card colors={colors} style={styles.formCard}>
+        <Field
+          colors={colors}
+          hint={wordCount === 0 ? '24 words needed' : `${wordCount} of 24 words`}
+          label="Signal recovery phrase"
+          multiline
+          onChangeText={onRestorePhrase}
+          placeholder="Paste the 24 words stored when this Signal identity was created"
+          value={restorePhrase}
+        />
+        <Button
+          colors={colors}
+          disabled={busy || !passphraseUsable || wordCount !== 24}
+          label="Restore Signal identity"
+          onPress={onRestore}
+          system="signal"
+          variant="secondary"
+        />
+      </Card>
     </>
   );
 }
@@ -1265,31 +1316,34 @@ function VaultUnlock({
   return (
     <>
       <SectionHeader colors={colors} title="Unlock this device" />
-      <Field
-        colors={colors}
-        label="Vault passphrase"
-        onChangeText={onPassphrase}
-        placeholder="Leave empty if you created it without one"
-        secureTextEntry
-        value={passphrase}
-      />
-      <RecoverySaltField
-        colors={colors}
-        value={salt}
-        onChangeText={onSalt}
-        hint="Only if you set one when this identity was created. A wrong salt is refused, not silently accepted."
-      />
+      <Card colors={colors} style={styles.formCard}>
+        <Field
+          colors={colors}
+          label="Vault passphrase"
+          onChangeText={onPassphrase}
+          placeholder="Leave empty if you created it without one"
+          secureTextEntry
+          value={passphrase}
+        />
+        <RecoverySaltField
+          colors={colors}
+          value={salt}
+          onChangeText={onSalt}
+          hint="Only if you set one when this identity was created. A wrong salt is refused, not silently accepted."
+        />
+        <Button
+          colors={colors}
+          disabled={busy}
+          icon="lock-open-outline"
+          label="Unlock"
+          onPress={onUnlock}
+          system="signal"
+        />
+      </Card>
       <Button
         colors={colors}
         disabled={busy}
-        icon="lock-open-outline"
-        label="Unlock"
-        onPress={onUnlock}
-        system="signal"
-      />
-      <Button
-        colors={colors}
-        disabled={busy}
+        icon="trash-outline"
         label="Panic wipe Signal only"
         onPress={onPanic}
         variant="destructive"
@@ -1375,28 +1429,32 @@ function VaultActions({
   return (
     <>
       <SectionHeader colors={colors} title="This identity on your server" />
-      <Button colors={colors} disabled={busy} icon="ribbon-outline" label="Register certificate" onPress={onRegister} system="signal" />
-      <Button colors={colors} disabled={busy} label={authenticated ? 'Re-authenticate' : 'Authenticate'} onPress={onAuthenticate} system="signal" variant="secondary" />
-      <Button colors={colors} disabled={busy} label="Publish offline prekeys" onPress={onPrekeys} system="signal" variant="secondary" />
-      <Text style={[typography.caption, { color: colors.text2 }]}>
-        Prekeys let someone start an encrypted conversation with you while your device is offline.
-      </Text>
+      <Card colors={colors} style={styles.formCard}>
+        <Button colors={colors} disabled={busy} icon="ribbon-outline" label="Register certificate" onPress={onRegister} system="signal" />
+        <Button colors={colors} disabled={busy} label={authenticated ? 'Re-authenticate' : 'Authenticate'} onPress={onAuthenticate} system="signal" variant="secondary" />
+        <Button colors={colors} disabled={busy} label="Publish offline prekeys" onPress={onPrekeys} system="signal" variant="secondary" />
+        <Text style={[typography.caption, { color: colors.text2 }]}>
+          Prekeys let someone start an encrypted conversation with you while your device is offline.
+        </Text>
+      </Card>
 
       <SectionHeader colors={colors} title="Danger zone" />
-      <Field
-        colors={colors}
-        label='Type "REVOKE" to publish a key revocation'
-        onChangeText={onRevokeConfirm}
-        value={revokeConfirm}
-      />
-      <Button
-        colors={colors}
-        disabled={busy || revokeConfirm !== 'REVOKE'}
-        label="Revoke Signal key"
-        onPress={onRevoke}
-        variant="destructive"
-      />
-      <Button colors={colors} disabled={busy} label="Panic wipe Signal only" onPress={onPanic} variant="destructive" />
+      <Card colors={colors} style={{ ...styles.formCard, borderColor: colors.blackout }}>
+        <Field
+          colors={colors}
+          label='Type "REVOKE" to publish a key revocation'
+          onChangeText={onRevokeConfirm}
+          value={revokeConfirm}
+        />
+        <Button
+          colors={colors}
+          disabled={busy || revokeConfirm !== 'REVOKE'}
+          label="Revoke Signal key"
+          onPress={onRevoke}
+          variant="destructive"
+        />
+        <Button colors={colors} disabled={busy} icon="trash-outline" label="Panic wipe Signal only" onPress={onPanic} variant="destructive" />
+      </Card>
     </>
   );
 }
@@ -1753,12 +1811,17 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
         title="End-to-end encrypted"
         tone="verified"
       />
-      <Row gap={spacing.xs} wrap>
-        <Pill colors={colors} label="Messages" onPress={() => setMode('sessions')} selected={mode === 'sessions'} />
-        <Pill colors={colors} label="Groups" onPress={() => setMode('groups')} selected={mode === 'groups'} />
-      </Row>
+      <SegmentedControl
+        colors={colors}
+        onChange={setMode}
+        options={[
+          { value: 'sessions', label: 'Messages' },
+          { value: 'groups', label: 'Groups' },
+        ]}
+        value={mode}
+      />
       {mode === 'sessions' ? (
-        <>
+        <Card colors={colors} style={styles.lifecycle}>
           <Text style={[typography.label, { color: colors.text }]}>Continue a conversation</Text>
           <Row gap={spacing.xs} wrap>
             <Pill colors={colors} label="New session" onPress={() => setActiveSession('')} selected={!activeSession} />
@@ -1796,30 +1859,38 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
           ) : null}
           <Field colors={colors} label={activeSession ? 'Message' : 'First message'} multiline onChangeText={setMessage} value={message} />
           <Button colors={colors} disabled={busy || (!activeSession && recipient.length !== 64) || message.trim().length === 0} label={busy ? 'Encrypting…' : activeSession ? 'Send encrypted message' : 'Start encrypted session'} onPress={() => void send()} system="signal" />
-        </>
+        </Card>
       ) : (
         <>
           <SectionHeader colors={colors} title="Create a coordination group" />
-          <Field colors={colors} label="Group name" onChangeText={setGroupName} value={groupName} />
-          <Field colors={colors} label="Member Signal keys" multiline onChangeText={setGroupMembers} placeholder="Two or more 64-character keys, separated by spaces" value={groupMembers} />
-          <Button colors={colors} disabled={busy || !groupName.trim() || memberKeys(groupMembers).length < 2} label={busy ? 'Wrapping sender key…' : 'Create encrypted group'} onPress={() => void createGroup()} system="signal" />
+          <Card colors={colors} style={styles.formCard}>
+            <Field colors={colors} label="Group name" onChangeText={setGroupName} value={groupName} />
+            <Field colors={colors} label="Member Signal keys" multiline onChangeText={setGroupMembers} placeholder="Two or more 64-character keys, separated by spaces" value={groupMembers} />
+            <Button colors={colors} disabled={busy || !groupName.trim() || memberKeys(groupMembers).length < 2} label={busy ? 'Wrapping sender key…' : 'Create encrypted group'} onPress={() => void createGroup()} system="signal" />
+          </Card>
           <SectionHeader colors={colors} title="Groups on this identity" />
-          {groups.length === 0 ? <EmptyState body="Groups you create or join will appear here." colors={colors} icon="people-outline" system="signal" title="No Signal groups" /> : groups.map((group) => (
-            <Pressable
-              accessibilityLabel={`Open Signal group ${group.name}`}
-              accessibilityRole="button"
-              accessibilityState={{ selected: selectedGroup === group.id }}
-              key={group.id}
-              onPress={() => setSelectedGroup(group.id)}
-              style={[styles.listRow, { borderBottomColor: colors.border }]}
-            >
-              <View style={styles.flex}>
-                <Text style={[typography.label, { color: colors.text }]}>{group.name}</Text>
-                <Text style={[typography.caption, { color: colors.text2 }]}>{group.memberKeys.length} members · {group.id.slice(0, 18)}…</Text>
-              </View>
-              <Ionicons color={selectedGroup === group.id ? colors.signal : colors.text2} name="chevron-forward" size={18} />
-            </Pressable>
-          ))}
+          {groups.length === 0 ? (
+            <EmptyState body="Groups you create or join will appear here." colors={colors} icon="people-outline" system="signal" title="No Signal groups" />
+          ) : (
+            <View style={styles.rowGroup}>
+              {groups.map((group) => (
+                <Pressable
+                  accessibilityLabel={`Open Signal group ${group.name}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: selectedGroup === group.id }}
+                  key={group.id}
+                  onPress={() => setSelectedGroup(group.id)}
+                  style={[styles.listRow, { borderBottomColor: colors.border }]}
+                >
+                  <View style={styles.listRowBody}>
+                    <Text style={[typography.label, { color: colors.text }]}>{group.name}</Text>
+                    <Text style={[typography.caption, { color: colors.text2 }]}>{group.memberKeys.length} members · {group.id.slice(0, 18)}…</Text>
+                  </View>
+                  <Ionicons color={selectedGroup === group.id ? colors.signal : colors.text2} name="chevron-forward" size={18} />
+                </Pressable>
+              ))}
+            </View>
+          )}
           {selectedGroup ? (
             <Card colors={colors} style={styles.lifecycle}>
               <StatusBanner body="Every membership change creates a fresh 32-byte sender key and wraps it separately for every remaining member." colors={colors} icon="key-outline" title="Rekey is mandatory" tone="verified" />
@@ -1839,37 +1910,51 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
           tone={notice.startsWith('Encrypted') ? 'verified' : 'danger'}
         />
       ) : null}
-      <Button colors={colors} label="Refresh encrypted inbox" onPress={() => void refresh()} variant="ghost" />
-      {mode === 'sessions' ? sessions.map((session) => (
-        <View
-          key={session.id}
-          style={[styles.listRow, { borderBottomColor: colors.border }]}
-        >
-          <View style={styles.flex}>
-            <Text style={[typography.caption, { color: colors.text2 }]}>
-              {nameFor(session.senderKey)} · {new Date(session.createdAtMs).toLocaleString()}
-            </Text>
-            <Text style={[typography.body, { color: colors.text }]}>
-              {session.plaintext ?? 'Ciphertext for the other participant'}
-            </Text>
+      <Button colors={colors} icon="refresh-outline" label="Refresh encrypted inbox" onPress={() => void refresh()} variant="ghost" />
+      {mode === 'sessions' && (sessions.length > 0 || messages.length > 0) ? (
+        <>
+          <SectionHeader colors={colors} title="Decrypted on this device" />
+          <View style={styles.rowGroup}>
+            {sessions.map((session) => (
+              <View key={session.id} style={[styles.listRow, { borderBottomColor: colors.border }]}>
+                <View style={styles.listRowBody}>
+                  <Text style={[typography.caption, { color: colors.text2 }]}>
+                    {session.senderKey.slice(0, 16)}… · {new Date(session.createdAtMs).toLocaleString()}
+                  </Text>
+                  <Text style={[typography.body, { color: colors.text }]}>
+                    {session.plaintext ?? 'Ciphertext for the other participant'}
+                  </Text>
+                </View>
+              </View>
+            ))}
+            {messages.map((item) => (
+              <View key={item.id} style={[styles.listRow, { borderBottomColor: colors.border }]}>
+                <View style={styles.listRowBody}>
+                  <Text style={[typography.caption, { color: colors.text2 }]}>
+                    Message {item.counter} · {new Date(item.createdAtMs).toLocaleString()}
+                  </Text>
+                  <Text style={[typography.body, { color: colors.text }]}>
+                    {item.plaintext ?? 'Encrypted message sent from this device'}
+                  </Text>
+                </View>
+                {item.recipientKey.toLowerCase() === identityKey.toLowerCase() ? (
+                  <Button
+                    colors={colors}
+                    label={item.deliveryState >= DeliveryState.DELIVERY_STATE_READ ? 'Read' : 'Mark read'}
+                    onPress={() => {
+                      void publishSignalDeliveryReceipt(homeNode.baseUrl, { message: item.id, state: DeliveryState.DELIVERY_STATE_READ }, homeNode.discovery.services.auditLogs)
+                        .then(() => setNotice('Signed read receipt queued.'))
+                        .catch((error: Error) => setNotice(error.message));
+                    }}
+                    system="signal"
+                    variant="ghost"
+                  />
+                ) : null}
+              </View>
+            ))}
           </View>
-        </View>
-      )) : null}
-      {mode === 'sessions' ? messages.map((item) => (
-        <View key={item.id} style={[styles.listRow, { borderBottomColor: colors.border }]}>
-          <View style={styles.flex}>
-            <Text style={[typography.caption, { color: colors.text2 }]}>Message {item.counter} · {new Date(item.createdAtMs).toLocaleString()}</Text>
-            <Text style={[typography.body, { color: colors.text }]}>{item.plaintext ?? 'Encrypted message sent from this device'}</Text>
-          </View>
-          {item.recipientKey.toLowerCase() === identityKey.toLowerCase() ? (
-            <Button colors={colors} label={item.deliveryState >= DeliveryState.DELIVERY_STATE_READ ? 'Read' : 'Mark read'} onPress={() => {
-              void publishSignalDeliveryReceipt(homeNode.baseUrl, { message: item.id, state: DeliveryState.DELIVERY_STATE_READ }, homeNode.discovery.services.auditLogs)
-                .then(() => setNotice('Signed read receipt queued.'))
-                .catch((error: Error) => setNotice(error.message));
-            }} system="signal" variant="ghost" />
-          ) : null}
-        </View>
-      )) : null}
+        </>
+      ) : null}
       </Page>
     </View>
   );
@@ -1930,20 +2015,26 @@ export function SignalStudioScreen({ colors, mode: themeMode, homeNode, reach, o
     <View style={styles.page}>
       <PageHeader colors={colors} mode={themeMode} reach={reach} title="Signal studio" onBack={onBack} onReach={onNetwork} />
       <Page colors={colors}>
-      <Row gap={spacing.xs} wrap>
-        <Pill colors={colors} label="Declare channel" onPress={() => setMode('channel')} selected={mode === 'channel'} />
-        <Pill colors={colors} label="Emit broadcast" onPress={() => setMode('broadcast')} selected={mode === 'broadcast'} />
-        <Pill colors={colors} label="Retract" onPress={() => setMode('revoke')} selected={mode === 'revoke'} />
-      </Row>
+      <SegmentedControl
+        colors={colors}
+        onChange={setMode}
+        options={[
+          { value: 'channel', label: 'Declare' },
+          { value: 'broadcast', label: 'Broadcast' },
+          { value: 'revoke', label: 'Retract' },
+        ]}
+        value={mode}
+      />
       {mode === 'channel' ? (
-        <>
+        <Card colors={colors} style={styles.formCard}>
           <Field colors={colors} label="Channel name" onChangeText={setName} value={name} />
           <Field colors={colors} label="Description" multiline onChangeText={setDescription} value={description} />
-        </>
+        </Card>
       ) : mode === 'broadcast' ? (
-        <>
+        <Card colors={colors} style={styles.formCard}>
           <Field colors={colors} label="Channel ID" onChangeText={setChannel} value={channel} />
           <Field colors={colors} keyboardType="number-pad" label="Sequence" onChangeText={setSequence} value={sequence} />
+          <Text style={[typography.label, { color: colors.text }]}>Severity</Text>
           <Row gap={spacing.xs} wrap>
             {[1, 2, 3, 4].map((value) => (
               <Pill
@@ -1957,12 +2048,14 @@ export function SignalStudioScreen({ colors, mode: themeMode, homeNode, reach, o
           </Row>
           <Field colors={colors} label="Actionable headline" onChangeText={setHeadline} value={headline} />
           <Field colors={colors} label="Optional detail" multiline onChangeText={setDetail} value={detail} />
-        </>
+        </Card>
       ) : (
         <>
-          <Field colors={colors} label="Channel ID" onChangeText={setChannel} value={channel} />
-          <Field colors={colors} label="Broadcast receipt ID" onChangeText={setRevokeTarget} value={revokeTarget} />
-          <Field colors={colors} label="Why is this being retracted?" multiline onChangeText={setRevokeNote} value={revokeNote} />
+          <Card colors={colors} style={styles.formCard}>
+            <Field colors={colors} label="Channel ID" onChangeText={setChannel} value={channel} />
+            <Field colors={colors} label="Broadcast receipt ID" onChangeText={setRevokeTarget} value={revokeTarget} />
+            <Field colors={colors} label="Why is this being retracted?" multiline onChangeText={setRevokeNote} value={revokeNote} />
+          </Card>
           <StatusBanner colors={colors} icon="alert-circle-outline" title="Retractions stay visible" body="Subscribers will see that the original broadcast was retracted and why." tone="warning" />
         </>
       )}
@@ -2002,13 +2095,13 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   actionLabel: { textAlign: 'center' },
-  actionRail: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.md },
+  actionRail: { flexDirection: 'row', gap: spacing.sm },
   /**
-   * Card supplies surface, border, radius, padding and gap. Only the severity edge and the
-   * list spacing are local — repeating the rest is what made these cards sit differently
-   * from every other card in the app.
+   * Card supplies surface, border, radius, padding and gap. Only the severity edge is local —
+   * repeating the rest is what made these cards sit differently from every other card in the
+   * app, and the horizontal margin they used to carry is now `Page`'s gutter.
    */
-  alert: { borderLeftWidth: 4, marginHorizontal: spacing.md, marginBottom: spacing.sm },
+  alert: { borderLeftWidth: 4 },
   alertHeading: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   alertTitle: { alignItems: 'center', flexDirection: 'row', gap: spacing.xs },
   channelAvatar: {
@@ -2027,16 +2120,22 @@ const styles = StyleSheet.create({
   },
   fingerprint: { lineHeight: 24 },
   flex: { flex: 1 },
-  hero: { alignItems: 'flex-start', flexDirection: 'row', gap: spacing.md, padding: spacing.md },
-  loadingStack: { gap: spacing.sm, paddingHorizontal: spacing.md },
+  /** A group of related controls reads as one surface instead of a loose vertical run. */
+  formCard: { gap: spacing.md },
+  hero: { alignItems: 'flex-start', flexDirection: 'row', gap: spacing.sm },
+  heroText: { flex: 1, gap: spacing.xxs },
+  loadingStack: { gap: spacing.sm },
+  /** A run of rows reads as one block, so it groups its own hairlines instead of page gaps. */
+  rowGroup: { gap: 0 },
   listRow: {
     alignItems: 'center',
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
-    gap: spacing.md,
-    paddingVertical: spacing.md,
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
   },
-  lifecycle: { marginTop: spacing.xs },
+  listRowBody: { flex: 1, minWidth: 0, gap: spacing.xxs },
+  lifecycle: { gap: spacing.md },
   map: {
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,

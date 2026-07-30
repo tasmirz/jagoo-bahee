@@ -1605,8 +1605,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   multiline: { minHeight: 112, textAlignVertical: 'top' },
+  // Gutter-free by contract — `Page` owns the screen's inline inset.
   panel: {
-    marginHorizontal: spacing.md,
     padding: spacing.md,
     borderWidth: 1,
     borderRadius: radius.lg,
@@ -1631,7 +1631,6 @@ const styles = StyleSheet.create({
   metrics: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginHorizontal: spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },

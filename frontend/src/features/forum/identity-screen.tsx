@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useNodeDocument } from '../../data/node';
 import type { HomeNode } from '../../data/node-config';
 import { blockForumIdentity, followForumIdentity } from '../../signer';
 import type { AppPalette, ThemeMode } from '../../design-system';
 import { radius, spacing, type as typography } from '../../design-system';
-import { Button, EmptyState, PageHeader, Screen, StatusBanner } from '../../design-system';
+import { Button, EmptyState, Page, PageHeader, StatusBanner, TextAreaField } from '../../design-system';
 
 interface PublicIdentity {
   readonly id: string;
@@ -77,9 +77,9 @@ export function PublicIdentityScreen({
     } finally { setBusy(false); }
   };
   return (
-    <Screen colors={colors}>
+    <View style={styles.page}>
       <PageHeader colors={colors} mode={mode} title="Public identity" onBack={onBack} />
-      <View style={styles.column}>
+      <Page colors={colors}>
         {profile ? (
           <>
             <View style={[styles.hero, { backgroundColor: colors.surface, borderColor: colors.border }]}>
@@ -114,7 +114,14 @@ export function PublicIdentityScreen({
                 <Text style={[typography.caption, { color: colors.text2 }]}>
                   Blocked senders cannot deliver Forum messages to you.
                 </Text>
-                <TextInput accessibilityLabel="Block reason" multiline onChangeText={setBlockReason} placeholder="Optional private context" placeholderTextColor={colors.text3} style={[typography.body, styles.input, { backgroundColor: colors.bg, borderColor: colors.border, color: colors.text }]} value={blockReason} />
+                <TextAreaField
+                  colors={colors}
+                  label="Block reason"
+                  minHeight={96}
+                  onChangeText={setBlockReason}
+                  placeholder="Optional private context"
+                  value={blockReason}
+                />
                 <Button colors={colors} disabled={busy} label="Confirm block" onPress={() => void changeBlock()} variant="destructive" />
               </View>
             ) : null}
@@ -123,8 +130,8 @@ export function PublicIdentityScreen({
         ) : identity.isError ? (
           <EmptyState body="This key is not present in the selected node's public identity projection." colors={colors} icon="person-outline" title="Identity not found" />
         ) : null}
-      </View>
-    </Screen>
+      </Page>
+    </View>
   );
 }
 
@@ -133,8 +140,8 @@ function Stat({ colors, label, value }: { readonly colors: AppPalette; readonly 
 }
 
 const styles = StyleSheet.create({
-  header: { minHeight: 68, paddingHorizontal: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  column: { width: '100%', maxWidth: 720, alignSelf: 'center', padding: spacing.md, gap: spacing.md },
+  /** `PageHeader` is sticky and owns the top inset, so the page below it simply fills. */
+  page: { flex: 1 },
   hero: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.lg, alignItems: 'center', gap: spacing.sm },
   avatar: { width: 72, height: 72, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   stats: { width: '100%', flexDirection: 'row', marginTop: spacing.sm },
@@ -142,5 +149,4 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: spacing.sm },
   actionCell: { flex: 1 },
   blockForm: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm },
-  input: { minHeight: 96, borderWidth: 1, borderRadius: radius.md, padding: spacing.md, textAlignVertical: 'top' },
 });

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import Markdown from 'react-native-markdown-display';
 import { useQueryClient } from '@tanstack/react-query';
 import { ReportReason, TargetKind } from '@jagoo/sdk/proto';
@@ -205,47 +206,85 @@ export function PostDetailScreen({
             tone="warning"
           />
         ) : (
-          <View style={styles.column}>
-            <View style={styles.headRow}>
-              <Text
+          <>
+            {/*
+              The article block. Byline, title and body are one surface with the post's own
+              rhythm; the action bar below it is separate furniture. Previously all of it was
+              one flat `gap: spacing.sm` run, so the title had exactly as much air above it as
+              the vote row did — nothing told a reader where the post ended and the tools began.
+            */}
+            <View style={styles.article}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Open community ${item.community}`}
                 onPress={() => onOpenCommunity(item.community)}
-                maxFontSizeMultiplier={maxFontScale.overline}
-                style={[typography.overline, { color: colors.ember }]}
+                style={styles.byline}
               >
-                r/{item.community}
-              </Text>
-              <Text
-                onPress={() => onOpenAuthor(item.authorKey)}
-                maxFontSizeMultiplier={maxFontScale.caption}
-                style={[typography.caption, { color: colors.text2 }]}
-              >
-                {' '}
-                · u/{item.authorKey.slice(0, 10)}…
-              </Text>
-              <Seal colors={colors} state={seal} onPress={onAudit} />
-            </View>
-            <Text maxFontSizeMultiplier={maxFontScale.h1} style={[typography.h1, { color: colors.text }]}>
-              {item.title}
-            </Text>
-            {item.url ? (
-              <Text
-                selectable
-                onPress={() => void Share.share({ message: item.url })}
-                maxFontSizeMultiplier={maxFontScale.body}
-                style={[typography.body, { color: colors.link }]}
-              >
-                {item.url}
-              </Text>
-            ) : null}
-            {item.removed ? (
-              <Text maxFontSizeMultiplier={maxFontScale.body} style={[typography.body, { color: colors.text2, fontStyle: 'italic' }]}>
-                Hidden by community moderators.
-              </Text>
-            ) : item.bodyMarkdown ? (
-              <Markdown style={markdownStyles(colors)}>{item.bodyMarkdown}</Markdown>
-            ) : null}
+                <View style={[styles.communityMark, { backgroundColor: colors.ember }]}>
+                  <Text maxFontSizeMultiplier={1.2} style={[typography.caption, { color: colors.onAccent }]}>
+                    {item.community.slice(0, 2).toUpperCase()}
+                  </Text>
+                </View>
+                <View style={styles.bylineText}>
+                  <Text
+                    numberOfLines={1}
+                    maxFontSizeMultiplier={maxFontScale.overline}
+                    style={[typography.overline, { color: colors.text }]}
+                  >
+                    r/{item.community}
+                  </Text>
+                  <Text
+                    numberOfLines={1}
+                    onPress={() => onOpenAuthor(item.authorKey)}
+                    maxFontSizeMultiplier={maxFontScale.caption}
+                    style={[typography.caption, { color: colors.text2 }]}
+                  >
+                    u/{item.authorKey.slice(0, 10)}…
+                  </Text>
+                </View>
+                <Seal colors={colors} state={seal} onPress={onAudit} />
+              </Pressable>
 
-            <View style={styles.actionBar}>
+              <Text maxFontSizeMultiplier={maxFontScale.h1} style={[typography.h1, { color: colors.text }]}>
+                {item.title}
+              </Text>
+
+              {item.url ? (
+                <Pressable
+                  accessibilityRole="link"
+                  accessibilityLabel={`Open link ${item.url}`}
+                  onPress={() => void Share.share({ message: item.url })}
+                  style={[styles.linkCard, { backgroundColor: colors.surface2, borderColor: colors.border }]}
+                >
+                  <Ionicons name="link-outline" size={18} color={colors.link} />
+                  <Text
+                    numberOfLines={2}
+                    maxFontSizeMultiplier={maxFontScale.body}
+                    style={[typography.body, styles.flexShrink, { color: colors.link }]}
+                  >
+                    {item.url.replace(/^https?:\/\//, '')}
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              {item.removed ? (
+                <View style={[styles.tombstone, { borderColor: colors.border, backgroundColor: colors.surface2 }]}>
+                  <Ionicons name="eye-off-outline" size={18} color={colors.text2} />
+                  <Text maxFontSizeMultiplier={maxFontScale.body} style={[typography.body, styles.flexShrink, { color: colors.text2 }]}>
+                    Hidden by community moderators. The record of it stays public.
+                  </Text>
+                </View>
+              ) : item.bodyMarkdown ? (
+                <Markdown style={markdownStyles(colors)}>{item.bodyMarkdown}</Markdown>
+              ) : null}
+            </View>
+
+            {/*
+              One row, always reachable one-handed: score and vote on the left, the three
+              content actions on the right. Ghost buttons with a label each — an icon-only bar
+              would be smaller but leaves a screen reader with four unnamed targets.
+            */}
+            <View style={[styles.actionBar, { borderColor: colors.border, backgroundColor: colors.surface }]}>
               <VoteButtons
                 colors={colors}
                 homeNode={homeNode}
@@ -256,21 +295,23 @@ export function PostDetailScreen({
                 myVote={item.myVote}
                 onError={(text) => setNotice({ tone: 'danger', text })}
               />
-              <Button
-                colors={colors}
-                variant="ghost"
-                icon={item.saved ? 'bookmark' : 'bookmark-outline'}
-                label={item.saved ? 'Saved' : 'Save'}
-                onPress={() => void toggleSave()}
-              />
-              <Button colors={colors} variant="ghost" icon="sparkles-outline" label="Award" onPress={() => void giveAward()} />
-              <Button
-                colors={colors}
-                variant="ghost"
-                icon="share-outline"
-                label="Share"
-                onPress={() => void Share.share({ message: `${item.title}\n${contentId}` })}
-              />
+              <View style={styles.actionBarTrailing}>
+                <Button
+                  colors={colors}
+                  variant="ghost"
+                  icon={item.saved ? 'bookmark' : 'bookmark-outline'}
+                  label={item.saved ? 'Saved' : 'Save'}
+                  onPress={() => void toggleSave()}
+                />
+                <Button colors={colors} variant="ghost" icon="sparkles-outline" label="Award" onPress={() => void giveAward()} />
+                <Button
+                  colors={colors}
+                  variant="ghost"
+                  icon="share-outline"
+                  label="Share"
+                  onPress={() => void Share.share({ message: `${item.title}\n${contentId}` })}
+                />
+              </View>
             </View>
 
             {notice ? (
@@ -283,11 +324,15 @@ export function PostDetailScreen({
               />
             ) : null}
 
-            <Section title={`${item.commentCount} comments`} colors={colors}>
+            <Section
+              title={item.commentCount === 1 ? '1 comment' : `${item.commentCount} comments`}
+              colors={colors}
+            >
               {replying ? (
                 <View style={styles.replyBlock}>
                   <TextInput
                     accessibilityLabel="Write a comment"
+                    autoFocus
                     multiline
                     placeholder="What are your thoughts?"
                     placeholderTextColor={colors.text3}
@@ -303,6 +348,14 @@ export function PostDetailScreen({
               ) : (
                 <Button colors={colors} variant="secondary" icon="chatbubble-outline" label="Add a comment" onPress={() => setReplying(true)} />
               )}
+              {tree.roots.length === 0 && !comments.isLoading ? (
+                <Text
+                  maxFontSizeMultiplier={maxFontScale.body}
+                  style={[typography.body, styles.noComments, { color: colors.text2 }]}
+                >
+                  No comments yet. Be the first to reply.
+                </Text>
+              ) : null}
               {tree.roots.map((node) => (
                 <CommentNode
                   key={node.comment.contentId}
@@ -320,7 +373,7 @@ export function PostDetailScreen({
               ))}
             </Section>
             <View style={{ height: bottom }} />
-          </View>
+          </>
         )}
       </Page>
 
@@ -368,9 +421,48 @@ export function PostDetailScreen({
 }
 
 const styles = StyleSheet.create({
-  column: { width: '100%', maxWidth: 760, alignSelf: 'center', paddingHorizontal: spacing.md, gap: spacing.sm, paddingTop: spacing.md },
-  headRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
-  actionBar: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, paddingVertical: spacing.xs },
+  // `Page` owns the gutter, the reading measure and the vertical rhythm between these blocks.
+  article: { gap: spacing.sm },
+  byline: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 44 },
+  bylineText: { flex: 1, minWidth: 0 },
+  communityMark: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  flexShrink: { flexShrink: 1 },
+  linkCard: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  tombstone: {
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  actionBar: {
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xxs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.xxs,
+  },
+  actionBarTrailing: { flexDirection: 'row', alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' },
+  noComments: { paddingVertical: spacing.sm },
   replyBlock: { gap: spacing.xs },
   replyInput: { minHeight: 96, borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, textAlignVertical: 'top' },
   replyActions: { flexDirection: 'row', gap: spacing.xs, justifyContent: 'flex-end' },

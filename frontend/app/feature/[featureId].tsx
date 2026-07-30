@@ -8,7 +8,7 @@ import { EmptyState, Screen } from '../../src/design-system';
 export default function FeatureRoute() {
   const router = useRouter();
   const { featureId } = useLocalSearchParams<{ readonly featureId: string }>();
-  const { colors, homeNode } = useApp();
+  const { colors, homeNode, themeMode } = useApp();
   const feature = featureDestinations.find((item) => item.id === featureId);
   if (!homeNode) return null;
   return (
@@ -16,6 +16,7 @@ export default function FeatureRoute() {
       {feature ? (
         <FeatureScreen
           colors={colors}
+          mode={themeMode}
           feature={feature}
           homeNode={homeNode}
           onBack={() => router.back()}

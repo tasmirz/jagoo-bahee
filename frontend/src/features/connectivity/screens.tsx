@@ -32,6 +32,7 @@ import {
   Button,
   Divider,
   EmptyState,
+  Page,
   PageHeader,
   Screen,
   Seal,
@@ -534,9 +535,9 @@ export function NetworkScreen({
   const alerts = alertQuery.data?.value.items ?? [];
   const legacyServices = federations.data?.value.items ?? [];
   return (
-    <Screen colors={colors}>
+    <View style={styles.flex}>
       <PageHeader colors={colors} mode={mode} onBack={onBack} reach={reach} title="Network & services" />
-      <View style={styles.contentColumn}>
+      <Page colors={colors}>
         <Button
           colors={colors}
           label="Open offline relay"
@@ -979,9 +980,9 @@ export function ProofVaultScreen({
   };
 
   return (
-    <Screen colors={colors}>
+    <View style={styles.flex}>
       <PageHeader colors={colors} mode={mode} onBack={onBack} title="Proofs & acknowledgements" />
-      <View style={styles.contentColumn}>
+      <Page colors={colors}>
         <View style={styles.proofIntro}>
           <View style={[styles.proofSeal, { backgroundColor: colors.verified }]}>
             <Ionicons name="shield-checkmark" size={27} color={colors.onAccent} />
@@ -1072,8 +1073,8 @@ export function ProofVaultScreen({
             );
           })
         )}
-      </View>
-    </Screen>
+      </Page>
+    </View>
   );
 }
 
@@ -1131,8 +1132,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  contentColumn: { width: '100%', maxWidth: 760, alignSelf: 'center' },
-  nodeHero: { paddingHorizontal: spacing.md, paddingTop: spacing.xl, gap: spacing.xs },
+  // Gutter-free by contract from here down — `Page` owns the screen's inline inset.
+  nodeHero: { paddingTop: spacing.md, gap: spacing.xs },
   transportBadge: {
     minHeight: 28,
     flexDirection: 'row',
@@ -1140,9 +1141,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   sectionHeadingRow: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.sm,
+    paddingTop: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1156,7 +1155,6 @@ const styles = StyleSheet.create({
   },
   identityRow: {
     minHeight: 84,
-    paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1196,7 +1194,6 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
   },
   serviceList: {
-    marginHorizontal: spacing.md,
     borderWidth: 1,
     borderRadius: radius.lg,
     overflow: 'hidden',
@@ -1258,10 +1255,9 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.sm,
   },
-  pageActions: { padding: spacing.md, marginTop: spacing.md },
+  pageActions: { marginTop: spacing.xs },
   proofIntro: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xl,
+    paddingVertical: spacing.md,
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: spacing.md,
@@ -1274,8 +1270,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   proofCard: {
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.sm,
     padding: spacing.md,
     borderWidth: 1,
     borderRadius: radius.lg,

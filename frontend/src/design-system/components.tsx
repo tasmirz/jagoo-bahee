@@ -551,13 +551,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
   },
+  // Gutter-free by contract — `Page` owns the screen's inline inset.
   sectionHeader: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.sm,
+    paddingTop: spacing.xs,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: spacing.sm,
   },
   pill: {
     minHeight: 44,
@@ -567,7 +567,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   empty: {
-    padding: spacing.xl,
+    paddingVertical: spacing.xl,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
@@ -581,9 +581,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   centerText: { textAlign: 'center', maxWidth: 320 },
+  // Gutter-free by contract — `Page` owns the screen's inline inset.
   banner: {
-    marginHorizontal: spacing.md,
-    marginTop: spacing.sm,
     padding: spacing.sm,
     borderWidth: 1,
     borderRadius: radius.md,
