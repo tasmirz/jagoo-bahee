@@ -22,6 +22,7 @@ import {
 } from '../../data/node';
 import { translate, type Locale, type MessageKey } from '../../i18n';
 import type { HomeNode } from '../../data/node-config';
+import type { IdentityProfile } from '../../data/identity-profiles';
 import type { AppPalette } from '../../theme';
 import { radius, spacing, type as typography } from '../../theme';
 import {
@@ -284,21 +285,29 @@ const SCOPE_LABEL: Readonly<Record<string, MessageKey>> = {
 };
 
 export function NetworkScreen({
+  activeProfileId,
   colors,
   homeNode,
+  identityProfiles,
   reach,
   locale = 'en',
   onBack,
+  onAddIdentity,
   onChangeServer,
   onMesh,
+  onSwitchIdentity,
 }: {
+  readonly activeProfileId: string | null;
   readonly colors: AppPalette;
   readonly homeNode: HomeNode;
+  readonly identityProfiles: readonly IdentityProfile[];
   readonly reach: ReachState;
   readonly locale?: Locale;
   readonly onBack: () => void;
+  readonly onAddIdentity: () => void;
   readonly onChangeServer: () => void;
   readonly onMesh: () => void;
+  readonly onSwitchIdentity: (vaultId: string) => Promise<void>;
 }) {
   const federations = useFederations(homeNode.baseUrl);
   const peerDirectory = useFederationPeers(homeNode.baseUrl);
@@ -336,11 +345,74 @@ export function NetworkScreen({
           <Text selectable style={[typography.mono, { color: colors.text2 }]}>
             {homeNode.baseUrl}
           </Text>
+          <View style={styles.transportBadge}>
+            <Ionicons
+              color={homeNode.transport === 'tor' ? colors.verified : colors.text2}
+              name={homeNode.transport === 'tor' ? 'shield-checkmark-outline' : 'globe-outline'}
+              size={16}
+            />
+            <Text style={[typography.caption, { color: colors.text2 }]}>
+              {homeNode.transport === 'tor' ? 'Embedded Tor · no direct fallback' : 'Direct network'}
+            </Text>
+          </View>
           <Seal
             colors={colors}
             label={`${homeNode.discovery.node.serverId.slice(0, 15)}…`}
             state={reach === 'connected' ? 'synced' : 'queued'}
           />
+        </View>
+
+        <View style={styles.sectionHeadingRow}>
+          <Text style={[typography.h2, { color: colors.text }]}>Identities</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onAddIdentity}
+            style={styles.inlineAction}
+          >
+            <Ionicons color={colors.ember} name="add" size={18} />
+            <Text style={[typography.label, { color: colors.ember }]}>Add identity</Text>
+          </Pressable>
+        </View>
+        <Text style={[typography.body, styles.sectionBody, { color: colors.text2 }]}>
+          Each identity keeps its own key vault and home server. Switching locks the current vault.
+        </Text>
+        <View style={[styles.serviceList, { borderColor: colors.border }]}>
+          {identityProfiles.map((profile, index) => {
+            const selected = profile.vaultId === activeProfileId;
+            return (
+              <View key={profile.vaultId}>
+                <Pressable
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                  disabled={selected}
+                  onPress={() => void onSwitchIdentity(profile.vaultId)}
+                  style={styles.identityRow}
+                >
+                  <Ionicons
+                    color={selected ? colors.ember : colors.text2}
+                    name={selected ? 'radio-button-on' : 'radio-button-off'}
+                    size={20}
+                  />
+                  <View style={styles.flex}>
+                    <Text style={[typography.label, { color: colors.text }]}>{profile.label}</Text>
+                    <Text numberOfLines={1} style={[typography.mono, { color: colors.text2 }]}>
+                      {profile.identityId ?? profile.vaultId}
+                    </Text>
+                    <Text numberOfLines={1} style={[typography.caption, { color: colors.text2 }]}>
+                      {profile.homeNode.discovery.node.displayName} ·{' '}
+                      {profile.homeNode.transport === 'tor' ? 'Tor' : 'direct'}
+                    </Text>
+                  </View>
+                  {selected ? (
+                    <Text style={[typography.caption, { color: colors.verified }]}>Active</Text>
+                  ) : (
+                    <Ionicons color={colors.text2} name="swap-horizontal" size={18} />
+                  )}
+                </Pressable>
+                {index < identityProfiles.length - 1 ? <Divider colors={colors} /> : null}
+              </View>
+            );
+          })}
         </View>
 
         <Text style={[typography.h2, styles.sectionTitle, { color: colors.text }]}>
@@ -680,9 +752,42 @@ const styles = StyleSheet.create({
   },
   contentColumn: { width: '100%', maxWidth: 760, alignSelf: 'center' },
   nodeHero: { paddingHorizontal: spacing.md, paddingTop: spacing.xl, gap: spacing.xs },
+  transportBadge: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  sectionHeadingRow: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  inlineAction: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xxs,
+  },
+  identityRow: {
+    minHeight: 84,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   sectionTitle: {
     paddingHorizontal: spacing.md,
     paddingTop: spacing.xl,
+    paddingBottom: spacing.sm,
+  },
+  sectionBody: {
+    paddingHorizontal: spacing.md,
     paddingBottom: spacing.sm,
   },
   serviceList: {

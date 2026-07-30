@@ -39,6 +39,8 @@
     "ops:isp": "docker compose -f ops/isp-compose.yml up -d --build --wait jb-a1 jb-a2 jb-b1 jb-bridge",
     "ops:isp:down": "docker compose -f ops/isp-compose.yml down -v",
     "ops:isp:logs": "docker compose -f ops/isp-compose.yml logs -f jb-a1 jb-a2 jb-b1 jb-bridge",
+    "tor:linux": "bash ops/tor/setup-linux.sh",
+    "tor:windows": "powershell -ExecutionPolicy Bypass -File ops/tor/setup-windows.ps1",
     "gate:isp": "pnpm --filter @jagoo/backend gate:isp",
     "ops:logs": "docker compose -f ops/docker-compose.yml logs -f"
   },

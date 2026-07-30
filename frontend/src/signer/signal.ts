@@ -68,6 +68,7 @@ import {
   SignalGroupUpdate,
 } from '@jagoo/sdk/proto';
 import type { DiscoveredService } from '../data/node-config';
+import { networkRequest } from '../data/request';
 import { solvePow, type PowChallengeJson } from '../data/pow';
 import {
   cacheSignalPrekey,
@@ -110,7 +111,7 @@ interface VaultPayload {
 }
 
 async function requestJson<T>(baseUrl: string, path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(new URL(path, `${baseUrl.replace(/\/+$/, '')}/`).toString(), {
+  const response = await networkRequest(new URL(path, `${baseUrl.replace(/\/+$/, '')}/`).toString(), {
     ...init,
     headers: {
       Accept: 'application/json',

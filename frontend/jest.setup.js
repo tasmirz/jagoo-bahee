@@ -19,3 +19,14 @@ jest.mock('@react-native-community/netinfo', () => ({
     fetch: async () => ({ isConnected: false, isInternetReachable: false }),
   },
 }));
+
+jest.mock('react-native-nitro-tor', () => ({
+  RnTor: {
+    getServiceStatus: jest.fn(async () => 2),
+    initTorService: jest.fn(async () => false),
+    httpGet: jest.fn(),
+    httpPost: jest.fn(),
+    httpPut: jest.fn(),
+    httpDelete: jest.fn(),
+  },
+}));

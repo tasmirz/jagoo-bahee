@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { AuditCertificate } from '@jagoo/sdk';
 import type { DiscoveredService } from '../data/node-config';
+import { networkRequest, type ClientTransport } from '../data/request';
 
 const AUDIT_RECORD_PREFIX = 'jb.audit-certificate.v1:';
 
@@ -27,13 +28,14 @@ async function write(record: StoredAuditCertificate): Promise<void> {
 export async function storeAndForwardCertificate(
   certificate: AuditCertificate,
   services: readonly DiscoveredService[],
+  transport?: ClientTransport,
 ): Promise<StoredAuditCertificate> {
   const storedAtMs = Date.now();
   await write({ certificate, storedAtMs, deliveries: [] });
   const deliveries = await Promise.all(
     services.map(async (service): Promise<AuditDelivery> => {
       try {
-        const response = await fetch(
+        const response = await networkRequest(
           new URL('/v1/audit-records', `${service.address.replace(/\/+$/, '')}/`).toString(),
           {
             method: 'POST',
@@ -43,6 +45,7 @@ export async function storeAndForwardCertificate(
             },
             body: JSON.stringify(certificate),
           },
+          transport,
         );
         return {
           serviceId: service.id,
@@ -92,7 +95,7 @@ export async function certificateStatus(
   readonly status: 'online' | 'hidden' | 'deleted' | 'unknown_server';
   readonly reason: string | null;
 }> {
-  const response = await fetch(new URL('/status', `${baseUrl.replace(/\/+$/, '')}/`).toString(), {
+  const response = await networkRequest(new URL('/status', `${baseUrl.replace(/\/+$/, '')}/`).toString(), {
     method: 'POST',
     headers: {
       Accept: 'application/json',

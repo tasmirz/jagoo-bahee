@@ -6,6 +6,7 @@ import {
   type SignedEnvelope,
 } from '@jagoo/sdk';
 import { ed25519, mldsa } from '@jagoo/sdk/crypto';
+import { networkRequest } from '../data/request';
 
 const KEY = 'jb.mesh.certificate-cache.v1';
 
@@ -73,7 +74,7 @@ function validate(certificate: DirectoryCertificate): boolean {
 export async function refreshMeshCertificates(baseUrl: string): Promise<number> {
   const documents = await Promise.all(
     ['FORUM', 'SIGNAL'].map(async (plane) => {
-      const response = await fetch(
+      const response = await networkRequest(
         new URL(`/v1/identity/certificates?plane=${plane}`, `${baseUrl}/`).toString(),
         { headers: { Accept: 'application/json' } },
       );

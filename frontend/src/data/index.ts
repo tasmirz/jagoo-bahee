@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { QueryClient, onlineManager } from '@tanstack/react-query';
+import { networkRequest } from './request';
 export { LocalNotificationState } from './notifications';
 export type { ForumNotification, NotificationStorage } from './notifications';
 
@@ -22,7 +23,7 @@ export class OfflineApi {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12_000);
     try {
-      const response = await fetch(requestUrl, {
+      const response = await networkRequest(requestUrl, {
         headers: { Accept: 'application/json' },
         signal: controller.signal,
       });

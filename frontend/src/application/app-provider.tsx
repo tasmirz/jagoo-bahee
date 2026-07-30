@@ -13,6 +13,13 @@ import {
 import { AppState, useColorScheme } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { queryClient } from '../data';
+import {
+  loadActiveProfileId,
+  loadIdentityProfiles,
+  saveIdentityProfile,
+  setActiveProfileId,
+  type IdentityProfile,
+} from '../data/identity-profiles';
 import { useNodeReach } from '../data/node';
 import {
   discoverHomeNode,
@@ -21,6 +28,10 @@ import {
   saveHomeNode,
   type HomeNode,
 } from '../data/node-config';
+import {
+  configureClientTransport,
+  type ClientTransport,
+} from '../data/request';
 import { loadDirectory, needsRefresh, refreshFrom } from '../data/peer-directory';
 import {
   ReachScopeProvider,
@@ -38,6 +49,10 @@ import type { ScopeStatus } from '../features/connectivity/scope';
 import { messages, type Locale } from '../i18n';
 import { drainOutboxOnce } from '../offline/outbox';
 import { refreshMeshCertificates } from '../offline/certificate-cache';
+import {
+  LEGACY_FORUM_VAULT_ID,
+  selectForumIdentityVault,
+} from '../signer';
 
 const THEME_KEY = 'jb.theme-preference.v1';
 const LOCALE_KEY = 'jb.locale.v1';
@@ -45,10 +60,20 @@ const LOCALE_KEY = 'jb.locale.v1';
 export type ThemePreference = ThemeMode | 'system';
 
 export interface AppContextValue {
+  readonly activeProfileId: string | null;
   readonly colors: AppPalette;
-  readonly connectHomeNode: (address: string) => Promise<void>;
+  readonly connectHomeNode: (
+    address: string,
+    options?: {
+      readonly transport?: ClientTransport;
+      readonly vaultId?: string;
+      readonly identityId?: string;
+      readonly label?: string;
+    },
+  ) => Promise<void>;
   readonly disconnectHomeNode: () => Promise<void>;
   readonly homeNode: HomeNode | null | undefined;
+  readonly identityProfiles: readonly IdentityProfile[];
   readonly locale: Locale;
   readonly reach: ReachState;
   readonly refreshHomeNode: () => Promise<void>;
@@ -56,6 +81,7 @@ export interface AppContextValue {
   readonly scope: ScopeStatus | null;
   readonly setLocale: (value: Locale) => Promise<void>;
   readonly setThemePreference: (value: ThemePreference) => Promise<void>;
+  readonly switchIdentity: (vaultId: string) => Promise<void>;
   readonly themeMode: ThemeMode;
   readonly themePreference: ThemePreference;
 }
@@ -83,6 +109,8 @@ const AppContext = createContext<AppContextValue | null>(null);
 function AppStateProvider({ children }: PropsWithChildren) {
   const systemMode = useColorScheme() === 'dark' ? 'dark' : 'light';
   const [homeNode, setHomeNode] = useState<HomeNode | null | undefined>(undefined);
+  const [identityProfiles, setIdentityProfiles] = useState<readonly IdentityProfile[]>([]);
+  const [activeProfileId, setActiveProfileIdState] = useState<string | null>(null);
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>('system');
   const [locale, setLocaleState] = useState<Locale>(deviceLocale);
   const [inspecting, setInspecting] = useState(false);
@@ -93,11 +121,34 @@ function AppStateProvider({ children }: PropsWithChildren) {
     let active = true;
     void Promise.all([
       loadHomeNode(),
+      loadIdentityProfiles(),
+      loadActiveProfileId(),
       AsyncStorage.getItem(THEME_KEY),
       AsyncStorage.getItem(LOCALE_KEY),
     ])
-      .then(([node, storedTheme, storedLocale]) => {
+      .then(async ([storedNode, storedProfiles, storedActiveId, storedTheme, storedLocale]) => {
         if (!active) return;
+        let profiles = storedProfiles;
+        let selected = profiles.find((profile) => profile.vaultId === storedActiveId) ?? profiles[0];
+        if (!selected && storedNode) {
+          selected = {
+            vaultId: LEGACY_FORUM_VAULT_ID,
+            label: storedNode.discovery.node.displayName,
+            homeNode: storedNode,
+            createdAtMs: storedNode.savedAtMs,
+            lastUsedAtMs: Date.now(),
+          };
+          profiles = [selected];
+          await saveIdentityProfile(selected);
+          await setActiveProfileId(selected.vaultId);
+        }
+        const node = selected?.homeNode ?? storedNode;
+        if (selected) {
+          selectForumIdentityVault(selected.vaultId);
+          setActiveProfileIdState(selected.vaultId);
+        }
+        if (node) configureClientTransport(node.transport);
+        setIdentityProfiles(profiles);
         setHomeNode(node);
         if (storedTheme === 'light' || storedTheme === 'dark' || storedTheme === 'system') {
           setThemePreferenceState(storedTheme);
@@ -169,12 +220,39 @@ function AppStateProvider({ children }: PropsWithChildren) {
     };
   }, []);
 
-  const connectHomeNode = useCallback(async (address: string) => {
-    const discovered = await discoverHomeNode(address);
+  const connectHomeNode = useCallback(async (
+    address: string,
+    options: {
+      readonly transport?: ClientTransport;
+      readonly vaultId?: string;
+      readonly identityId?: string;
+      readonly label?: string;
+    } = {},
+  ) => {
+    const discovered = await discoverHomeNode(address, options.transport);
+    const vaultId = options.vaultId ?? activeProfileId ?? LEGACY_FORUM_VAULT_ID;
+    const existing = identityProfiles.find((profile) => profile.vaultId === vaultId);
+    const now = Date.now();
+    const profile: IdentityProfile = {
+      vaultId,
+      ...(options.identityId || existing?.identityId
+        ? { identityId: options.identityId ?? existing?.identityId }
+        : {}),
+      label: options.label?.trim() || existing?.label || discovered.discovery.node.displayName,
+      homeNode: discovered,
+      createdAtMs: existing?.createdAtMs ?? now,
+      lastUsedAtMs: now,
+    };
+    await saveIdentityProfile(profile);
+    await setActiveProfileId(vaultId);
     await saveHomeNode(discovered);
+    selectForumIdentityVault(vaultId);
+    configureClientTransport(discovered.transport);
     queryClient.clear();
+    setIdentityProfiles(await loadIdentityProfiles());
+    setActiveProfileIdState(vaultId);
     setHomeNode(discovered);
-  }, []);
+  }, [activeProfileId, identityProfiles]);
 
   const disconnectHomeNode = useCallback(async () => {
     await forgetHomeNode();
@@ -182,13 +260,33 @@ function AppStateProvider({ children }: PropsWithChildren) {
     setHomeNode(null);
   }, []);
 
+  const switchIdentity = useCallback(async (vaultId: string) => {
+    const profile = identityProfiles.find((item) => item.vaultId === vaultId);
+    if (!profile) throw new Error('That identity is no longer stored on this device.');
+    await setActiveProfileId(vaultId);
+    await saveHomeNode(profile.homeNode);
+    selectForumIdentityVault(vaultId);
+    configureClientTransport(profile.homeNode.transport);
+    queryClient.clear();
+    setIdentityProfiles(await loadIdentityProfiles());
+    setActiveProfileIdState(vaultId);
+    setHomeNode(profile.homeNode);
+  }, [identityProfiles]);
+
   const refreshHomeNode = useCallback(async () => {
     if (!homeNode) return;
-    const discovered = await discoverHomeNode(homeNode.baseUrl);
+    const discovered = await discoverHomeNode(homeNode.baseUrl, homeNode.transport);
     await saveHomeNode(discovered);
+    if (activeProfileId) {
+      const existing = identityProfiles.find((profile) => profile.vaultId === activeProfileId);
+      if (existing) {
+        await saveIdentityProfile({ ...existing, homeNode: discovered, lastUsedAtMs: Date.now() });
+        setIdentityProfiles(await loadIdentityProfiles());
+      }
+    }
     queryClient.invalidateQueries();
     setHomeNode(discovered);
-  }, [homeNode]);
+  }, [activeProfileId, homeNode, identityProfiles]);
 
   const setThemePreference = useCallback(async (value: ThemePreference) => {
     setThemePreferenceState(value);
@@ -204,30 +302,36 @@ function AppStateProvider({ children }: PropsWithChildren) {
   const colors = palettes[themeMode];
   const value = useMemo<AppContextValue>(
     () => ({
+      activeProfileId,
       colors,
       connectHomeNode,
       disconnectHomeNode,
       homeNode,
+      identityProfiles,
       locale,
       reach,
       refreshHomeNode,
       scope,
       setLocale,
       setThemePreference,
+      switchIdentity,
       themeMode,
       themePreference,
     }),
     [
       colors,
+      activeProfileId,
       connectHomeNode,
       disconnectHomeNode,
       homeNode,
+      identityProfiles,
       locale,
       reach,
       refreshHomeNode,
       scope,
       setLocale,
       setThemePreference,
+      switchIdentity,
       themeMode,
       themePreference,
     ],

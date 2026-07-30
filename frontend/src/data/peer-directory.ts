@@ -22,6 +22,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { networkRequest } from './request';
 import { SEED_DIRECTORY, seedsByPreference, type SeedNode, type SeedScope } from './seed-directory';
 
 const DIRECTORY_KEY = 'jb.peer-directory.v1';
@@ -180,7 +181,10 @@ export async function refreshFrom(
   baseUrl: string,
   snapshot: PeerDirectorySnapshot,
   nowMs: number,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: (
+    input: Parameters<typeof fetch>[0],
+    init?: RequestInit,
+  ) => Promise<Response> = networkRequest,
 ): Promise<PeerDirectorySnapshot> {
   const response = await fetchImpl(new URL('/v1/federation/directory', `${baseUrl}/`).toString(), {
     headers: { Accept: 'application/json' },

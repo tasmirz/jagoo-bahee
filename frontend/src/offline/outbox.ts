@@ -8,6 +8,11 @@ import {
 } from '@jagoo/sdk';
 import { storeAndForwardCertificate } from '../audit';
 import type { DiscoveredService } from '../data/node-config';
+import {
+  currentClientTransport,
+  networkRequest,
+  type ClientTransport,
+} from '../data/request';
 
 const OUTBOX_KEY = 'jb.offline.outbox.v1';
 const text = new TextEncoder();
@@ -25,6 +30,7 @@ export interface OutboxRecord {
   readonly priority: Priority;
   readonly envelope: string;
   readonly baseUrl: string;
+  readonly transport?: ClientTransport;
   readonly auditServices: readonly DiscoveredService[];
   readonly queuedAtMs: number;
   readonly attempts: number;
@@ -54,6 +60,7 @@ export interface QueueInput {
 export type EnvelopeSubmitter = (
   baseUrl: string,
   requestBody: string,
+  transport?: ClientTransport,
 ) => Promise<AuditReceiptJson>;
 
 async function read(): Promise<readonly OutboxRecord[]> {
@@ -107,6 +114,7 @@ export async function enqueueSignedEnvelope(input: QueueInput): Promise<OutboxRe
     priority: input.priority,
     envelope: base64(input.wireBytes),
     baseUrl: input.baseUrl.replace(/\/+$/, ''),
+    transport: currentClientTransport(),
     auditServices: input.auditServices ?? [],
     queuedAtMs: Date.now(),
     attempts: 0,
@@ -117,17 +125,25 @@ export async function enqueueSignedEnvelope(input: QueueInput): Promise<OutboxRe
   return record;
 }
 
-async function defaultSubmit(baseUrl: string, requestBody: string): Promise<AuditReceiptJson> {
+async function defaultSubmit(
+  baseUrl: string,
+  requestBody: string,
+  transport?: ClientTransport,
+): Promise<AuditReceiptJson> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 15000);
   let response: Response;
   try {
-    response = await fetch(new URL('/v1/envelopes', `${baseUrl}/`).toString(), {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: requestBody,
-      signal: controller.signal,
-    });
+    response = await networkRequest(
+      new URL('/v1/envelopes', `${baseUrl}/`).toString(),
+      {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: requestBody,
+        signal: controller.signal,
+      },
+      transport,
+    );
   } catch (error) {
     throw new Error(`Network timeout or error connecting to ${baseUrl}: ${(error as Error).message}`);
   } finally {
@@ -151,11 +167,15 @@ async function deliver(
   const requestBody = JSON.stringify({ envelope: record.envelope });
   try {
     console.log('[outbox.deliver] Sending envelope to node...', record.baseUrl);
-    const receipt = await submitter(record.baseUrl, requestBody);
+    const receipt = await submitter(record.baseUrl, requestBody, record.transport);
     console.log('[outbox.deliver] Envelope submitted, receipt received.', receipt);
     const certificate = createAuditCertificate(text.encode(requestBody), receipt);
     console.log('[outbox.deliver] Storing and forwarding certificate to audit logs...');
-    const stored = await storeAndForwardCertificate(certificate, record.auditServices);
+    const stored = await storeAndForwardCertificate(
+      certificate,
+      record.auditServices,
+      record.transport,
+    );
     console.log('[outbox.deliver] Certificate stored and forwarded.', stored);
     await replace({ ...record, state: 'receipted', receipt });
     return {

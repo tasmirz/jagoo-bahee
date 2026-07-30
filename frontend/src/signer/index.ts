@@ -80,11 +80,24 @@ import {
 } from '@jagoo/sdk/proto';
 import { solvePow, type PowChallengeJson } from '../data/pow';
 import type { DiscoveredService } from '../data/node-config';
+import { networkRequest } from '../data/request';
 import { submitSignedEnvelope } from '../offline/outbox';
 
 const ROOT_KEY = 'jb.forum.root.v1';
 const FORUM_CREDENTIAL_KEY = 'jb.forum.credential.v1';
 const FORUM_DEVICE_LOCK_KEY = 'jb.forum.device-lock.v1';
+export const LEGACY_FORUM_VAULT_ID = 'legacy';
+let activeVaultId = LEGACY_FORUM_VAULT_ID;
+
+function assertVaultId(vaultId: string): string {
+  const value = vaultId.trim();
+  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(value)) throw new Error('Invalid Forum identity vault ID.');
+  return value;
+}
+
+function vaultKey(base: string, vaultId = activeVaultId): string {
+  return vaultId === LEGACY_FORUM_VAULT_ID ? base : `${base}.${assertVaultId(vaultId)}`;
+}
 const text = new TextEncoder();
 const storeOptions: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
@@ -162,7 +175,7 @@ export class SecureForumSigner implements ForumSigner {
       new Uint8Array(),
     );
     await SecureStore.setItemAsync(
-      ROOT_KEY,
+      vaultKey(ROOT_KEY),
       JSON.stringify({
         version: 1,
         salt: base64(salt),
@@ -182,7 +195,7 @@ export class SecureForumSigner implements ForumSigner {
     recoveryPassphrase = '',
     credentialKey?: BlindCredentialPublicKey,
   ): Promise<SecureForumSigner> {
-    const encoded = await SecureStore.getItemAsync(ROOT_KEY, storeOptions);
+    const encoded = await SecureStore.getItemAsync(vaultKey(ROOT_KEY), storeOptions);
     if (!encoded) throw new Error('Forum identity is not configured');
     const payload = JSON.parse(encoded) as {
       version: number;
@@ -224,15 +237,15 @@ export class SecureForumSigner implements ForumSigner {
   }
 
   static async exists(): Promise<boolean> {
-    return (await SecureStore.getItemAsync(ROOT_KEY, storeOptions)) !== null;
+    return (await SecureStore.getItemAsync(vaultKey(ROOT_KEY), storeOptions)) !== null;
   }
 
   /** CRS-19: callable from the locked emergency surface. */
   static async panicConfiguredVault(): Promise<void> {
     await Promise.all([
-      SecureStore.deleteItemAsync(ROOT_KEY, storeOptions),
-      SecureStore.deleteItemAsync(FORUM_CREDENTIAL_KEY, storeOptions),
-      SecureStore.deleteItemAsync(FORUM_DEVICE_LOCK_KEY, storeOptions),
+      SecureStore.deleteItemAsync(vaultKey(ROOT_KEY), storeOptions),
+      SecureStore.deleteItemAsync(vaultKey(FORUM_CREDENTIAL_KEY), storeOptions),
+      SecureStore.deleteItemAsync(vaultKey(FORUM_DEVICE_LOCK_KEY), storeOptions),
     ]);
   }
 
@@ -474,6 +487,23 @@ let activeSigner: SecureForumSigner | null = null;
 let activeAccessToken: string | null = null;
 let activeCredential: Credential | null = null;
 
+export function selectForumIdentityVault(vaultId: string): void {
+  const next = assertVaultId(vaultId);
+  if (next === activeVaultId) return;
+  lockForumIdentity();
+  activeVaultId = next;
+}
+
+export async function deleteForumIdentityVault(vaultId: string): Promise<void> {
+  const target = assertVaultId(vaultId);
+  if (target === activeVaultId) lockForumIdentity();
+  await Promise.all([
+    SecureStore.deleteItemAsync(vaultKey(ROOT_KEY, target), storeOptions),
+    SecureStore.deleteItemAsync(vaultKey(FORUM_CREDENTIAL_KEY, target), storeOptions),
+    SecureStore.deleteItemAsync(vaultKey(FORUM_DEVICE_LOCK_KEY, target), storeOptions),
+  ]);
+}
+
 export interface ForumSessionSummary {
   readonly configured: boolean;
   readonly unlocked: boolean;
@@ -498,7 +528,7 @@ function authBytes(key: Uint8Array, challenge: Uint8Array): Uint8Array {
 }
 
 async function requestJson<T>(baseUrl: string, path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(new URL(path, `${baseUrl.replace(/\/+$/, '')}/`).toString(), {
+  const response = await networkRequest(new URL(path, `${baseUrl.replace(/\/+$/, '')}/`).toString(), {
     ...init,
     headers: {
       Accept: 'application/json',
@@ -579,14 +609,16 @@ export async function forumSessionRequest<T>(
 export async function createForumIdentity(
   lockPassphrase?: string,
   recoveryPassphrase = '',
+  vaultId = activeVaultId,
 ): Promise<{ readonly recoveryPhrase: string; readonly identityId: string }> {
+  selectForumIdentityVault(vaultId);
   const recoveryPhrase = generateRootMnemonic();
   const vaultPassphrase = await resolveVaultPassphrase(lockPassphrase, true);
   activeSigner?.lock();
   activeSigner = await SecureForumSigner.create(vaultPassphrase, recoveryPhrase, recoveryPassphrase);
   activeAccessToken = null;
   activeCredential = null;
-  await SecureStore.deleteItemAsync(FORUM_CREDENTIAL_KEY, storeOptions);
+  await SecureStore.deleteItemAsync(vaultKey(FORUM_CREDENTIAL_KEY), storeOptions);
   const identity = await activeSigner.identity({ kind: 'device' });
   return { recoveryPhrase, identityId: identity.id };
 }
@@ -595,7 +627,9 @@ export async function importForumIdentity(
   recoveryPhrase: string,
   lockPassphrase?: string,
   recoveryPassphrase = '',
+  vaultId = activeVaultId,
 ): Promise<string> {
+  selectForumIdentityVault(vaultId);
   if (!isValidMnemonic(recoveryPhrase.trim())) throw new Error('Enter a valid 24-word phrase');
   const vaultPassphrase = await resolveVaultPassphrase(lockPassphrase, true);
   activeSigner?.lock();
@@ -606,7 +640,7 @@ export async function importForumIdentity(
   );
   activeAccessToken = null;
   activeCredential = null;
-  await SecureStore.deleteItemAsync(FORUM_CREDENTIAL_KEY, storeOptions);
+  await SecureStore.deleteItemAsync(vaultKey(FORUM_CREDENTIAL_KEY), storeOptions);
   return (await activeSigner.identity({ kind: 'device' })).id;
 }
 
@@ -618,7 +652,10 @@ export async function unlockForumIdentity(
   activeSigner?.lock();
   activeSigner = await SecureForumSigner.unlock(vaultPassphrase, recoveryPassphrase);
   activeAccessToken = null;
-  const storedCredential = await SecureStore.getItemAsync(FORUM_CREDENTIAL_KEY, storeOptions);
+  const storedCredential = await SecureStore.getItemAsync(
+    vaultKey(FORUM_CREDENTIAL_KEY),
+    storeOptions,
+  );
   activeCredential = storedCredential ? { bytes: unbase64(storedCredential) } : null;
   return (await activeSigner.identity({ kind: 'device' })).id;
 }
@@ -633,14 +670,14 @@ async function resolveVaultPassphrase(
 ): Promise<string> {
   if (passphrase?.trim()) {
     if (passphrase.length < 8) throw new Error('Use at least 8 characters for the app password');
-    await SecureStore.deleteItemAsync(FORUM_DEVICE_LOCK_KEY, storeOptions);
+    await SecureStore.deleteItemAsync(vaultKey(FORUM_DEVICE_LOCK_KEY), storeOptions);
     return passphrase;
   }
-  const existing = await SecureStore.getItemAsync(FORUM_DEVICE_LOCK_KEY, storeOptions);
+  const existing = await SecureStore.getItemAsync(vaultKey(FORUM_DEVICE_LOCK_KEY), storeOptions);
   if (existing) return existing;
   if (!creating) throw new Error('This identity needs its app password to unlock');
   const generated = base64(await Crypto.getRandomBytesAsync(32));
-  await SecureStore.setItemAsync(FORUM_DEVICE_LOCK_KEY, generated, storeOptions);
+  await SecureStore.setItemAsync(vaultKey(FORUM_DEVICE_LOCK_KEY), generated, storeOptions);
   return generated;
 }
 
@@ -674,7 +711,7 @@ export async function checkCaptchaReachability(
   for (const service of mcaptchaServices) {
     try {
       console.log(`[Captcha Check] Probing mCaptcha endpoint at ${service.address}...`);
-      const response = await fetch(service.address, { method: 'GET' });
+      const response = await networkRequest(service.address, { method: 'GET' });
       console.log(
         `[Captcha Check] Response from ${service.address}: HTTP ${response.status} ${response.statusText}`,
       );
@@ -785,7 +822,7 @@ export async function registerForumIdentity(
 
   activeCredential = await signer.unblind(blinded.state, unbase64(issued.blindSignature));
   await SecureStore.setItemAsync(
-    FORUM_CREDENTIAL_KEY,
+    vaultKey(FORUM_CREDENTIAL_KEY),
     base64(activeCredential.bytes),
     storeOptions,
   );

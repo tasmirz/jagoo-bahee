@@ -58,7 +58,7 @@ describe('home-node discovery', () => {
     const node = await discoverHomeNode('192.168.1.20:3000');
     expect(globalThis.fetch).toHaveBeenCalledWith(
       'http://192.168.1.20:3000/health',
-      expect.any(Object),
+      { headers: { Accept: 'application/json' } },
     );
     expect(node.discovery.services.auditLogs[0]?.port).toBe(3100);
 

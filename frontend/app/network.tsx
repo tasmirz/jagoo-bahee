@@ -5,15 +5,27 @@ import { AppScene } from '../src/ui/scene';
 
 export default function NetworkRoute() {
   const router = useRouter();
-  const { colors, disconnectHomeNode, homeNode, reach } = useApp();
+  const {
+    activeProfileId,
+    colors,
+    disconnectHomeNode,
+    homeNode,
+    identityProfiles,
+    reach,
+    switchIdentity,
+  } = useApp();
   if (!homeNode) return null;
   return (
     <AppScene colors={colors}>
       <NetworkScreen
         colors={colors}
         homeNode={homeNode}
+        activeProfileId={activeProfileId}
+        identityProfiles={identityProfiles}
         onBack={() => router.back()}
         onMesh={() => router.push('/mesh')}
+        onAddIdentity={() => router.push('/identity/new')}
+        onSwitchIdentity={switchIdentity}
         onChangeServer={() =>
           void disconnectHomeNode().then(() => {
             router.dismissAll();

@@ -25,6 +25,7 @@ jest.mock('../../src/application/app-provider', () => ({
 const mockUseApp = useApp as jest.MockedFunction<typeof useApp>;
 const savedNode: HomeNode = {
   baseUrl: 'http://192.168.1.20:3000',
+  transport: 'direct',
   savedAtMs: 1_700_000_000_000,
   discovery: {
     status: 'ok',
@@ -68,16 +69,19 @@ afterEach(() => {
 
 function appValue(homeNode: HomeNode | null | undefined) {
   return {
+    activeProfileId: 'legacy',
     colors: palettes.light,
     connectHomeNode: jest.fn(async () => undefined),
     disconnectHomeNode: jest.fn(async () => undefined),
     homeNode,
+    identityProfiles: [],
     locale: 'en' as const,
     reach: 'constrained' as const,
     refreshHomeNode: jest.fn(async () => undefined),
     scope: null,
     setLocale: jest.fn(async () => undefined),
     setThemePreference: jest.fn(async () => undefined),
+    switchIdentity: jest.fn(async () => undefined),
     themeMode: 'light' as const,
     themePreference: 'system' as const,
   };

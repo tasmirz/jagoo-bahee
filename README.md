@@ -47,6 +47,14 @@ the first-run home-server address to the computer's LAN address.
 
 For host-side backend development, run `pnpm ops:up` and `pnpm dev:backend` separately.
 
+## Publish a node over Tor
+
+With the backend listening locally on port 3000, run `pnpm tor:linux` as root or
+`pnpm tor:windows` from an elevated PowerShell window. The idempotent setup creates a persistent
+Tor v3 onion service and prints the `http://...onion` home-server address. Platform details,
+custom ports, key backup, and client configuration are in
+[ops/tor/README.md](ops/tor/README.md).
+
 ## Run two federating nodes
 
 ```powershell

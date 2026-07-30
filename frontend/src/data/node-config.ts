@@ -1,4 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  isOnionAddress,
+  networkRequest,
+  type ClientTransport,
+} from './request';
 
 const HOME_NODE_KEY = 'jb.home-node.v1';
 
@@ -33,11 +38,12 @@ export interface NodeDiscovery {
 
 export interface HomeNode {
   readonly baseUrl: string;
+  readonly transport: ClientTransport;
   readonly discovery: NodeDiscovery;
   readonly savedAtMs: number;
 }
 
-export function normaliseNodeAddress(input: string): string {
+export function normaliseNodeAddress(input: string, transport: ClientTransport = 'direct'): string {
   const trimmed = input.trim();
   if (!trimmed) throw new Error('Enter the home server address.');
   const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
@@ -51,6 +57,9 @@ export function normaliseNodeAddress(input: string): string {
     throw new Error('The home server must use HTTP or HTTPS.');
   }
   if (!url.hostname) throw new Error('The home server address has no host.');
+  if (url.hostname.toLowerCase().endsWith('.onion') && transport !== 'tor') {
+    throw new Error('Choose Tor to connect to an .onion home server.');
+  }
   url.pathname = '/';
   url.search = '';
   url.hash = '';
@@ -76,21 +85,35 @@ function validateDiscovery(value: unknown): NodeDiscovery {
   return discovery as NodeDiscovery;
 }
 
-export async function discoverHomeNode(input: string): Promise<HomeNode> {
-  const baseUrl = normaliseNodeAddress(input);
+export async function discoverHomeNode(
+  input: string,
+  requestedTransport: ClientTransport = 'direct',
+): Promise<HomeNode> {
+  const transport = isOnionAddress(
+    /^[a-z][a-z0-9+.-]*:\/\//i.test(input.trim()) ? input.trim() : `http://${input.trim()}`,
+  )
+    ? 'tor'
+    : requestedTransport;
+  const baseUrl = normaliseNodeAddress(input, transport);
   let response: Response;
   try {
-    response = await fetch(new URL('/health', `${baseUrl}/`).toString(), {
-      headers: { Accept: 'application/json' },
-    });
+    response = await networkRequest(
+      new URL('/health', `${baseUrl}/`).toString(),
+      { headers: { Accept: 'application/json' } },
+      transport,
+    );
   } catch {
-    throw new Error('Could not reach that server. Check the address and local network.');
+    throw new Error(
+      transport === 'tor'
+        ? 'Could not reach that server through Tor. Check the address and Tor connection.'
+        : 'Could not reach that server. Check the address and local network.',
+    );
   }
   if (!response.ok) {
     throw new Error(`The server health check returned HTTP ${response.status}.`);
   }
   const discovery = validateDiscovery(await response.json());
-  return { baseUrl, discovery, savedAtMs: Date.now() };
+  return { baseUrl, transport, discovery, savedAtMs: Date.now() };
 }
 
 export async function saveHomeNode(node: HomeNode): Promise<void> {
@@ -103,7 +126,8 @@ export async function loadHomeNode(): Promise<HomeNode | null> {
     try {
       const value = JSON.parse(stored) as HomeNode;
       return {
-        baseUrl: normaliseNodeAddress(value.baseUrl),
+        baseUrl: normaliseNodeAddress(value.baseUrl, value.transport ?? 'direct'),
+        transport: value.transport ?? (isOnionAddress(value.baseUrl) ? 'tor' : 'direct'),
         discovery: validateDiscovery(value.discovery),
         savedAtMs: value.savedAtMs,
       };
@@ -113,7 +137,10 @@ export async function loadHomeNode(): Promise<HomeNode | null> {
   }
   const configured = process.env.EXPO_PUBLIC_NODE_URL?.trim();
   if (!configured) return null;
-  return discoverHomeNode(configured);
+  return discoverHomeNode(
+    configured,
+    process.env.EXPO_PUBLIC_NODE_TRANSPORT?.trim().toLowerCase() === 'tor' ? 'tor' : 'direct',
+  );
 }
 
 export async function forgetHomeNode(): Promise<void> {
