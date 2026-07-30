@@ -761,7 +761,6 @@ export async function publishSignalDirectoryProfile(
   if (!activeSigner) throw new Error('Unlock your Signal identity first');
   const transport = await activeSigner.rnsTransportIdentity();
   try {
-    const device = await activeSigner.identity({ kind: 'device' });
     const binding = concat(RNS_BINDING_PREFIX, transport.publicKey, input.lxmfDestinationHash);
     const body = SignalDirectoryProfile.encode(
       SignalDirectoryProfile.fromPartial({

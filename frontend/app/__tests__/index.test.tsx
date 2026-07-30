@@ -7,7 +7,7 @@ import { useApp } from '../../src/application/app-provider';
 import { queryClient } from '../../src/data';
 import type { HomeNode } from '../../src/data/node-config';
 import { featureDestinations } from '../../src/features/catalog';
-import { FeatureScreen } from '../../src/features/forum';
+import { CommunityCreateScreen, FeatureScreen } from '../../src/features/forum';
 import { palettes } from '../../src/theme';
 
 jest.mock('expo-router', () => ({
@@ -143,7 +143,6 @@ describe('feature destinations', () => {
 
 describe('CommunityCreateScreen', () => {
   it('renders New Community header and form fields', async () => {
-    const { CommunityCreateScreen } = require('../../src/features/forum');
     let view!: renderer.ReactTestRenderer;
     await act(async () => {
       view = renderer.create(

@@ -1950,8 +1950,8 @@ export function CommunityCreateScreen({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [rules, setRules] = useState('');
-  const [isPrivate, setIsPrivate] = useState(false);
-  const [isNsfw, setIsNsfw] = useState(false);
+  const [isPrivate] = useState(false);
+  const [isNsfw] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<{
     readonly tone: 'verified' | 'danger';
