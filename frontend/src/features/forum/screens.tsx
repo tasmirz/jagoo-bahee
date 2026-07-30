@@ -10,6 +10,7 @@ import {
   forumSessionSummary,
   importForumIdentity,
   lockForumIdentity,
+  publishCommunity,
   registerForumIdentity,
   revokeForumKey,
   unlockForumIdentity,
@@ -812,3 +813,125 @@ const styles = StyleSheet.create({
   },
 });
 
+export function CommunityCreateScreen({
+  colors,
+  reach,
+  homeNode,
+  onOpenNetwork,
+  onCreated,
+}: CommonProps & { readonly homeNode: HomeNode; readonly onCreated: () => void }) {
+  const [name, setName] = useState('');
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [rules, setRules] = useState('');
+  const [isPrivate] = useState(false);
+  const [isNsfw] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState<{
+    readonly tone: 'verified' | 'danger';
+    readonly title: string;
+    readonly body: string;
+  } | null>(null);
+
+  const publish = async () => {
+    console.log('[CommunityCreateScreen] User clicked create community.');
+    setPublishing(true);
+    setPublishResult(null);
+    try {
+      console.log('[CommunityCreateScreen] Calling publishCommunity...');
+      const receipt = await publishCommunity(
+        homeNode.baseUrl,
+        {
+          name: name.trim().toLowerCase(),
+          title: title.trim(),
+          description: description.trim(),
+          rulesMarkdown: rules.trim(),
+          isPrivate,
+          isNsfw,
+        },
+        homeNode.discovery.services.auditLogs,
+      );
+      console.log('[CommunityCreateScreen] publishCommunity succeeded.', receipt);
+      setName('');
+      setTitle('');
+      setDescription('');
+      setRules('');
+      setPublishResult({
+        tone: 'verified',
+        title: receipt.pending ? 'Signed and queued on this device' : 'Community created',
+        body: receipt.pending
+          ? `${receipt.contentId.slice(0, 18)}… · final ID assigned · awaiting a working path`
+          : `Proof saved on this device`,
+      });
+      setTimeout(() => onCreated(), 1500);
+    } catch (error) {
+      console.error('[CommunityCreateScreen] publishCommunity failed:', error);
+      setPublishResult({
+        tone: 'danger',
+        title: 'Community was not created',
+        body: (error as Error).message,
+      });
+    } finally {
+      console.log('[CommunityCreateScreen] Resetting publishing state.');
+      setPublishing(false);
+    }
+  };
+
+  const submitLabel =
+    reach === 'blackout' || reach === 'constrained' ? 'Queue creation' : 'Create Community';
+
+  return (
+    <Screen colors={colors}>
+      <AppHeader colors={colors} reach={reach} onReach={onOpenNetwork} title="New Community" />
+      <ContentColumn>
+        {publishResult ? (
+          <View style={{ marginBottom: spacing.lg }}>
+            <StatusBanner
+              colors={colors}
+              icon={
+                publishResult.tone === 'verified'
+                  ? 'shield-checkmark-outline'
+                  : 'alert-circle-outline'
+              }
+              title={publishResult.title}
+              body={publishResult.body}
+              tone={publishResult.tone}
+            />
+          </View>
+        ) : null}
+        <TextInput
+          placeholder="Community Name (e.g. general)"
+          value={name}
+          onChangeText={setName}
+          editable={!publishing}
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={{ marginBottom: spacing.md }}
+        />
+        <TextInput
+          placeholder="Display Title"
+          value={title}
+          onChangeText={setTitle}
+          editable={!publishing}
+          style={{ marginBottom: spacing.md }}
+        />
+        <TextInput
+          placeholder="Description"
+          value={description}
+          onChangeText={setDescription}
+          editable={!publishing}
+          multiline
+          numberOfLines={3}
+          style={{ marginBottom: spacing.md, minHeight: 80 }}
+        />
+        <Button
+          label={publishing ? 'Creating...' : submitLabel}
+          onPress={publish}
+          colors={colors}
+          system="ember"
+          disabled={publishing || name.trim().length === 0}
+        />
+      </ContentColumn>
+    </Screen>
+  );
+}

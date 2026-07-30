@@ -1,8 +1,9 @@
 import type { PropsWithChildren } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { AppPalette } from './tokens';
-import { spacing, type as typography } from './tokens';
+import { spacing } from './tokens';
+import { WorkProgress } from './feedback';
 
 export function AppScene({
   children,
@@ -34,8 +35,9 @@ export function AppLoading({
       <View style={[styles.mark, { backgroundColor: colors.ember }]}>
         <View style={[styles.markHole, { backgroundColor: colors.bg }]} />
       </View>
-      <ActivityIndicator color={colors.ember} />
-      <Text style={[typography.caption, { color: colors.text2 }]}>{label}</Text>
+      <View style={styles.progress}>
+        <WorkProgress colors={colors} label={label} />
+      </View>
     </View>
   );
 }
@@ -50,4 +52,5 @@ const styles = StyleSheet.create({
   },
   mark: { width: 32, height: 32, borderRadius: 999, padding: 8 },
   markHole: { flex: 1, borderRadius: 999 },
+  progress: { width: 220 },
 });

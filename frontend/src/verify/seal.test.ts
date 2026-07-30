@@ -26,7 +26,12 @@ import {
   serverId,
   sthSigningBytes,
 } from '@jagoo/sdk/core';
-import { sealStateFor, type ProvenanceJson } from './index';
+import {
+  clearVerificationCache,
+  sealStateFor,
+  verifyProvenance,
+  type ProvenanceJson,
+} from './index';
 
 const AUTHOR_SEED = new Uint8Array(32).fill(7);
 const NODE_SEED = new Uint8Array(32).fill(9);
@@ -119,6 +124,8 @@ function provenanceOf(overrides: Partial<ProvenanceJson> = {}): ProvenanceJson {
 }
 
 describe('sealStateFor', () => {
+  beforeEach(() => clearVerificationCache());
+
   it('reports synced when authorship and the node receipt both verify', () => {
     expect(sealStateFor(provenanceOf())).toBe('synced');
   });
@@ -165,5 +172,23 @@ describe('sealStateFor', () => {
         },
       }),
     ).toBe('failed');
+  });
+
+  it('computes immutable content once within the fixed verification TTL', () => {
+    const provenance = provenanceOf();
+    const verify = jest.spyOn(ed25519, 'verify');
+    verifyProvenance(provenance);
+    const firstPassCalls = verify.mock.calls.length;
+    verifyProvenance(provenance);
+    expect(firstPassCalls).toBeGreaterThan(0);
+    expect(verify).toHaveBeenCalledTimes(firstPassCalls);
+
+    // Reusing a content ID with different proof bytes must never hit the cached verdict.
+    verifyProvenance({
+      ...provenance,
+      signature: b64(new Uint8Array(64).fill(0x44)),
+    });
+    expect(verify.mock.calls.length).toBeGreaterThan(firstPassCalls);
+    verify.mockRestore();
   });
 });

@@ -12,7 +12,7 @@ import {
   type AppPalette,
 } from '../../design-system';
 import type { HomeNode } from '../../data/node-config';
-import { sealStateFor } from '../../verify';
+import { useProvenanceSeal } from '../../verify/use-provenance-seal';
 import { VoteButtons } from '../posts/vote-buttons';
 import { countDescendants, type CommentTreeNode } from './comment-tree';
 
@@ -65,7 +65,7 @@ export function CommentNode({
   const [busy, setBusy] = useState(false);
 
   const { comment, children } = node;
-  const seal = sealStateFor(comment.provenance);
+  const seal = useProvenanceSeal(comment.provenance);
   const mine = isAuthor(comment.authorKey);
   const totalDescendants = countDescendants(node);
   const visualDepth = Math.min(depth, MAX_VISUAL_DEPTH);

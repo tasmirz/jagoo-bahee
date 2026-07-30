@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { Share, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
@@ -16,7 +15,7 @@ import {
 } from '../../design-system';
 import type { FeedPost } from '../../data/node';
 import type { HomeNode } from '../../data/node-config';
-import { sealStateFor } from '../../verify';
+import { useProvenanceSeal } from '../../verify/use-provenance-seal';
 import { VoteButtons } from './vote-buttons';
 
 const KIND_ICON: Record<number, keyof typeof Ionicons.glyphMap> = {
@@ -65,7 +64,7 @@ export function PostCard({
   readonly onRequireJoin?: () => void;
   readonly onVoteError?: (message: string) => void;
 }) {
-  const seal = useMemo(() => sealStateFor(post.provenance), [post.provenance]);
+  const seal = useProvenanceSeal(post.provenance);
   const kindIcon = KIND_ICON[post.kind];
   const hasChips = Boolean(post.flair) || post.flags.nsfw || post.flags.spoiler || post.flags.oc;
 

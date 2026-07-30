@@ -265,3 +265,34 @@ vectors-rust:
 
 vectors-python:
     pnpm run vectors:python
+
+publish remote_port="12001":
+    bore local 3000 --to bore.pub -p {{remote_port}}
+
+# Tunnel the node AND its auxiliary services, each on the same remote port as its local one.
+#
+# Publishing only :3000 is what made the app look broken over a tunnel: the node was reachable,
+# so discovery succeeded, but every address it advertised for the audit log, mCaptcha and the
+# blob store pointed at 127.0.0.1 — which, evaluated on a phone, is the phone. Keeping remote
+# and local ports equal is what lets ops/service-map.json stay a fixed file.
+#
+# Requires ops/service-map.json (copy ops/service-map.json.example) and, for uploads to work,
+# S3_PUBLIC_ENDPOINT=http://bore.pub:9000 in backend/.env — a presigned URL is only valid for
+# the host it was signed for, so advertising the address is necessary but not sufficient.
+[unix]
+publish-all:
+    @echo "node :3000  audit :3100  mcaptcha :7000  blob :9000  -> bore.pub"
+    @for p in 3000 3100 7000 9000; do bore local $p --to bore.pub -p $p & done; wait
+
+[windows]
+publish-all:
+    @Write-Host "node :3000  audit :3100  mcaptcha :7000  blob :9000  -> bore.pub"
+    @$jobs = @(3000, 3100, 7000, 9000) | ForEach-Object { Start-Process -FilePath 'bore' -ArgumentList 'local', $_, '--to', 'bore.pub', '-p', $_ -PassThru -NoNewWindow }; Write-Host "Started $($jobs.Count) tunnels. Ctrl+C or 'just publish-stop' to end."; Wait-Process -Id $jobs.Id
+
+[windows]
+publish-stop:
+    @Get-Process bore -ErrorAction SilentlyContinue | Stop-Process -Force; Write-Host "tunnels stopped"
+
+[unix]
+publish-stop:
+    @pkill -f "bore local" || true; echo "tunnels stopped"

@@ -15,11 +15,26 @@ import {
 import type { Clock } from '../../../core/ports/system.port.js';
 
 export class S3BlobStore extends BlobStore {
+  /**
+   * @param client        used for real server-to-store traffic; its endpoint may be internal.
+   * @param signingClient used ONLY to presign. Defaults to `client`.
+   *
+   * ── Why presigning needs its own client ────────────────────────────────────────────────
+   * SigV4 signs the `host` header, so a presigned URL is only valid for the host it was signed
+   * for. A node whose store lives at `http://minio:9000` therefore cannot hand that URL to a
+   * phone and cannot repair it by rewriting the host either — the client would get
+   * `SignatureDoesNotMatch`, which reads as corruption rather than misconfiguration.
+   *
+   * Splitting the clients lets the node keep talking to the store over its internal name while
+   * signing for the address the client will really use (`S3_PUBLIC_ENDPOINT`). Credentials and
+   * region are identical; only the endpoint differs, so the signature is valid at both ends.
+   */
   constructor(
     private readonly client: S3Client,
     private readonly bucket: string,
     private readonly clock: Clock,
     private readonly expiresInSeconds = 15 * 60,
+    private readonly signingClient: S3Client = client,
   ) {
     super();
   }
@@ -44,7 +59,7 @@ export class S3BlobStore extends BlobStore {
       Metadata: { 'jb-sha256': Buffer.from(sha256).toString('hex') },
     });
     return {
-      url: await getSignedUrl(this.client, command, { expiresIn: this.expiresInSeconds }),
+      url: await getSignedUrl(this.signingClient, command, { expiresIn: this.expiresInSeconds }),
       key,
       expiresAtMs: this.clock.nowMs() + this.expiresInSeconds * 1000,
       headers: {
@@ -57,7 +72,7 @@ export class S3BlobStore extends BlobStore {
 
   async presignDownload(key: string): Promise<string> {
     return getSignedUrl(
-      this.client,
+      this.signingClient,
       new GetObjectCommand({ Bucket: this.bucket, Key: key }),
       { expiresIn: this.expiresInSeconds },
     );

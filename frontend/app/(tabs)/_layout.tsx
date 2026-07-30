@@ -15,7 +15,6 @@ export default function TabLayout() {
   const unreadCount = useUnreadCount(homeNode?.baseUrl ?? null);
   const router = useRouter();
   if (homeNode === undefined) return <AppLoading colors={colors} />;
-  if (!homeNode) return <Redirect href="/" />;
   return (
     <TabBarInsetProvider>
       <Tabs

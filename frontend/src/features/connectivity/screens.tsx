@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Pressable,
   StyleSheet,
   Text,
@@ -21,7 +20,13 @@ import {
   type FederationPeer,
 } from '../../data/node';
 import { translate, type Locale, type MessageKey } from '../../i18n';
-import type { HomeNode } from '../../data/node-config';
+import { resolveServices, type HomeNode, type ServiceEndpoint } from '../../data/node-config';
+import type { ServiceAddressSource, ServiceKind } from '../../data/service-address';
+import {
+  loadServiceOverrides,
+  setServiceOverride,
+  type ServiceOverrides,
+} from '../../data/service-overrides';
 import type { IdentityProfile } from '../../data/identity-profiles';
 import type { AppPalette } from '../../design-system';
 import { radius, spacing, type as typography } from '../../design-system';
@@ -34,6 +39,7 @@ import {
   Screen,
   Seal,
   StatusBanner,
+  WorkProgress,
   type ReachState,
 } from '../../design-system';
 
@@ -170,13 +176,19 @@ function ServiceRow({
   title,
   address,
   available,
+  locale,
 }: {
   readonly colors: AppPalette;
-  readonly icon: 'library-outline' | 'keypad-outline' | 'git-network-outline';
+  readonly icon: 'library-outline' | 'keypad-outline' | 'git-network-outline' | 'cloud-outline';
   readonly title: string;
   readonly address: string;
   readonly available: boolean;
+  readonly locale?: Locale;
 }) {
+  const state = translate(
+    locale ?? 'en',
+    available ? 'serviceAvailable' : 'serviceUnavailable',
+  );
   return (
     <View style={styles.serviceRow}>
       <View style={[styles.serviceIcon, { backgroundColor: colors.surface2 }]}>
@@ -187,14 +199,173 @@ function ServiceRow({
         <Text numberOfLines={1} style={[typography.mono, { color: colors.text2 }]}>
           {address}
         </Text>
+        {/*
+          Reachability carries TEXT, not just the tinted dot beside it. A washed-out screen in
+          daylight and a colour-vision difference both erase a green/amber distinction, and this
+          is the row someone reads precisely when something is already not working.
+        */}
+        <Text style={[typography.caption, { color: available ? colors.verified : colors.constrained }]}>
+          {state}
+        </Text>
       </View>
       <View
-        accessibilityLabel={available ? 'Available' : 'Unavailable'}
+        accessibilityElementsHidden
+        importantForAccessibility="no"
         style={[
           styles.availability,
           { backgroundColor: available ? colors.verified : colors.constrained },
         ]}
       />
+    </View>
+  );
+}
+
+const SERVICE_ICONS: Readonly<Record<ServiceKind, 'library-outline' | 'keypad-outline' | 'cloud-outline' | 'git-network-outline'>> = {
+  'audit-log': 'library-outline',
+  mcaptcha: 'keypad-outline',
+  blob: 'cloud-outline',
+  federation: 'git-network-outline',
+};
+
+const SERVICE_TITLES: Readonly<Record<ServiceKind, MessageKey>> = {
+  'audit-log': 'serviceAuditLog',
+  mcaptcha: 'serviceMcaptcha',
+  blob: 'serviceBlob',
+  federation: 'federatedNodes',
+};
+
+const SOURCE_LABELS: Readonly<Record<ServiceAddressSource, MessageKey>> = {
+  override: 'serviceSourceOverride',
+  'node-host': 'serviceSourceNodeHost',
+  advertised: 'serviceSourceAdvertised',
+};
+
+/**
+ * One editable service address.
+ *
+ * ── Why the override lives here and not in onboarding ──────────────────────────────────
+ * Someone connecting under a shutdown must not be asked to hand-configure three service URLs
+ * before they can post. A wrong value typed there is indistinguishable from the server being
+ * down, and the person least able to tell the difference is the one being onboarded. This is
+ * settings: it is reached deliberately, by someone who already has a working connection and has
+ * seen a specific service fail.
+ */
+function EditableServiceRow({
+  colors,
+  endpoint,
+  locale,
+  onSave,
+}: {
+  readonly colors: AppPalette;
+  readonly endpoint: ServiceEndpoint;
+  readonly locale: Locale;
+  readonly onSave: (kind: ServiceKind, address: string | null) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(endpoint.address);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const title = translate(locale, SERVICE_TITLES[endpoint.kind]);
+
+  const commit = async (value: string | null) => {
+    setBusy(true);
+    setError('');
+    try {
+      await onSave(endpoint.kind, value);
+      setEditing(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'That address could not be used.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View>
+      <ServiceRow
+        address={endpoint.address}
+        available={endpoint.available}
+        colors={colors}
+        icon={SERVICE_ICONS[endpoint.kind]}
+        locale={locale}
+        title={title}
+      />
+      <View style={styles.serviceMetaRow}>
+        <Text style={[typography.caption, { color: colors.text2 }]}>
+          {translate(locale, SOURCE_LABELS[endpoint.source])}
+        </Text>
+        <Pressable
+          accessibilityHint={translate(locale, 'serviceEditHelp')}
+          accessibilityLabel={translate(locale, 'serviceEditTitle', { service: title })}
+          accessibilityRole="button"
+          hitSlop={12}
+          onPress={() => {
+            setDraft(endpoint.address);
+            setError('');
+            setEditing((value) => !value);
+          }}
+          style={styles.serviceEditButton}
+        >
+          <Text style={[typography.caption, { color: colors.link }]}>
+            {translate(locale, 'serviceEdit')}
+          </Text>
+        </Pressable>
+      </View>
+      {endpoint.source !== 'advertised' && endpoint.advertisedAddress !== endpoint.address ? (
+        <Text style={[typography.caption, styles.serviceAdvertised, { color: colors.text2 }]}>
+          {translate(locale, 'serviceAdvertisedWas', { address: endpoint.advertisedAddress })}
+        </Text>
+      ) : null}
+      {editing ? (
+        <View style={styles.serviceEditor}>
+          <TextInput
+            accessibilityLabel={translate(locale, 'serviceEditTitle', { service: title })}
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!busy}
+            inputMode="url"
+            onChangeText={setDraft}
+            placeholder="192.168.1.20:9000"
+            placeholderTextColor={colors.text2}
+            style={[
+              styles.serviceInput,
+              typography.mono,
+              { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text },
+            ]}
+            value={draft}
+          />
+          {error ? (
+            <Text
+              accessibilityLiveRegion="polite"
+              style={[typography.caption, { color: colors.constrained }]}
+            >
+              {error}
+            </Text>
+          ) : null}
+          <View style={styles.serviceEditActions}>
+            <Button
+              colors={colors}
+              disabled={busy}
+              label={translate(locale, 'serviceSave')}
+              onPress={() => void commit(draft)}
+            />
+            <Button
+              colors={colors}
+              disabled={busy}
+              label={translate(locale, 'serviceReset')}
+              onPress={() => void commit(null)}
+              variant="ghost"
+            />
+            <Button
+              colors={colors}
+              disabled={busy}
+              label={translate(locale, 'serviceCancel')}
+              onPress={() => setEditing(false)}
+              variant="ghost"
+            />
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -313,8 +484,23 @@ export function NetworkScreen({
   const peerDirectory = useFederationPeers(homeNode.baseUrl);
   const treeHeadQuery = useNodeTreeHead(homeNode.baseUrl);
   const alertQuery = useFederationAlerts(homeNode.baseUrl);
-  const auditLogs = homeNode.discovery.services.auditLogs;
-  const mcaptcha = homeNode.discovery.services.mcaptcha;
+  // Overrides load asynchronously, so the first paint shows discovery's answer and swaps to the
+  // user's the moment it arrives. Blocking the whole screen on AsyncStorage would make the most
+  // diagnostic page in the app the slowest one to appear.
+  const [overrides, setOverrides] = useState<ServiceOverrides>({});
+  useEffect(() => {
+    let live = true;
+    void loadServiceOverrides().then((stored) => {
+      if (live) setOverrides(stored);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const services = resolveServices(homeNode, overrides);
+  const saveOverride = async (kind: ServiceKind, address: string | null) => {
+    setOverrides(await setServiceOverride(kind, address));
+  };
   // Every one of these renders from cache when the request fails, which is the whole point:
   // the peer list is most needed exactly when it cannot be refreshed.
   const federationPeers = peerDirectory.data?.value.items ?? [];
@@ -419,51 +605,49 @@ export function NetworkScreen({
           Independent services
         </Text>
         <View style={[styles.serviceList, { borderColor: colors.border }]}>
-          {auditLogs.length === 0 ? (
-            <>
-              <ServiceRow
-                address="Not advertised by this node"
-                available={false}
-                colors={colors}
-                icon="library-outline"
-                title="Audit log"
-              />
-              <Divider colors={colors} />
-            </>
-          ) : null}
-          {auditLogs.map((service) => (
-            <View key={service.id}>
-              <ServiceRow
-                address={service.address}
-                available={service.available}
-                colors={colors}
-                icon="library-outline"
-                title="Audit log"
-              />
-              <Divider colors={colors} />
-            </View>
-          ))}
-          {mcaptcha.length === 0 ? (
-            <ServiceRow
-              address="Not advertised by this node"
-              available={false}
-              colors={colors}
-              icon="keypad-outline"
-              title="mCaptcha"
-            />
-          ) : null}
-          {mcaptcha.map((service, index) => (
-            <View key={service.id}>
-              <ServiceRow
-                address={service.address}
-                available={service.available}
-                colors={colors}
-                icon="keypad-outline"
-                title="mCaptcha"
-              />
-              {index < mcaptcha.length - 1 ? <Divider colors={colors} /> : null}
-            </View>
-          ))}
+          {(['audit-log', 'mcaptcha', 'blob'] as const).flatMap((kind, groupIndex, kinds) => {
+            const endpoints =
+              kind === 'audit-log'
+                ? services.auditLogs
+                : kind === 'mcaptcha'
+                  ? services.mcaptcha
+                  : services.blobs;
+            const last = groupIndex === kinds.length - 1;
+            // A service the node never mentioned still gets a row and an edit control. Silence
+            // from the node is the case where a manual address is MOST likely to be the only way
+            // through, so hiding the row would remove the fix exactly when it is needed.
+            if (endpoints.length === 0) {
+              return [
+                <View key={kind}>
+                  <EditableServiceRow
+                    colors={colors}
+                    endpoint={{
+                      kind,
+                      id: `${kind}-unadvertised`,
+                      address: translate(locale, 'serviceNotAdvertised'),
+                      advertisedAddress: '',
+                      available: false,
+                      source: 'advertised',
+                    }}
+                    locale={locale}
+                    onSave={saveOverride}
+                  />
+                  {last ? null : <Divider colors={colors} />}
+                </View>,
+              ];
+            }
+            return endpoints.map((endpoint, index) => (
+              <View key={endpoint.id}>
+                <EditableServiceRow
+                  colors={colors}
+                  endpoint={endpoint}
+                  locale={locale}
+                  onSave={saveOverride}
+                />
+                {last && index === endpoints.length - 1 ? null : <Divider colors={colors} />}
+              </View>
+            ));
+          })}
         </View>
 
         <Text style={[typography.h2, styles.sectionTitle, { color: colors.text }]}>
@@ -613,7 +797,7 @@ export function ProofVaultScreen({
           </View>
         </View>
         {loading ? (
-          <ActivityIndicator color={colors.ember} style={styles.loader} />
+          <WorkProgress colors={colors} label="Loading saved proofs" />
         ) : records.length === 0 ? (
           <EmptyState
             body="Publish a post or identity certificate. Its signed acknowledgement will appear here automatically."
@@ -816,6 +1000,42 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   availability: { width: 9, height: 9, borderRadius: radius.pill },
+  serviceMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  // 44pt minimum on the tap target. This control is reached by someone whose service is already
+  // failing, often one-handed on a bad connection; a 20pt caption-sized hit area is a second
+  // failure on top of the first.
+  serviceEditButton: {
+    minHeight: 44,
+    minWidth: 44,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+  },
+  serviceAdvertised: { paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
+  serviceEditor: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  serviceInput: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.sm,
+  },
+  // Wraps rather than truncating: Bangla labels are materially longer than the English, and
+  // "সার্ভারের ঠিকানা ব্যবহার করুন" must not become an ellipsis on a 320pt phone.
+  serviceEditActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
   pageActions: { padding: spacing.md, marginTop: spacing.md },
   proofIntro: {
     paddingHorizontal: spacing.md,
@@ -831,7 +1051,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  loader: { marginTop: spacing.xxl },
   proofCard: {
     marginHorizontal: spacing.md,
     marginBottom: spacing.sm,

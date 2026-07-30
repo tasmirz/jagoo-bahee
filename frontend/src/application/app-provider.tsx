@@ -49,6 +49,7 @@ import type { ScopeStatus } from '../features/connectivity/scope';
 import { messages, type Locale } from '../i18n';
 import { drainOutboxOnce } from '../offline/outbox';
 import { refreshMeshCertificates } from '../offline/certificate-cache';
+import { configureAuditIssueReporting } from '../audit';
 import {
   LEGACY_FORUM_VAULT_ID,
   selectForumIdentityVault,
@@ -162,6 +163,11 @@ function AppStateProvider({ children }: PropsWithChildren) {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!homeNode) return;
+    configureAuditIssueReporting(homeNode.discovery.services.auditLogs, homeNode.transport);
+  }, [homeNode]);
 
   useEffect(() => {
     if (!homeNode) return;

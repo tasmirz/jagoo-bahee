@@ -1,0 +1,27 @@
+{
+  "//": "Copy to ops/service-map.json when this node is reached through a tunnel or a NAT",
+  "//1": "port-forward, i.e. whenever the address a CLIENT uses is not the address the node",
+  "//2": "sees. Absent, discovery advertises local addresses and the client rewrites the host",
+  "//3": "itself, which is correct for a node on the same LAN. Path override: SERVICE_MAP_FILE.",
+
+  "//4": "publicHost is a BARE host: no scheme, no port. Both are supplied by the fields below,",
+  "//5": "and a host carrying either is rejected outright rather than guessed at.",
+  "publicHost": "bore.pub",
+  "scheme": "http",
+
+  "//6": "localPort -> publicPort, exactly the mapping a tunnel performs. Keys are the ports the",
+  "//7": "node and its services actually listen on; values are what the outside world dials.",
+  "//8": "`just publish-all` opens tunnels matching this file.",
+  "//9": "3000 node · 3100 audit log · 7000 mCaptcha · 9000 blob store (MinIO)",
+  "ports": {
+    "3000": 3000,
+    "3100": 3100,
+    "7000": 7000,
+    "9000": 9000
+  },
+
+  "//10": "The blob store additionally needs S3_PUBLIC_ENDPOINT=http://bore.pub:9000 in the node's",
+  "//11": "environment. Advertising the address is not enough: SigV4 signs the host header, so a",
+  "//12": "presigned upload URL is only valid for the host it was signed for and cannot be",
+  "//13": "repaired by the client. Without it, uploads fail with SignatureDoesNotMatch."
+}

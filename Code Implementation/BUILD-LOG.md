@@ -49,7 +49,10 @@ Rules earned the hard way. Violating one of these has already cost time.
 | L-24 | **Two stores answering the same question is one store too many, and the wrong one wins.** Peer tree heads lived in a durable ledger AND a per-process `Map` behind `verifyPeerSth`; the in-process copy was authoritative, so fork detection reset on every restart. When you find state duplicated, delete a copy — do not sync them.                                                                    | Stage 0                                                                            |
 | L-25 | **A verification badge with a default state is a lie with a uniform on.** `Seal`'s `state` defaulted to `'synced'`, so every badge in the app claimed "verified" while `verifyProvenance` had zero call sites. Make the honest value impossible to omit: no default, and the compiler names every caller that was asserting without checking.                                                              | Stage 0                                                                            |
 | L-26 | **Two limits enforced in sequence are not two limits.** Checking the envelope bucket, spending it, then checking the byte bucket converts a byte breach into an envelope breach and tells the peer the wrong thing to do about it. Allowances that are jointly binding must be decided and spent in one atomic step.                                                                                      | Stage 0                                                                            |
+
 | L-27 | **A phase marked ✅ without a gate that fails on purpose is a claim, not a fact.** `Plans/12-FRONTEND-UX-COVERAGE-PLAN.md` declared Phases 0–8 "implemented and validated" — the monoliths it said were split were 2000+ line files, the ~80-route tree didn't exist, the ~40 shared components numbered 12. Nothing ever asserted the plan's own claims against the tree, so a green summary hid the gap for an entire session's worth of prior work. L-11 was about a lint rule; this is the same defect one layer up, in a planning document instead of a config file. | PF-FRONTEND-UX-REBUILD |
+| L-27 | **A durability default that fails open reads as data loss, and reports itself `ready` while doing it.** `MONGO_URL` unset silently selected the in-memory doubles, and nothing loaded a `.env`, so `just dev` started Docker and then ignored it for months. Any adapter choice that trades durability for convenience must be visible at `/health/ready` and reachable by config the default dev command actually loads. | dev environment, reported as "communities disappear between logins"                |
+
 
 ---
 
@@ -928,6 +931,7 @@ runtime suite has not been executed on hardware. The AAR tests, autolinking, com
 production bundles pass; the exact device drill remains in `NATIVE-CRYPTO-PLAN.md` and must retain
 the Android model/API plus a result screenshot as release evidence.
 
+
 ### 2026-07-30 — Frontend UI/UX rebuild: design system, feed/post/vote/comment core, composer  [PF]
 
 **Built:**
@@ -999,3 +1003,107 @@ is created is usually a stale generated-types problem, not a real bug; `expo exp
 - Attachment thumbnails in `PostCard`/`PostDetailScreen` render a placeholder icon, not the actual
   image — resolving a signed attachment claim to a viewable URL needs an authenticated
   `/v1/attachments/:id/download` round trip not yet wired into the feed render path.
+
+---
+
+## Post-P2 — Durable local development
+
+**Reported as:** "communities and posts I created are gone when I log in with another account."
+
+**Actually:** not an account-scoping bug and not a Docker volume bug. The backend had never
+connected to Docker Mongo at all. `/health/ready` returned
+`{"database":"in-memory","cache":"in-memory","blob":"in-memory"}`, and `jb-mongo` had no `jagoo`
+database after months of use — only `admin`, `config`, `local`. Every envelope had been living in
+the Node process heap and dying with it.
+
+Three things had to line up for this to stay invisible:
+
+1. `MONGO_URL` is opt-in by design (`composition/app.module.ts`) — correct for unit tests and for
+   the dependency-free `smoke:local` gate, which must keep working with no infrastructure.
+2. Nothing in `backend/` loaded a `.env`. There was no `dotenv` import and no `ConfigModule`, so
+   configuration could only arrive from the shell.
+3. `justfile`'s `dev` recipe starts `ops-up` and then launches the backend with no environment,
+   so the one command a developer runs brings up Mongo and then ignores it.
+
+The node reported `ready` throughout, which is why this survived so long.
+
+**Built:**
+
+- `backend/src/composition/load-env.ts` — side-effect module, imported first by `main.ts` and by
+  `cli/rebuild-projections.ts`. Absent `.env`, behaviour is unchanged.
+- `backend/.env.example`, committed, documenting the two traps below.
+- `backend/.env`, gitignored, with secrets from `pnpm --filter @jagoo/backend secrets:generate`.
+
+**Two traps the example file now names explicitly:**
+
+- **`?directConnection=true` is mandatory from the host.** `mongo-init` initiates rs0 with member
+  host `mongo:27017`, which resolves only inside the compose network. With `?replicaSet=rs0` the
+  driver discards the seed in favour of that advertised name, cannot resolve it, and server
+  selection hangs with no error — the caller just stops. Transactions are unaffected; the server is
+  a replica-set member however the client reached it. (Already L-16 in `docker-compose.yml`, which
+  is missing from the standing-lessons table above.)
+- **Setting `MONGO_URL` makes `NODE_SIGNING_SEED` mandatory** — the node refuses to boot without
+  it, correctly: a durable node that regenerates its identity each start signs a Merkle log it can
+  no longer be shown to have signed. `AUTH_*_SECRET` are optional but must be pinned too, or every
+  session dies on restart, which presents to a user as exactly the same symptom.
+
+**Resolution anchors to `__dirname`, not `process.cwd()`.** The justfile launches the backend from
+a detached `cmd.exe` whose cwd is the repository root, so dotenv's default would have found
+nothing — reintroducing the same bug, on Windows only, via `just dev`. Verified by starting the
+built output with cwd set to the repository root.
+
+`override` stays false, so Compose, CI and the two-node harness are unaffected by a developer
+`.env` that finds its way into an image.
+
+**Verified:**
+
+- `/health/ready` → `{"database":"ok","cache":"ok","blob":"s3","witness":"ok"}`.
+- `jagoo` database created in `jb-mongo` with `envelopes`, `merkle_leaves`, `merkle_state`,
+  `federation_ledger`, `federation_outbox`, `federation_peers`, `ingress_nonces`.
+- Seeded a community and post, killed the process, started a cold one: 5 envelopes, 5 Merkle
+  leaves, and `GET /v1/communities` served the community from Mongo with an empty heap.
+- Backend suite 432 passed / 13 skipped; `pnpm smoke:local` still passes on in-memory adapters,
+  and the Mongo/Redis integration tests still skip, because vitest does not import `load-env`.
+- `typecheck` clean; `lint` 0 errors.
+
+**Not claimed:** the five `no-console` warnings in `features/forum/community/community.handlers.ts`
+are pre-existing debug logging, untouched here. The Mongo/Redis integration tests were not run —
+they still gate on `MONGO_URL` being exported into the test environment, which this change
+deliberately does not do.
+
+---
+
+## Post-P2 — Reachable auxiliary services
+
+**Problem:** discovery could advertise audit-log and mCaptcha addresses which were true only from
+the node's own network. Blob storage was not advertised at all, and a phone could not repair a
+presigned S3 URL by changing its host because SigV4 signs that host.
+
+**Built:**
+
+- Added the `BLOB` service kind, optional `ops/service-map.json` port-map loader, and `/health`
+  advertisement for audit logs, mCaptcha and blob storage.
+- Added `S3_PUBLIC_ENDPOINT`; it creates a second S3 client used only for presigning, leaving
+  node-to-MinIO traffic on `S3_ENDPOINT`.
+- Added client-side service address resolution and persistent manual overrides in Network &
+  services. Overrides win over discovery and are intentionally absent from onboarding.
+- Added `just publish-all`, which tunnels node, audit, mCaptcha and blob ports together.
+- Corrected Fastify 4 compatibility: `request.hostname` may include a port, so discovery strips it
+  before replacing a local service host. This prevents invalid `bore.pub:12001:9000` addresses.
+- Made the signer-coverage gate depend on registry ownership instead of a stale fixed domain count.
+
+**Verified:**
+
+- 44 focused backend tests for service-map parsing, discovery advertisement and public-host S3
+  presigning pass.
+- Full frontend suite: 23 suites / 116 tests pass.
+- Full backend suite: 38 suites / 476 tests pass; 3 infrastructure suites / 13 tests remain
+  intentionally skipped.
+- `pnpm vectors`, `pnpm lint` (0 errors), `pnpm typecheck`, and `pnpm proto:check` pass.
+- Android `:jagoo-rns:compileDebugKotlin` passes after applying Chaquopy to the Expo library module
+  and declaring its ABI filters.
+
+**Not claimed:** a full Android APK assembly can take longer than this runner's five-minute cap on
+its first Chaquopy package build. The Kotlin/native bridge compilation succeeded; installation and
+BLE/RNode physical acceptance remain device-side work.
+

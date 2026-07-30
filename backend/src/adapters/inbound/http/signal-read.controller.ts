@@ -33,6 +33,10 @@ import {
   type SignalPrekeyDoc,
   type SignalSessionDoc,
 } from '../../../features/signal/message/signal-message.handlers.js';
+import {
+  SIGNAL_DIRECTORY_PROFILES_COLLECTION,
+  type SignalDirectoryProfileDoc,
+} from '../../../features/signal/directory/profile.handlers.js';
 
 const MAX_SCAN = 100_000;
 const DEFAULT_LIMIT = 50;
@@ -138,6 +142,61 @@ export class SignalReadController {
           }
         : null,
     };
+  }
+
+  /**
+   * Signal-only Reticulum bootstrap information. This endpoint deliberately contains no
+   * Forum/node identity data and is useful even when the public index is the only HTTP
+   * service available. Comma-separated endpoints allow an operator to rotate relays.
+   */
+  @Get('rns-bootstrap')
+  rnsBootstrap(): {
+    readonly tcpEndpoints: readonly string[];
+    readonly lxmfPropagationDestination: string | null;
+  } {
+    const tcpEndpoints = (process.env.SIGNAL_RNS_TCP_ENDPOINTS ?? '')
+      .split(',')
+      .map((endpoint) => endpoint.trim())
+      .filter((endpoint) => /^tcp:\/\/[^\s/:]+(?::\d{1,5})?$/.test(endpoint));
+    const propagation = process.env.SIGNAL_LXMF_PROPAGATION_DESTINATION?.trim().toLowerCase();
+    return {
+      tcpEndpoints,
+      lxmfPropagationDestination: propagation && /^[0-9a-f]{32}$/.test(propagation) ? propagation : null,
+    };
+  }
+
+  @Get('directory')
+  async directory(
+    @Query('q') query?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<Record<string, unknown>> {
+    const rows = await this.projections
+      .collection<SignalDirectoryProfileDoc>(SIGNAL_DIRECTORY_PROFILES_COLLECTION)
+      .find({ discoverable: true }, MAX_SCAN);
+    const needle = query?.trim().toLocaleLowerCase() ?? '';
+    const page = paginate(
+      rows.filter((profile) => {
+        if (!needle) return true;
+        return `${profile.displayName}\n${profile.bio}\n${profile.claims.map((claim) => claim.value).join('\n')}`
+          .toLocaleLowerCase()
+          .includes(needle);
+      }),
+      limit,
+      cursor,
+    );
+    return { items: page.items, nextCursor: page.nextCursor };
+  }
+
+  @Get('directory/:identityId')
+  async directoryProfile(@Param('identityId') identityId: string): Promise<SignalDirectoryProfileDoc> {
+    const profile = await this.projections
+      .collection<SignalDirectoryProfileDoc>(SIGNAL_DIRECTORY_PROFILES_COLLECTION)
+      .findOne({ id: identityId });
+    if (!profile || !profile.discoverable) {
+      throw new HttpException({ detail: 'Signal profile not found' }, 404);
+    }
+    return profile;
   }
 
   @Get('channels')

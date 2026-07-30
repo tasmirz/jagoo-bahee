@@ -32,7 +32,7 @@ import {
   updateForumComment,
   deleteForumComment,
 } from '../../signer';
-import { sealStateFor } from '../../verify';
+import { useProvenanceSeal } from '../../verify/use-provenance-seal';
 import { VoteButtons } from './vote-buttons';
 import { CommentNode } from '../comments/comment-node';
 import { buildCommentTree } from '../comments/comment-tree';
@@ -88,7 +88,7 @@ export function PostDetailScreen({
   const item = post.data?.value;
   const rows = comments.data?.value.items ?? [];
   const tree = useMemo(() => buildCommentTree(rows as readonly NodeComment[]), [rows]);
-  const seal = useMemo(() => (item ? sealStateFor(item.provenance) : 'unsigned'), [item]);
+  const seal = useProvenanceSeal(item?.provenance);
   const isAuthor = (authorKey: string) => myKey !== null && authorKey === myKey;
   const isMine = item ? isAuthor(item.authorKey) : false;
 

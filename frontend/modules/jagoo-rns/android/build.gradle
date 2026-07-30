@@ -1,0 +1,36 @@
+apply plugin: 'com.android.library'
+// Expo modules compile as separate Android libraries, so this project needs the Chaquopy
+// plugin too; applying it only in :app does not put Python.java on this module's classpath.
+apply plugin: 'com.chaquo.python'
+
+group = 'com.jagoobahee.rns'
+version = '1.0.0'
+
+def expoModulesCorePlugin = new File(
+  project(':expo-modules-core').projectDir.absolutePath,
+  'ExpoModulesCorePlugin.gradle'
+)
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useDefaultAndroidSdkVersions()
+
+android {
+  namespace 'com.jagoobahee.rns'
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+    ndk {
+      abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+    }
+  }
+
+  // Chaquopy must be applied here for Python.java to be available to this Expo
+  // module at compile time. Its runtime, however, belongs to :app: only: if it
+  // is exported by both projects AGP packages libchaquopy_java.so twice.
+  packaging {
+    jniLibs {
+      excludes += ['**/libchaquopy_java.so']
+    }
+  }
+}
