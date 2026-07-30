@@ -3,9 +3,9 @@ import { Text, TextInput, View } from 'react-native';
 import { useNodePost } from '../../data/node';
 import type { HomeNode } from '../../data/node-config';
 import { deleteForumPost, updateForumPost } from '../../signer';
-import type { AppPalette } from '../../theme';
-import { spacing, type as typography } from '../../theme';
-import { Button, IconButton, Screen, StatusBanner } from '../../ui/primitives';
+import type { AppPalette } from '../../design-system';
+import { spacing, type as typography } from '../../design-system';
+import { Button, IconButton, Screen, StatusBanner } from '../../design-system';
 
 export function EditPostScreen({ colors, contentId, homeNode, onBack, onDone }: { readonly colors: AppPalette; readonly contentId: string; readonly homeNode: HomeNode; readonly onBack: () => void; readonly onDone: () => void }) {
   const post = useNodePost(homeNode.baseUrl, contentId);

@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useApp } from '../src/application/app-provider';
 import { ProofVaultScreen } from '../src/features/connectivity';
-import { AppScene } from '../src/ui/scene';
+import { AppScene } from '../src/design-system';
 
 export default function ProofsRoute() {
   const router = useRouter();

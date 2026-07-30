@@ -606,6 +606,17 @@ export async function forumSessionRequest<T>(
   });
 }
 
+/**
+ * The bearer header for an otherwise-public read that should be hydrated with the caller's
+ * own `myVote`/`saved`/`joined` fields (the additive viewer reads added alongside this
+ * rebuild). Returns `undefined` rather than throwing when signed out, since these reads must
+ * still work anonymously — the header is optional, not required. Kept inside the signer
+ * boundary rather than exposing `activeAccessToken` itself to `OfflineApi`.
+ */
+export function forumViewerHeaders(): { readonly Authorization: string } | undefined {
+  return activeAccessToken ? { Authorization: `Bearer ${activeAccessToken}` } : undefined;
+}
+
 export async function createForumIdentity(
   lockPassphrase?: string,
   recoveryPassphrase = '',

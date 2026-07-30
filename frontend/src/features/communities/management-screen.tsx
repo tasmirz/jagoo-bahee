@@ -14,9 +14,9 @@ import {
   revokeForumRole,
   updateForumCommunity,
 } from '../../signer';
-import type { AppPalette } from '../../theme';
-import { radius, spacing, type as typography } from '../../theme';
-import { Button, EmptyState, IconButton, Screen, StatusBanner } from '../../ui/primitives';
+import type { AppPalette } from '../../design-system';
+import { radius, spacing, type as typography } from '../../design-system';
+import { Button, EmptyState, IconButton, Screen, StatusBanner } from '../../design-system';
 
 type Section = 'queue' | 'actions' | 'roles' | 'settings';
 

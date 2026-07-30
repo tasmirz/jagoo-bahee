@@ -6,7 +6,7 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import QRCode from 'react-native-qrcode-svg';
 import { Priority } from '@jagoo/sdk';
-import type { AppPalette, ReachState } from '../../design-system';
+import type { AppPalette, ReachState, ThemeMode } from '../../design-system';
 import {
   AppHeader,
   Button,
@@ -69,12 +69,17 @@ function pairingNonce(encoded: string): string {
 const pairingFingerprint = (encoded: string): string =>
   pairingNonce(encoded).slice(0, 11) || 'expired';
 
+/** Not a themed token — see the render-site comment on `styles.qr`. */
+const QR_QUIET_ZONE_COLOR = '#F8F7F3';
+
 export function MeshScreen({
   colors,
+  mode,
   reach,
   onBack,
 }: {
   readonly colors: AppPalette;
+  readonly mode?: ThemeMode;
   readonly reach: ReachState;
   readonly onBack: () => void;
 }) {
@@ -278,7 +283,7 @@ export function MeshScreen({
 
   return (
     <Screen colors={colors}>
-      <AppHeader colors={colors} reach={reach} title="Offline relay" onReach={onBack} />
+      <AppHeader colors={colors} mode={mode} reach={reach} title="Offline relay" onBack={onBack} />
       <View style={styles.hero}>
         <Text style={[typography.overline, { color: colors.signal }]}>No server path required</Text>
         <Text style={[typography.h1, { color: colors.text }]}>Carry signed work across the gap.</Text>
@@ -331,7 +336,10 @@ export function MeshScreen({
       ) : null}
       {pairing ? (
         <View style={styles.pairingBlock}>
-          <View style={[styles.qr, { backgroundColor: '#F8F7F3' }]}>
+          {/* Fixed light background regardless of app theme — a QR code needs light
+              quiet-zone contrast against dark modules to scan reliably by camera; this is
+              not a themed surface and should not follow `colors.*`. */}
+          <View style={[styles.qr, { backgroundColor: QR_QUIET_ZONE_COLOR }]}>
             <QRCode value={pairing} size={224} quietZone={8} />
           </View>
           <Text selectable style={[typography.mono, { color: colors.text }]}>

@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '../../src/application/app-provider';
 import { AuditScreen } from '../../src/features/forum';
-import { AppScene } from '../../src/ui/scene';
+import { AppScene } from '../../src/design-system';
 
 export default function AuditRoute() {
   const router = useRouter();

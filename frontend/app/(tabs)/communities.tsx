@@ -1,24 +1,22 @@
 import { useRouter } from 'expo-router';
 import { useApp } from '../../src/application/app-provider';
-import { CommunitiesScreen } from '../../src/features/forum';
-import { AppScene } from '../../src/ui/scene';
+import { CommunitiesScreen } from '../../src/features/communities/communities-screen';
 
 export default function CommunitiesRoute() {
   const router = useRouter();
-  const { colors, homeNode, reach } = useApp();
+  const { colors, homeNode, reach, themeMode } = useApp();
   if (!homeNode) return null;
   return (
-    <AppScene colors={colors}>
-      <CommunitiesScreen
-        baseUrl={homeNode.baseUrl}
-        colors={colors}
-        onOpenCommunity={(communityId) =>
-          router.push({ pathname: '/community/[communityId]', params: { communityId } })
-        }
-        onOpenCreate={() => router.push('/community/create')}
-        onOpenNetwork={() => router.push('/network')}
-        reach={reach}
-      />
-    </AppScene>
+    <CommunitiesScreen
+      colors={colors}
+      mode={themeMode}
+      reach={reach}
+      homeNode={homeNode}
+      onOpenCommunity={(communityId) =>
+        router.push({ pathname: '/community/[communityId]', params: { communityId } })
+      }
+      onOpenCreate={() => router.push('/community/create')}
+      onOpenNetwork={() => router.push('/network')}
+    />
   );
 }

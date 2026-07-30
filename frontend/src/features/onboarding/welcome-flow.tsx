@@ -12,7 +12,7 @@ import {
   type ClientTransport,
 } from '../../data/request';
 import { createForumIdentity, importForumIdentity, registerForumIdentity } from '../../signer';
-import { radius, spacing, type as typography, type AppPalette } from '../../theme';
+import { radius, spacing, type as typography, type AppPalette } from '../../design-system';
 
 type Step = 'welcome' | 'server' | 'confirm' | 'identity' | 'protection' | 'backup' | 'register' | 'ready';
 type IdentityMode = 'create' | 'restore';

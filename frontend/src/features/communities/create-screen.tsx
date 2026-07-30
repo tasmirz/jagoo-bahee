@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { Switch, Text, TextInput, View } from 'react-native';
 import type { HomeNode } from '../../data/node-config';
 import { createForumCommunity } from '../../signer';
-import type { AppPalette } from '../../theme';
-import { spacing, type as typography } from '../../theme';
-import { Button, IconButton, Screen, StatusBanner } from '../../ui/primitives';
+import type { AppPalette } from '../../design-system';
+import { spacing, type as typography } from '../../design-system';
+import { Button, IconButton, Screen, StatusBanner } from '../../design-system';
 
 export function CommunityCreateScreen({ colors, homeNode, onBack, onCreated }: {
   readonly colors: AppPalette;

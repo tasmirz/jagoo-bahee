@@ -1,7 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '../../../src/application/app-provider';
 import { CommunityManagementScreen } from '../../../src/features/communities';
-import { AppScene } from '../../../src/ui/scene';
+import { AppScene } from '../../../src/design-system';
 
 export default function CommunityManagementRoute() {
   const router = useRouter();

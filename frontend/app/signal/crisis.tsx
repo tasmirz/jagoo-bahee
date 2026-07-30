@@ -5,13 +5,15 @@ import { AppScene } from '../../src/design-system';
 
 export default function SignalCrisisRoute() {
   const router = useRouter();
-  const { colors, homeNode, reach } = useApp();
+  const { colors, homeNode, reach, themeMode } = useApp();
   if (!homeNode) return null;
   return (
     <AppScene colors={colors}>
       <SignalCrisisScreen
         colors={colors}
+        mode={themeMode}
         homeNode={homeNode}
+        onBack={() => router.back()}
         onNetwork={() => router.push('/network')}
         reach={reach}
       />

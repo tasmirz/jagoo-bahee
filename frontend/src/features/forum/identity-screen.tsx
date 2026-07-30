@@ -3,9 +3,9 @@ import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { useNodeDocument } from '../../data/node';
 import type { HomeNode } from '../../data/node-config';
 import { blockForumIdentity, followForumIdentity } from '../../signer';
-import type { AppPalette } from '../../theme';
-import { radius, spacing, type as typography } from '../../theme';
-import { Button, EmptyState, IconButton, Screen, StatusBanner } from '../../ui/primitives';
+import type { AppPalette } from '../../design-system';
+import { radius, spacing, type as typography } from '../../design-system';
+import { Button, EmptyState, IconButton, Screen, StatusBanner } from '../../design-system';
 
 interface PublicIdentity {
   readonly id: string;

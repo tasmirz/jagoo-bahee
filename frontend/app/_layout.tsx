@@ -1,3 +1,4 @@
+import 'react-native-gesture-handler';
 import '../src/crypto/backend';
 import { Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
@@ -5,6 +6,7 @@ import { JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono/400R
 import { Poppins_400Regular } from '@expo-google-fonts/poppins/400Regular';
 import { Poppins_500Medium } from '@expo-google-fonts/poppins/500Medium';
 import { Poppins_600SemiBold } from '@expo-google-fonts/poppins/600SemiBold';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppErrorBoundary } from '../src/application/app-error-boundary';
 import { AppProvider } from '../src/application/app-provider';
 
@@ -17,17 +19,22 @@ export default function RootLayout() {
   });
   if (!loaded) return null;
   return (
-    <AppErrorBoundary>
-      <AppProvider>
-        <Stack
-          screenOptions={{
-            animation: 'fade',
-            animationDuration: 180,
-            contentStyle: { backgroundColor: 'transparent' },
-            headerShown: false,
-          }}
-        />
-      </AppProvider>
-    </AppErrorBoundary>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <AppErrorBoundary>
+        <AppProvider>
+          <Stack
+            screenOptions={{
+              animation: 'slide_from_right',
+              gestureEnabled: true,
+              contentStyle: { backgroundColor: 'transparent' },
+              headerShown: false,
+            }}
+          >
+            <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 180 }} />
+            <Stack.Screen name="composer" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+          </Stack>
+        </AppProvider>
+      </AppErrorBoundary>
+    </GestureHandlerRootView>
   );
 }

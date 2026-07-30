@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useApp } from '../src/application/app-provider';
 import { NetworkScreen } from '../src/features/connectivity';
-import { AppScene } from '../src/ui/scene';
+import { AppScene } from '../src/design-system';
 
 export default function NetworkRoute() {
   const router = useRouter();
@@ -24,7 +24,7 @@ export default function NetworkRoute() {
         identityProfiles={identityProfiles}
         onBack={() => router.back()}
         onMesh={() => router.push('/mesh')}
-        onAddIdentity={() => router.push('/identity/new')}
+        onAddIdentity={() => router.push('/identity/new' as never)}
         onSwitchIdentity={switchIdentity}
         onChangeServer={() =>
           void disconnectHomeNode().then(() => {

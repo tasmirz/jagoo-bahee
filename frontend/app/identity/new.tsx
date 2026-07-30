@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router';
 import { useApp } from '../../src/application/app-provider';
 import { WelcomeFlow } from '../../src/features/onboarding';
-import { AppScene } from '../../src/ui/scene';
+import { AppScene } from '../../src/design-system';
 
 export default function NewIdentityRoute() {
   const router = useRouter();

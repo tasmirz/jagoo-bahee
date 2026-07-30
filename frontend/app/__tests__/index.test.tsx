@@ -7,8 +7,9 @@ import { useApp } from '../../src/application/app-provider';
 import { queryClient } from '../../src/data';
 import type { HomeNode } from '../../src/data/node-config';
 import { featureDestinations } from '../../src/features/catalog';
-import { CommunityCreateScreen, FeatureScreen } from '../../src/features/forum';
-import { palettes } from '../../src/theme';
+import { FeatureScreen } from '../../src/features/forum';
+import { CommunityCreateScreen } from '../../src/features/communities';
+import { palettes } from '../../src/design-system';
 
 jest.mock('expo-router', () => ({
   Redirect: ({ href }: { readonly href: string }) => {
@@ -142,7 +143,7 @@ describe('feature destinations', () => {
 });
 
 describe('CommunityCreateScreen', () => {
-  it('renders New Community header and form fields', async () => {
+  it('renders the create-community header and form fields', async () => {
     let view!: renderer.ReactTestRenderer;
     await act(async () => {
       view = renderer.create(
@@ -150,9 +151,8 @@ describe('CommunityCreateScreen', () => {
           <CommunityCreateScreen
             colors={palettes.light}
             homeNode={savedNode}
-            onOpenNetwork={() => undefined}
+            onBack={() => undefined}
             onCreated={() => undefined}
-            reach="connected"
           />
         </QueryClientProvider>,
       );
@@ -161,7 +161,7 @@ describe('CommunityCreateScreen', () => {
     expect(
       view.root.findAll(
         (node) =>
-          node.props.accessibilityRole === 'header' && node.props.children === 'New Community',
+          node.props.accessibilityRole === 'header' && node.props.children === 'Create a community',
       ),
     ).not.toHaveLength(0);
     act(() => view.unmount());

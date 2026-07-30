@@ -49,7 +49,10 @@ Rules earned the hard way. Violating one of these has already cost time.
 | L-24 | **Two stores answering the same question is one store too many, and the wrong one wins.** Peer tree heads lived in a durable ledger AND a per-process `Map` behind `verifyPeerSth`; the in-process copy was authoritative, so fork detection reset on every restart. When you find state duplicated, delete a copy — do not sync them.                                                                    | Stage 0                                                                            |
 | L-25 | **A verification badge with a default state is a lie with a uniform on.** `Seal`'s `state` defaulted to `'synced'`, so every badge in the app claimed "verified" while `verifyProvenance` had zero call sites. Make the honest value impossible to omit: no default, and the compiler names every caller that was asserting without checking.                                                              | Stage 0                                                                            |
 | L-26 | **Two limits enforced in sequence are not two limits.** Checking the envelope bucket, spending it, then checking the byte bucket converts a byte breach into an envelope breach and tells the peer the wrong thing to do about it. Allowances that are jointly binding must be decided and spent in one atomic step.                                                                                      | Stage 0                                                                            |
+
+| L-27 | **A phase marked ✅ without a gate that fails on purpose is a claim, not a fact.** `Plans/12-FRONTEND-UX-COVERAGE-PLAN.md` declared Phases 0–8 "implemented and validated" — the monoliths it said were split were 2000+ line files, the ~80-route tree didn't exist, the ~40 shared components numbered 12. Nothing ever asserted the plan's own claims against the tree, so a green summary hid the gap for an entire session's worth of prior work. L-11 was about a lint rule; this is the same defect one layer up, in a planning document instead of a config file. | PF-FRONTEND-UX-REBUILD |
 | L-27 | **A durability default that fails open reads as data loss, and reports itself `ready` while doing it.** `MONGO_URL` unset silently selected the in-memory doubles, and nothing loaded a `.env`, so `just dev` started Docker and then ignored it for months. Any adapter choice that trades durability for convenience must be visible at `/health/ready` and reachable by config the default dev command actually loads. | dev environment, reported as "communities disappear between logins"                |
+
 
 ---
 
@@ -928,6 +931,79 @@ runtime suite has not been executed on hardware. The AAR tests, autolinking, com
 production bundles pass; the exact device drill remains in `NATIVE-CRYPTO-PLAN.md` and must retain
 the Android model/API plus a result screenshot as release evidence.
 
+
+### 2026-07-30 — Frontend UI/UX rebuild: design system, feed/post/vote/comment core, composer  [PF]
+
+**Built:**
+
+- `frontend/src/design-system/{layout,forms,sheet,feedback,list,motion}.tsx` (new) plus a rewritten
+  `trust.tsx` (Seal/ReachPill moved out of `components.tsx`, extended with `CostRing`,
+  `TransportTag`, `ModerationTombstone`, `LabelBanner`, `Fingerprint`, `PlaneBoundaryNotice`,
+  `QueueStatus`, `OutboxBadge`). `tokens.ts` gained `useResponsive`/`useSemanticSpacing`
+  (breakpoint-aware spacing, Plan 12 §9.1/§9.2) and `maxFontScale` (a font-scale ceiling per type
+  role — sizes are unchanged from `design.md` §2, only the ceiling is new).
+- Native deps: `react-native-reanimated`, `react-native-gesture-handler`, `expo-image`,
+  `expo-image-picker`, `expo-haptics`, `react-native-markdown-display` (`babel.config.js`,
+  `app.json` updated; root layout wrapped in `GestureHandlerRootView`).
+- Backend additive viewer reads: `myVote`/`saved` on `/v1/feed`, `/v1/posts/:id`,
+  `/v1/posts/:id/comments`, `/v1/comments/:id`; `joined` on `/v1/communities/:id`; new
+  `GET /v1/me/votes|follows|blocks` (`backend/src/adapters/inbound/http/forum-read.controller.ts`).
+  Every field is optional and only appears with a valid bearer token — unauthenticated responses
+  are byte-identical to before. No proto/envelope/registry change.
+- Navigation: `TABS` (design-system/components.tsx) is now the single source of truth for the tab
+  bar, consumed by both `BottomNavigation` and `(tabs)/_layout.tsx` — it no longer exists twice.
+  Root `Stack` uses `slide_from_right` + `gestureEnabled`; Create is a modal route (`/composer`)
+  opened from every tab, not a persistent tab screen. All 7 pushed Signal screens and
+  `mesh-screen.tsx` gained a real back control (`AppHeader.onBack`) — several had none before, and
+  `mesh-screen.tsx` had the Reach Pill wired as its back button.
+- New feature code: `features/feed` (paginated `useInfiniteFeed` + `FeedScreen`), `features/posts`
+  (canonical `PostCard`, `VoteButtons` with real optimistic `useMutation` off the new `myVote`
+  field, `PostDetailScreen` with markdown body and a real action sheet), `features/comments`
+  (`buildCommentTree` + recursive `CommentNode`, replacing the old flat `depth * 16px` fake
+  nesting), `features/composer` (community-picker bottom sheet, kind tabs filtered by community
+  settings, an `expo-image-picker` media flow replacing the raw `jb1…` ID textarea, draft
+  persistence, queue-aware submit), `features/communities` (`CommunityScreen` with a real FAB and
+  real join/leave state, consolidated `CommunitiesScreen` with Joined/Discover), `features/profile`
+  (`YouScreen` replacing the 14-row capability catalogue for its two most-used rows, `SavedScreen`),
+  `features/notifications` (real all/unread filtering and mark-read backed by the existing
+  client-local `LocalNotificationState` — the backend has no read-state endpoint by design).
+- Deleted: the broken duplicate `CommunityCreateScreen` in `forum/screens.tsx` (completely
+  unstyled `TextInput`s, five `console.log`s), the superseded `FeedScreen`/`PostDetailScreen`/
+  `CommunitiesScreen`/`ComposeScreen`/`ProfileScreen`/`CommunityDetailScreen`, and the
+  `src/theme`/`src/ui` deprecated re-export shims (`forum/screens.tsx`: 2063 → ~610 lines).
+
+**Verified:** `pnpm --filter @jagoo/frontend {lint,typecheck,test}` — 0 errors, 19/19 suites,
+71/71 tests; `pnpm --filter @jagoo/backend exec vitest run` — 431/444 passing, 13 skipped (no
+Mongo/Redis, as documented); root `pnpm test` — 6/6 workspace tasks pass; `expo export --platform
+ios --platform android` — both bundle at 6.69 MB; `expo-doctor` — 17/18 (same baseline as before,
+plus `react-native-markdown-display` newly flagged unmaintained-but-untested — retained rather
+than hidden with an exclusion, per the existing project convention for `react-native-webrtc`).
+
+**Broke:** none of the above — every fix landed with lint/typecheck/test green before moving on.
+The `signal-features.spec.ts` MS-06 failure seen on one `vitest run` was confirmed pre-existing and
+flaky (reproduces on `main` before this work, passes on rerun); not touched by this change.
+
+**Learned:** see L-27. Also: Expo Router's typed-routes file (`.expo/types/router.d.ts`) is
+Metro-generated, not hand-maintained — a route that type-errors as unassignable the moment its file
+is created is usually a stale generated-types problem, not a real bug; `expo export` regenerates it.
+
+**Next — explicitly not done in this pass, scoped out for time, not silently dropped:**
+
+- Governance (mod queue/reports/roles/log UI beyond what already existed), full Signal-plane
+  parity with the new design system (screens still use the legacy `AppHeader`/`Screen` primitives,
+  functionally intact but not visually rebuilt), and the operator console are unchanged from
+  before this session other than the Signal back-button fix.
+- `app/settings/*` (the dedicated appearance/feed/identity/security tree Plan 12 §3.3 describes)
+  was not built; theme/language/identity/proofs still route through the existing `feature/[id]`
+  workspace as an interim stopgap from the new "You" screen.
+- i18n: the new screens still hardcode English, same as the screens they replaced — the `src/i18n`
+  catalogue was not grown to cover them, and no lint rule yet fails a bare JSX string literal.
+- A full manual device pass (TalkBack/VoiceOver, 1.3× text, reduced motion/transparency, light+dark,
+  offline-with-node-stopped) was not performed — only automated lint/typecheck/test/export.
+- Attachment thumbnails in `PostCard`/`PostDetailScreen` render a placeholder icon, not the actual
+  image — resolving a signed attachment claim to a viewable URL needs an authenticated
+  `/v1/attachments/:id/download` round trip not yet wired into the feed render path.
+
 ---
 
 ## Post-P2 — Durable local development
@@ -1030,3 +1106,4 @@ presigned S3 URL by changing its host because SigV4 signs that host.
 **Not claimed:** a full Android APK assembly can take longer than this runner's five-minute cap on
 its first Chaquopy package build. The Kotlin/native bridge compilation succeeded; installation and
 BLE/RNode physical acceptance remain device-side work.
+

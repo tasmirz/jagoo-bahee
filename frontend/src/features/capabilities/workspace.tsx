@@ -32,9 +32,9 @@ import {
   runOnDeviceCryptoParity,
   type CryptoParityReport,
 } from '../../crypto/parity';
-import type { AppPalette } from '../../theme';
-import { radius, spacing, type as typography } from '../../theme';
-import { Button, EmptyState, StatusBanner } from '../../ui/primitives';
+import type { AppPalette } from '../../design-system';
+import { radius, spacing, type as typography } from '../../design-system';
+import { Button, EmptyState, StatusBanner } from '../../design-system';
 import { useDebouncedValue } from '../../hooks/use-debounced-value';
 import {
   changeLocalNotificationState,
