@@ -34,6 +34,7 @@ import {
   deleteForumComment,
   giveForumAward,
   publishForumPost,
+  publishCommunity,
   setForumSaved,
   updateForumComment,
   publishForumVote,
@@ -2008,7 +2009,7 @@ export function CommunityCreateScreen({
   return (
     <Screen colors={colors}>
       <AppHeader colors={colors} reach={reach} onReach={onOpenNetwork} title="New Community" />
-      <ContentColumn colors={colors} style={{ flex: 1, padding: spacing.lg }}>
+      <ContentColumn>
         {publishResult ? (
           <View style={{ marginBottom: spacing.lg }}>
             <StatusBanner
@@ -2025,7 +2026,6 @@ export function CommunityCreateScreen({
           </View>
         ) : null}
         <TextInput
-          colors={colors}
           placeholder="Community Name (e.g. general)"
           value={name}
           onChangeText={setName}
@@ -2035,7 +2035,6 @@ export function CommunityCreateScreen({
           style={{ marginBottom: spacing.md }}
         />
         <TextInput
-          colors={colors}
           placeholder="Display Title"
           value={title}
           onChangeText={setTitle}
@@ -2043,7 +2042,6 @@ export function CommunityCreateScreen({
           style={{ marginBottom: spacing.md }}
         />
         <TextInput
-          colors={colors}
           placeholder="Description"
           value={description}
           onChangeText={setDescription}
@@ -2058,7 +2056,6 @@ export function CommunityCreateScreen({
           colors={colors}
           system="ember"
           disabled={publishing || name.trim().length === 0}
-          style={{ marginTop: spacing.md }}
         />
       </ContentColumn>
     </Screen>
