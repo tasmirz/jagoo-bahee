@@ -119,8 +119,8 @@ export class KeyCertifyHandler implements DomainHandler<KeyCertificate> {
       plane: body.plane as unknown as Plane,
       deviceKey: body.device_key,
       pqKey: body.pq_key,
-      validFrom: body.valid_from,
-      validUntil: body.valid_until,
+      validFrom: BigInt(body.valid_from),
+      validUntil: BigInt(body.valid_until),
     };
 
     // The PQ half. ML-DSA-44 is verified exactly once per identity, here, and never again

@@ -44,15 +44,15 @@ function nativeBackend(): CryptoBackend | null {
       native.xchacha20poly1305Seal(key, nonce, plaintext, aad),
     xchacha20poly1305Open: (key, nonce, ciphertext, aad) =>
       native.xchacha20poly1305Open(key, nonce, ciphertext, aad),
-    mlKem768KeyPair: (seed) => native.mlKem768KeyPair(seed),
+    mlKem768KeyPair: (seed) => jsCryptoBackend.mlKem768KeyPair(seed),
     mlKem768Encapsulate: (publicKey, message) =>
-      native.mlKem768Encapsulate(publicKey, message),
+      jsCryptoBackend.mlKem768Encapsulate(publicKey, message),
     mlKem768Decapsulate: (cipherText, secretKey) =>
-      native.mlKem768Decapsulate(cipherText, secretKey),
-    mlDsa44KeyPair: (seed) => native.mlDsa44KeyPair(seed),
-    mlDsa44Sign: (message, secretKey) => native.mlDsa44Sign(message, secretKey),
+      jsCryptoBackend.mlKem768Decapsulate(cipherText, secretKey),
+    mlDsa44KeyPair: (seed) => jsCryptoBackend.mlDsa44KeyPair(seed),
+    mlDsa44Sign: (message, secretKey) => jsCryptoBackend.mlDsa44Sign(message, secretKey),
     mlDsa44Verify: (signature, message, publicKey) =>
-      native.mlDsa44Verify(signature, message, publicKey),
+      jsCryptoBackend.mlDsa44Verify(signature, message, publicKey),
   };
 }
 

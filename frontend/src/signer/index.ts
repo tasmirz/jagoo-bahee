@@ -651,19 +651,76 @@ export function lockForumIdentity(): void {
   activeCredential = null;
 }
 
+export async function checkCaptchaReachability(
+  baseUrl: string,
+  mcaptchaServices: readonly DiscoveredService[] = [],
+): Promise<{ reachable: boolean; statusDetails: string }> {
+  console.log('[Captcha Check] Probing captcha service reachability...', {
+    baseUrl,
+    mcaptchaServicesCount: mcaptchaServices.length,
+    services: mcaptchaServices,
+  });
+
+  if (mcaptchaServices.length === 0) {
+    console.log(
+      '[Captcha Check] No dedicated mCaptcha service advertised in node discovery. Node uses proof-of-work anti-abuse.',
+    );
+    return {
+      reachable: false,
+      statusDetails: 'No mCaptcha endpoint advertised by node discovery.',
+    };
+  }
+
+  for (const service of mcaptchaServices) {
+    try {
+      console.log(`[Captcha Check] Probing mCaptcha endpoint at ${service.address}...`);
+      const response = await fetch(service.address, { method: 'GET' });
+      console.log(
+        `[Captcha Check] Response from ${service.address}: HTTP ${response.status} ${response.statusText}`,
+      );
+      if (response.ok || response.status < 500) {
+        console.log(`[Captcha Check] mCaptcha service at ${service.address} IS REACHABLE.`);
+        return {
+          reachable: true,
+          statusDetails: `Reachable at ${service.address} (HTTP ${response.status})`,
+        };
+      }
+    } catch (error) {
+      console.warn(`[Captcha Check] Failed to reach mCaptcha service at ${service.address}:`, error);
+    }
+  }
+
+  console.warn('[Captcha Check] All advertised mCaptcha services are UNREACHABLE.');
+  return { reachable: false, statusDetails: 'Advertised mCaptcha services are unreachable.' };
+}
+
 export async function registerForumIdentity(
   baseUrl: string,
   auditServices: readonly DiscoveredService[] = [],
+  mcaptchaServices: readonly DiscoveredService[] = [],
 ): Promise<string> {
   if (!activeSigner) throw new Error('Unlock your Forum identity first');
+  console.log('[Register] Starting Forum Identity registration & authentication flow...');
+
+  // Verbose logging for Captcha reachability check
+  const captchaStatus = await checkCaptchaReachability(baseUrl, mcaptchaServices);
+  console.log('[Register] Captcha Status:', captchaStatus);
+
   const signer = activeSigner;
   const identity = await signer.identity({ kind: 'device' });
+  console.log('[Register] Public Identity derived:', identity.id);
+
+  console.log('[Register] Requesting PoW challenge from /v1/credits/challenge...');
   const powChallenge = await requestJson<PowChallengeJson>(baseUrl, '/v1/credits/challenge', {
     method: 'POST',
     body: JSON.stringify({ author_key: base64(identity.publicKey) }),
   });
-  const pow = await solvePow(powChallenge, identity.publicKey);
 
+  console.log('[Register] PoW challenge received:', powChallenge);
+  const pow = await solvePow(powChallenge, identity.publicKey);
+  console.log('[Register] PoW solution created successfully.');
+
+  console.log('[Register] Sealing key certification envelope...');
   const certificate = await signer.seal(
     { kind: 'device' },
     {
@@ -677,17 +734,24 @@ export async function registerForumIdentity(
       },
     },
   );
-  await submitAuditedEnvelope(baseUrl, certificate.wireBytes, auditServices);
 
+  console.log('[Register] Submitting audited certificate envelope to node...');
+  await submitAuditedEnvelope(baseUrl, certificate.wireBytes, auditServices);
+  console.log('[Register] Certificate envelope accepted.');
+
+  console.log('[Register] Requesting auth challenge from /v1/auth/challenge...');
   const challenge = await requestJson<{
     readonly challenge: string;
     readonly claim: string;
   }>(baseUrl, `/v1/auth/challenge?public_key=${encodeURIComponent(base64(identity.publicKey))}`);
+
   const challengeBytes = unbase64(challenge.challenge);
   const signature = await signer.sign(
     { kind: 'device' },
     authBytes(identity.publicKey, challengeBytes),
   );
+
+  console.log('[Register] Authenticating via POST /v1/auth...');
   const session = await requestJson<{ readonly accessToken: string }>(baseUrl, '/v1/auth', {
     method: 'POST',
     body: JSON.stringify({
@@ -698,12 +762,16 @@ export async function registerForumIdentity(
     }),
   });
   activeAccessToken = session.accessToken;
+  console.log('[Register] Auth token obtained.');
 
+  console.log('[Register] Requesting blind credential parameters...');
   const parameters = await requestJson<BlindCredentialPublicKey>(
     baseUrl,
     '/v1/credentials/parameters',
   );
   signer.configureCredentialKey(parameters);
+
+  console.log('[Register] Requesting blind credential issue...');
   const blinded = await signer.blind(await Crypto.getRandomBytesAsync(32));
   const issued = await requestJson<{ readonly blindSignature: string }>(
     baseUrl,
@@ -714,12 +782,14 @@ export async function registerForumIdentity(
       body: JSON.stringify({ blinded: base64(blinded.blinded) }),
     },
   );
+
   activeCredential = await signer.unblind(blinded.state, unbase64(issued.blindSignature));
   await SecureStore.setItemAsync(
     FORUM_CREDENTIAL_KEY,
     base64(activeCredential.bytes),
     storeOptions,
   );
+  console.log('[Register] Registration and credential issuance complete for:', identity.id);
   return identity.id;
 }
 
@@ -804,6 +874,85 @@ export async function publishForumPost(
     auditServices,
     activeAccessToken ?? undefined,
   );
+  return {
+    contentId: audited.contentId,
+    ...(audited.receipt ? { leafIndex: audited.receipt.leaf_index } : {}),
+    ...(audited.certificate ? { certificate: audited.certificate } : {}),
+    auditCopies: audited.auditCopies,
+    auditPending: audited.auditPending,
+    pending: audited.pending,
+  };
+}
+
+export async function publishCommunity(
+  baseUrl: string,
+  input: {
+    readonly name: string;
+    readonly title: string;
+    readonly description: string;
+    readonly rulesMarkdown: string;
+    readonly isPrivate: boolean;
+    readonly isNsfw: boolean;
+  },
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<PublishedPost> {
+  console.log('[publishCommunity] Starting community creation...');
+  if (!activeSigner) throw new Error('Unlock your Forum identity first');
+  if (!activeCredential) {
+    console.log('[publishCommunity] Registering forum identity...');
+    await registerForumIdentity(baseUrl, auditServices);
+    console.log('[publishCommunity] Identity registered.');
+  }
+  const epoch = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
+  console.log('[publishCommunity] Building and sealing envelope for jb:community:create:v1...');
+
+  const sealed = await activeSigner.seal(
+    { kind: 'device' },
+    {
+      domain: 'jb:community:create:v1',
+      body: CommunityCreate.encode(
+        CommunityCreate.fromPartial({
+          name: input.name,
+          title: input.title,
+          description: input.description,
+          rules_markdown: input.rulesMarkdown,
+          is_private: input.isPrivate,
+          is_nsfw: input.isNsfw,
+          settings: {
+            allow_text_posts: true,
+            allow_link_posts: true,
+            allow_image_posts: true,
+            allow_video_posts: true,
+            require_post_approval: false,
+            allow_crossposts: true,
+            minimum_karma_to_post: 0,
+            minimum_account_age_days: 0,
+          },
+          theme: {
+            primary: '#E85D2C',
+            accent: '#F2A93D',
+            background: '#0E0F11',
+            foreground: '#F2F1EE',
+          },
+        }),
+      ).finish(),
+      scope: '',
+      antiAbuse: {
+        credential: activeCredential!.bytes,
+        nullifier: await activeSigner.nullifier(epoch, 'jb:community:create:v1'),
+        epoch,
+        pow: new Uint8Array(0),
+      },
+    },
+  );
+  console.log('[publishCommunity] Envelope sealed. Submitting audited envelope...');
+  const audited = await submitAuditedEnvelope(
+    baseUrl,
+    sealed.wireBytes,
+    auditServices,
+    activeAccessToken ?? undefined,
+  );
+  console.log('[publishCommunity] Audited envelope submitted successfully.', audited);
   return {
     contentId: audited.contentId,
     ...(audited.receipt ? { leafIndex: audited.receipt.leaf_index } : {}),

@@ -69,8 +69,8 @@ export class SignalKeyCertifyHandler implements DomainHandler<KeyCertificate> {
       plane: Plane.SIGNAL,
       deviceKey: body.device_key,
       pqKey: body.pq_key,
-      validFrom: body.valid_from,
-      validUntil: body.valid_until,
+      validFrom: BigInt(body.valid_from),
+      validUntil: BigInt(body.valid_until),
     };
     if (
       !sdkCrypto.mldsa.verifyAttestation(

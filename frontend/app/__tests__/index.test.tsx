@@ -136,3 +136,32 @@ describe('feature destinations', () => {
     act(() => view.unmount());
   });
 });
+
+describe('CommunityCreateScreen', () => {
+  it('renders New Community header and form fields', async () => {
+    const { CommunityCreateScreen } = require('../../src/features/forum');
+    let view!: renderer.ReactTestRenderer;
+    await act(async () => {
+      view = renderer.create(
+        <QueryClientProvider client={queryClient}>
+          <CommunityCreateScreen
+            colors={palettes.light}
+            homeNode={savedNode}
+            onOpenNetwork={() => undefined}
+            onCreated={() => undefined}
+            reach="connected"
+          />
+        </QueryClientProvider>,
+      );
+      await Promise.resolve();
+    });
+    expect(
+      view.root.findAll(
+        (node) =>
+          node.props.accessibilityRole === 'header' && node.props.children === 'New Community',
+      ),
+    ).not.toHaveLength(0);
+    act(() => view.unmount());
+  });
+});
+

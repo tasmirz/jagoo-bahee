@@ -131,7 +131,11 @@ export class InMemoryCreditLedger extends CreditLedger {
   }
 
   async issueChallenge(_subject: CreditSubject): Promise<PowChallenge> {
-    return { challenge: new Uint8Array([1, 2, 3, 4]), difficulty: 1, expiresAtMs: 0 };
+    return {
+      challenge: new Uint8Array([1, 2, 3, 4]),
+      difficulty: 1,
+      expiresAtMs: Date.now() + 5 * 60 * 1000,
+    };
   }
 
   async redeem(subject: CreditSubject, _solution: PowSolution): Promise<CreditStatus> {
@@ -177,7 +181,7 @@ export class InMemoryPowVerifier extends PowVerifier {
     return {
       challenge: new Uint8Array([1, 2, 3, 4]),
       difficulty: 1,
-      expiresAtMs: 0,
+      expiresAtMs: Date.now() + 5 * 60 * 1000,
       algorithm: 'argon2id',
       memoryKiB: 8,
       iterations: 1,

@@ -116,6 +116,7 @@ export class CommunityCreateHandler implements DomainHandler<CommunityCreate> {
     env: ParsedEnvelope,
     ctx?: HandlerContext,
   ): Promise<AuthDecision> {
+    console.log('[CommunityCreateHandler] Authorizing community creation:', body.name);
     // COM-02: the name must be free ON THIS ORIGIN. Two instances may each host a
     // `dhaka-relief`; the origin fingerprint in the ID keeps them distinct (COM-19).
     //
@@ -126,10 +127,14 @@ export class CommunityCreateHandler implements DomainHandler<CommunityCreate> {
     const existing = await this.projections
       .collection<CommunityDoc>(COMMUNITIES_COLLECTION)
       .findOne({ id });
-    if (existing) return denied(`community ${body.name} already exists on this instance`);
+    if (existing) {
+      console.log('[CommunityCreateHandler] Authorization denied: already exists.');
+      return denied(`community ${body.name} already exists on this instance`);
+    }
 
     // Publish-then-attest still applies: the check above is uniqueness, not approval.
     void env;
+    console.log('[CommunityCreateHandler] Authorization granted.');
     return allowed;
   }
 
@@ -139,6 +144,7 @@ export class CommunityCreateHandler implements DomainHandler<CommunityCreate> {
     tx: Tx,
     ctx?: HandlerContext,
   ): Promise<void> {
+    console.log('[CommunityCreateHandler] Projecting community creation:', body.name);
     // Plans/02 §7: a community ID is stable across nodes. It therefore cannot be derived
     // from the key of whichever node happens to be projecting it (ADR-010).
     const id = communityId(body.name, ctx?.originServerId ?? this.nodeSigner.serverId);
@@ -164,6 +170,7 @@ export class CommunityCreateHandler implements DomainHandler<CommunityCreate> {
       contentId: env.contentId,
     };
     await this.projections.collection<CommunityDoc>(COMMUNITIES_COLLECTION).put(id, doc, tx);
+    console.log('[CommunityCreateHandler] Community document saved:', id);
 
     // The creator is a member and a moderator from the first moment, so a community is
     // never left with nobody able to moderate it.
