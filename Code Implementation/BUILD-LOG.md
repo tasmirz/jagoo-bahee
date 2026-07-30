@@ -1193,3 +1193,65 @@ Verified first by running `export:embed` by hand with an absolute entry from `fr
 **Lesson:** an OS-conditional path rewrite inside a build plugin is invisible in review and in
 CI when CI is Linux. The failure names a plausible-looking path, so the instinct is to go
 looking for a missing dependency rather than for two disagreeing definitions of "root".
+
+### Signal contacts survive the blackout: the address book, not the index, is the source of truth
+
+**Problem.** Discovering someone in the Signal index and being able to message them later were
+the same operation. `searchSignalDirectory` was a bare `fetch` with no cache, so with the index
+unreachable the "Discover people" list was empty and there was no way back to a person you had
+already found. Worse, a contact was only ever persisted as a *side effect* — of tapping Follow,
+or of having sent a message once — and the saved record held `displayName`, `rnsPublicKey` and
+`lxmfDestinationHash` but **not** the identity key or the transport binding signature. So even
+the contacts that did survive were unverifiable: the device had an address it could not prove
+belonged to the person whose name was printed next to it.
+
+That is the whole failure mode this system exists to avoid, in miniature. Knowing a name is not
+knowing an identity, and during a shutdown the index is exactly the thing that is gone.
+
+**Built.**
+
+- `features/signal/contact-identity.ts` — `verifySignalIdentity`, pure, no I/O, no clock. Two
+  checks: `identityId(identityKey)` must equal the claimed ID, and the LXMF destination must
+  carry the identity's own `jb:signal:lxmf-binding:v1` signature. The binding is the part that
+  matters — without it a compromised index can serve a real name and codename pointing at a
+  destination it controls, and every message "to Amina" arrives at the adversary.
+- `features/signal/directory.ts` — every profile the index ever returns is cached, merged by
+  identity, never evicted for age, capped only by count (least-recently-*seen* drops). Search
+  falls back to the cache and the result reports `source` and `refreshedAtMs`. With an empty
+  cache the network error is raised rather than dressed up as "no results".
+- `features/signal/contacts.ts` — v3 records carry `identityKey`, `transportBindingSignature`
+  and `verifiedAtMs`. v2 records migrate in as `source: 'legacy'`, `verifiedAtMs: null` rather
+  than being dropped. Added `saveSignalContactFromDirectory` (verify-then-save),
+  `deleteSignalContact`, `markSignalContactMessaged`, `findSignalContact`.
+- `rns-screen.tsx` — an explicit **Save contact** action, a cached-directory banner with age, a
+  per-contact verified/unverified line, Remove, and a re-verification gate before every send.
+
+**Decision: an unverifiable profile is savable, but only on an explicit acknowledgement.**
+Refusing outright would mean an index that does not yet publish binding material makes its own
+users permanently unreachable. The dialog is the user's call; `verifiedAtMs` stays `null` and
+both the contact row and the send path keep saying so. Silently saving it would have been the
+trap — the record would look identical to a proven one.
+
+**Decision: re-verify at send, not only at save.** The save-time check proves the index was
+honest then. The send-time check proves the local store has not been altered since, which is a
+cheaper target for an adversary than the index is, and costs one signature verification.
+
+**Lesson (L-…):** a cache added "for offline" is not offline support if the thing it caches is
+not self-authenticating. The old contact record would have made the UI work during a blackout
+and made it work *wrongly* — an address with no way to check it is worse than no address,
+because it looks like knowledge. The fields that make a record verifiable have to be saved at
+the same moment the record is, because the server that could supply them later is precisely the
+one that will be missing.
+
+**Verified:**
+
+- Frontend suite: 28 suites / 142 tests pass, including 9 new contact tests (verification,
+  tamper rejection, explicit-unverified save, follow/save-date preservation on re-save, v2
+  migration) and 5 new directory tests (cache-on-success, cache fallback with notice, error on
+  empty cache, offline field matching parity, TP-06 no-eviction).
+- `tsc --noEmit` clean; `eslint app src` 0 errors (35 pre-existing `no-console` warnings).
+
+**Not claimed:** no backend change was needed — `/v1/signal/directory` already returned
+`identityKey` and `transportBindingSignature`; the client simply discarded them. The backend
+suite and `pnpm vectors` were therefore not re-run. `rns-screen.tsx` remains hardcoded English
+like the rest of the Signal screens; routing it through i18n is separate outstanding work.

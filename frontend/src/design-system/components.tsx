@@ -164,6 +164,7 @@ export function Button({
   icon,
   disabled,
   loading = false,
+  accessibilityLabel,
 }: {
   readonly colors: AppPalette;
   readonly label: string;
@@ -173,6 +174,11 @@ export function Button({
   readonly icon?: IconName;
   readonly disabled?: boolean;
   readonly loading?: boolean;
+  /**
+   * Spoken name, when the visible label is only unambiguous next to its row. A screen
+   * reader hears a list of "Remove" buttons with no indication of what each one removes.
+   */
+  readonly accessibilityLabel?: string;
 }) {
   const fill =
     variant === 'primary'
@@ -194,6 +200,7 @@ export function Button({
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? label}
       accessibilityState={{ disabled: isDisabled, busy: isLoading }}
       disabled={isDisabled}
       onPress={onPress}

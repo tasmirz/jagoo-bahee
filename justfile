@@ -269,25 +269,55 @@ vectors-python:
 publish remote_port="12001":
     bore local 3000 --to bore.pub -p {{remote_port}}
 
-# Tunnel the node AND its auxiliary services, each on the same remote port as its local one.
+# Tunnel the node AND its auxiliary services, through a CONTIGUOUS BLOCK of uncommon remote ports.
 #
 # Publishing only :3000 is what made the app look broken over a tunnel: the node was reachable,
 # so discovery succeeded, but every address it advertised for the audit log, mCaptcha and the
-# blob store pointed at 127.0.0.1 — which, evaluated on a phone, is the phone. Keeping remote
-# and local ports equal is what lets ops/service-map.json stay a fixed file.
+# blob store pointed at 127.0.0.1 — which, evaluated on a phone, is the phone. So all four have
+# to be published together.
 #
-# Requires ops/service-map.json (copy ops/service-map.json.example) and, for uploads to work,
-# S3_PUBLIC_ENDPOINT=http://bore.pub:9000 in backend/.env — a presigned URL is only valid for
-# the host it was signed for, so advertising the address is necessary but not sufficient.
-[unix]
-publish-all:
-    @echo "node :3000  audit :3100  mcaptcha :7000  blob :9000  -> bore.pub"
-    @for p in 3000 3100 7000 9000; do bore local $p --to bore.pub -p $p & done; wait
+# ── Why the remote ports are NOT the local ones ────────────────────────────────────────────
+# bore.pub is a shared public relay, and 3000 / 9000 are among the most contended ports on it.
+# Asking for them fails outright most of the time, and it fails PER TUNNEL — so the usual
+# outcome was three services up, one refused, and a client that looks broken in a way that has
+# nothing to do with the refused port. Requesting an uncommon contiguous block instead makes
+# all four succeed or fail together.
+#
+# The map is written from the SAME arithmetic that opens the tunnels, so the file and the
+# tunnels cannot disagree. The node already supports an arbitrary local -> remote mapping
+# (`parseServiceMap` / `publicAddressFor` in core/domain/service-map.ts); equal ports were only
+# ever a convenience of the example file, never a requirement of the code.
+#
+# Override the block when one of its ports is taken:  just publish-all 52000
+#
+# Uploads additionally need S3_PUBLIC_ENDPOINT in backend/.env, and the node RESTARTED after
+# setting it — SigV4 signs the host, so a presigned URL is only valid for the host it was
+# signed for and the client cannot repair it. The recipe prints the exact value to set.
 
+# Tunnel node + audit + mCaptcha + blob to an uncommon port block; writes ops/service-map.json
+[unix]
+publish-all base="41800":
+    @node={{base}}; audit=$((node+1)); mcaptcha=$((node+2)); blob=$((node+3)); \
+     printf '{\n  "publicHost": "bore.pub",\n  "scheme": "http",\n  "ports": {\n    "3000": %s,\n    "3100": %s,\n    "7000": %s,\n    "9000": %s\n  }\n}\n' "$node" "$audit" "$mcaptcha" "$blob" > ops/service-map.json; \
+     echo "wrote ops/service-map.json (overwrites any previous map)"; \
+     echo "  node     3000 -> bore.pub:$node"; \
+     echo "  audit    3100 -> bore.pub:$audit"; \
+     echo "  mcaptcha 7000 -> bore.pub:$mcaptcha"; \
+     echo "  blob     9000 -> bore.pub:$blob"; \
+     echo ""; \
+     echo "set in backend/.env, then RESTART the node:"; \
+     echo "  S3_PUBLIC_ENDPOINT=http://bore.pub:$blob"; \
+     echo ""; \
+     echo "home server for the app:  http://bore.pub:$node"; \
+     echo ""; \
+     for pair in "3000:$node" "3100:$audit" "7000:$mcaptcha" "9000:$blob"; do \
+        bore local "${pair%%:*}" --to bore.pub -p "${pair##*:}" & \
+     done; wait
+
+# Tunnel node + audit + mCaptcha + blob to an uncommon port block; writes ops/service-map.json
 [windows]
-publish-all:
-    @Write-Host "node :3000  audit :3100  mcaptcha :7000  blob :9000  -> bore.pub"
-    @$jobs = @(3000, 3100, 7000, 9000) | ForEach-Object { Start-Process -FilePath 'bore' -ArgumentList 'local', $_, '--to', 'bore.pub', '-p', $_ -PassThru -NoNewWindow }; Write-Host "Started $($jobs.Count) tunnels. Ctrl+C or 'just publish-stop' to end."; Wait-Process -Id $jobs.Id
+publish-all base="41800":
+    @$node = [int]'{{base}}'; $audit = $node + 1; $mcaptcha = $node + 2; $blob = $node + 3; $pairs = @( @(3000, $node), @(3100, $audit), @(7000, $mcaptcha), @(9000, $blob) ); $ports = [ordered]@{ }; foreach ($pair in $pairs) { $ports[[string]$pair[0]] = $pair[1] }; [ordered]@{ publicHost = 'bore.pub'; scheme = 'http'; ports = $ports } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 ops/service-map.json; Write-Host "wrote ops/service-map.json (overwrites any previous map)"; foreach ($pair in $pairs) { Write-Host ("  {0,-5} -> bore.pub:{1}" -f $pair[0], $pair[1]) }; Write-Host ""; Write-Host "set in backend/.env, then RESTART the node:"; Write-Host "  S3_PUBLIC_ENDPOINT=http://bore.pub:$blob"; Write-Host ""; Write-Host "home server for the app:  http://bore.pub:$node"; Write-Host ""; $jobs = $pairs | ForEach-Object { Start-Process -FilePath 'bore' -ArgumentList 'local', $_[0], '--to', 'bore.pub', '-p', $_[1] -PassThru -NoNewWindow }; Write-Host "Started $($jobs.Count) tunnels. Ctrl+C or 'just publish-stop' to end."; Wait-Process -Id $jobs.Id
 
 [windows]
 publish-stop:

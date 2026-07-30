@@ -11,17 +11,25 @@
 
   "//6": "localPort -> publicPort, exactly the mapping a tunnel performs. Keys are the ports the",
   "//7": "node and its services actually listen on; values are what the outside world dials.",
-  "//8": "`just publish-all` opens tunnels matching this file.",
-  "//9": "3000 node · 3100 audit log · 7000 mCaptcha · 9000 blob store (MinIO)",
+  "//8": "The two sides need NOT be equal, and on a shared relay they should not be: 3000 and",
+  "//9": "9000 are among the most contended ports on bore.pub, so asking for them fails — per",
+  "//10": "tunnel, leaving some services up and one refused, which presents as a broken client",
+  "//11": "with no obvious link to the port that was denied. Request an uncommon contiguous block.",
+  "//12": "3000 node · 3100 audit log · 7000 mCaptcha · 9000 blob store (MinIO)",
   "ports": {
-    "3000": 3000,
-    "3100": 3100,
-    "7000": 7000,
-    "9000": 9000
+    "3000": 41800,
+    "3100": 41801,
+    "7000": 41802,
+    "9000": 41803
   },
 
-  "//10": "The blob store additionally needs S3_PUBLIC_ENDPOINT=http://bore.pub:9000 in the node's",
-  "//11": "environment. Advertising the address is not enough: SigV4 signs the host header, so a",
-  "//12": "presigned upload URL is only valid for the host it was signed for and cannot be",
-  "//13": "repaired by the client. Without it, uploads fail with SignatureDoesNotMatch."
+  "//13": "`just publish-all` GENERATES ops/service-map.json from the same arithmetic that opens",
+  "//14": "the tunnels, so the file and the tunnels cannot drift apart. Edit this by hand only for",
+  "//15": "a fixed deployment (real DNS name, router port-forward) where no tunnel is involved.",
+
+  "//16": "The blob store additionally needs S3_PUBLIC_ENDPOINT=http://bore.pub:41803 in the node's",
+  "//17": "environment — matching whatever the blob row above maps to — and the node restarted.",
+  "//18": "Advertising the address is not enough: SigV4 signs the host header, so a presigned",
+  "//19": "upload URL is only valid for the host it was signed for and cannot be repaired by the",
+  "//20": "client. Without it, uploads fail with SignatureDoesNotMatch."
 }

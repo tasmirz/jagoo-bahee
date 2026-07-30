@@ -1,4 +1,5 @@
 export * from './storage';
+export * from './contact-identity';
 export * from './contacts';
 export * from './directory';
 export * from './rns';
