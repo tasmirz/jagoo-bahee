@@ -1,5 +1,6 @@
 export interface SignalDirectoryProfile {
   readonly id: string;
+  readonly codename: string;
   readonly displayName: string;
   readonly bio: string;
   readonly rnsPublicKey: string;

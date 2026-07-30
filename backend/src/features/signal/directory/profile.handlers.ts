@@ -17,6 +17,8 @@ export const SIGNAL_DIRECTORY_PROFILES_COLLECTION = 'signal_directory_profiles';
 
 export interface SignalDirectoryProfileDoc {
   readonly id: string;
+  /** Server-issued, collision-free codename. It is the Signal identity ID, never a Forum handle. */
+  readonly codename: string;
   readonly identityKey: string;
   readonly displayName: string;
   readonly nameSkeleton: string;
@@ -58,6 +60,10 @@ export function signalDirectoryNameSkeleton(value: string): string {
     .normalize('NFKD')
     .replace(/\p{Mark}/gu, '')
     .replace(/[^\p{Letter}\p{Number}]/gu, '');
+}
+
+export function signalDirectoryCodename(identity: string): string {
+  return identity;
 }
 
 function claims(value: readonly IdentityClaim[]): SignalDirectoryProfileDoc['claims'] {
@@ -127,6 +133,7 @@ export class SignalDirectoryProfileHandler implements DomainHandler<SignalDirect
         id,
         {
           id,
+          codename: signalDirectoryCodename(id),
           identityKey: Buffer.from(env.authorKey).toString('hex'),
           displayName: body.display_name.trim(),
           nameSkeleton: signalDirectoryNameSkeleton(body.display_name),

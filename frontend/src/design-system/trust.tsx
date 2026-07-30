@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ComponentProps } from 'react';
-import { AccessibilityInfo, Animated, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { AppPalette } from './tokens';
 import { maxFontScale, motion, radius, spacing, type as typography } from './tokens';
@@ -121,10 +121,12 @@ export function Seal({
   colors,
   state,
   label,
+  onPress,
 }: {
   readonly colors: AppPalette;
   readonly state: SealState;
   readonly label?: string;
+  readonly onPress?: () => void;
 }) {
   const setting = {
     synced: {
@@ -152,16 +154,8 @@ export function Seal({
       dashed: true,
     },
   }[state];
-  return (
-    <View
-      accessible
-      accessibilityRole="text"
-      accessibilityLabel={label ?? setting.text}
-      style={[
-        styles.seal,
-        setting.dashed ? { borderStyle: 'dashed', borderWidth: 1, borderColor: setting.color } : null,
-      ]}
-    >
+  const content = (
+    <>
       <Ionicons name={setting.icon} size={14} color={setting.color} />
       <Text
         maxFontSizeMultiplier={maxFontScale.mono}
@@ -169,6 +163,29 @@ export function Seal({
       >
         {label ?? setting.text}
       </Text>
+      {onPress ? <Ionicons name="chevron-forward" size={12} color={setting.color} /> : null}
+    </>
+  );
+  const style = [
+    styles.seal,
+    setting.dashed ? { borderStyle: 'dashed' as const, borderWidth: 1, borderColor: setting.color } : null,
+  ];
+  if (onPress) {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${label ?? setting.text}. View cryptographic proof`}
+        hitSlop={8}
+        onPress={onPress}
+        style={({ pressed }) => [style, { opacity: pressed ? 0.6 : 1 }]}
+      >
+        {content}
+      </Pressable>
+    );
+  }
+  return (
+    <View accessible accessibilityRole="text" accessibilityLabel={label ?? setting.text} style={style}>
+      {content}
     </View>
   );
 }

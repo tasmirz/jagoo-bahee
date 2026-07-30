@@ -123,6 +123,7 @@ export function configureAuditIssueReporting(
 ): void {
   issueServices = services;
   issueTransport = transport;
+  void flushAuditCertificates();
   void flushAuditIssueReports();
 }
 
@@ -191,9 +192,21 @@ export async function storeAndForwardCertificate(
   transport?: ClientTransport,
 ): Promise<StoredAuditCertificate> {
   const storedAtMs = Date.now();
-  await write({ certificate, storedAtMs, deliveries: [] });
+  const record = { certificate, storedAtMs, deliveries: [] };
+  await write(record);
+  return forwardCertificate(record, services, transport);
+}
+
+async function forwardCertificate(
+  record: StoredAuditCertificate,
+  services: readonly DiscoveredService[],
+  transport?: ClientTransport,
+): Promise<StoredAuditCertificate> {
+  const completed = new Map(record.deliveries.map((item) => [item.serviceId, item]));
   const deliveries = await Promise.all(
     services.map(async (service): Promise<AuditDelivery> => {
+      const previous = completed.get(service.id);
+      if (previous?.delivered) return previous;
       try {
         const response = await networkRequest(
           new URL('/v1/audit-records', `${service.address.replace(/\/+$/, '')}/`).toString(),
@@ -203,7 +216,7 @@ export async function storeAndForwardCertificate(
               Accept: 'application/json',
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify(certificate),
+            body: JSON.stringify(record.certificate),
           },
           transport,
         );
@@ -223,9 +236,9 @@ export async function storeAndForwardCertificate(
       }
     }),
   );
-  const record = { certificate, storedAtMs, deliveries };
-  await write(record);
-  return record;
+  const updated = { ...record, deliveries };
+  await write(updated);
+  return updated;
 }
 
 export async function listAuditCertificates(): Promise<readonly StoredAuditCertificate[]> {
@@ -244,6 +257,15 @@ export async function listAuditCertificates(): Promise<readonly StoredAuditCerti
       }
     })
     .sort((a, b) => b.storedAtMs - a.storedAtMs);
+}
+
+/** Retry locally durable certificate copies whenever the app regains a configured path. */
+export async function flushAuditCertificates(): Promise<void> {
+  if (issueServices.length === 0) return;
+  const records = await listAuditCertificates();
+  await Promise.all(
+    records.map((record) => forwardCertificate(record, issueServices, issueTransport)),
+  );
 }
 
 export async function certificateStatus(

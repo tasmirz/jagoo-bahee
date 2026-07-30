@@ -13,6 +13,7 @@ export default function SavedRoute() {
       homeNode={homeNode}
       onBack={() => router.back()}
       onOpenPost={(contentId) => router.push({ pathname: '/post/[contentId]', params: { contentId } })}
+      onOpenAudit={(contentId) => router.push({ pathname: '/audit/[contentId]', params: { contentId } })}
     />
   );
 }

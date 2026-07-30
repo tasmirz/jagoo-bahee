@@ -1107,3 +1107,89 @@ presigned S3 URL by changing its host because SigV4 signs that host.
 its first Chaquopy package build. The Kotlin/native bridge compilation succeeded; installation and
 BLE/RNode physical acceptance remain device-side work.
 
+
+---
+
+## Post-P2 — Session persistence, sign-in/sign-out, and the blank home feed
+
+**Problem:** four client defects reported from a real device build, all in the same launch path.
+
+1. The home feed rendered its sort chips and nothing else, while the query was returning posts.
+2. Refreshing was a "Refresh content" text button above the first row, swapped for a progress
+   banner while fetching. The pull gesture did nothing.
+3. A signed-in device came back from a cold start signed out. Every signed action failed with
+   "Unlock your Forum identity first" while the feed still drew.
+4. There was no sign-out, and pasting a correct recovery phrase ran the registration flow —
+   producing a second local profile for one identity every time.
+
+**Root causes:**
+
+- **(1)** `FeedScreen` wrapped its `InfiniteList` in `ContentColumn`, which is height-auto. A
+  `FlatList` with `flex: 1` inside a height-auto parent measures to zero. The list was mounted
+  and had data; it had no height. `ContentColumn` now takes `fill`, and only list screens set it
+  — a `flex: 1` child inside `Page`'s `ScrollView` would clamp to the viewport and stop scrolling.
+- **(2)** `InfiniteList` never passed `refreshControl` to its `FlatList`, so the platform gesture
+  was never wired. Replaced with `RefreshControl`, which also restores the spinner's platform
+  placement and accessibility semantics.
+- **(3)** `activeSigner`, `activeAccessToken` and `activeCredential` are module state in
+  `src/signer/index.ts`. The vault is on disk; the session was not, and nothing ever reopened it.
+  Added `restoreForumSession`, called once from `AppProvider`'s launch effect: it unlocks a
+  device-lock vault, reuses the stored blind credential, and mints a token from a signed
+  challenge. A password-protected vault fails to unlock silently — by design — and the route
+  shows the new sign-in screen.
+- **(4)** `WelcomeFlow` minted a random `vaultId` per mount and the restore branch went straight
+  to the registration step. Split "sign in" out of "register": `authenticateForumIdentity` does
+  challenge → sign → `/v1/auth` and nothing else, and `signInForumIdentity` only falls back to
+  full registration when the node does not know the key. A restored phrase whose `identityId`
+  matches a stored profile is re-imported into *that* vault, and the temporary one is deleted.
+
+**Also built:** `signOutForumIdentity` (locks, keeps the vault, records the choice in
+`jb.forum.signed-out.v1` so a cold start does not silently undo it), a `SignInScreen` with unlock
+and recovery-phrase paths, a confirmed **Sign out** row in You, and `session` / `refreshSession` /
+`signOut` on the app context. `BootstrapRoute` now gates on the vault state instead of on the
+presence of a home node, with `session === null` meaning "restore has not answered yet".
+
+**Lesson (L-…):** a home node is not a session. Gating the app on "is a server configured"
+looked correct for the entire life of P1 because the only way to have a server configured was to
+have just registered — the two states were created in the same breath and diverged only after
+the first process exit, which no test covered.
+
+**Lesson:** `flex: 1` in RN is not "fill the screen", it is "take a share of the parent's free
+space". A height-auto ancestor has none, so a virtualized list silently becomes 0 px tall and
+looks exactly like an empty query result. `src/design-system/list.test.tsx` now asserts both
+directions of the `fill` contract.
+
+**Verified:**
+
+- Frontend suite: 27 suites / 129 tests pass, including three new bootstrap-gating tests
+  (loading vs. sign-in vs. tabs) and four new design-system layout/refresh tests.
+- `tsc --noEmit` clean; `eslint app src` 0 errors (35 pre-existing `no-console` warnings).
+- `./gradlew assembleRelease` produces an installable release APK, signed with the same debug
+  keystore the project already uses for release, so it upgrades an existing install in place.
+
+**Not claimed:** no backend change was needed or made, so the backend suite and `pnpm vectors`
+were not re-run. Device acceptance of the sign-out → sign-in loop against a live node is
+device-side work.
+
+### Release APK: `--entry-file` is relativized on Windows, and Metro resolves it elsewhere
+
+The first `./gradlew assembleRelease` of this repo failed in `createBundleReleaseJsAndAssets`
+with `Unable to resolve module ./../node_modules/expo-router/entry.js from
+D:\CODE\JRA-Hackathon\untitled/.` — a path one directory above the repository. Debug builds
+never caught it because a debug build does not bundle; it loads from the dev server.
+
+`Os.cliPath` in the React Native Gradle plugin rewrites every path argument as relative to
+`react.root` **only when `isWindows()`** — POSIX gets absolute paths and never reaches this.
+`root` is `frontend/`, so the plugin emitted `../node_modules/expo-router/entry.js`, which is
+correct from `frontend/`. But `@expo/metro-config` deliberately moves Metro's
+`unstable_serverRoot` up to the workspace root for monorepo support, and `export:embed`
+resolves `--entry-file` with `relativeTo: "server"`. Two different roots, one relative path.
+
+Fixed in `frontend/android/app/build.gradle` by re-stating the entry as an absolute path
+through `extraPackagerArgs`, which the plugin appends after its own arguments so it wins.
+Verified first by running `export:embed` by hand with an absolute entry from `frontend/`
+(2067 modules bundled) before touching the build file.
+
+**Lesson:** an OS-conditional path rewrite inside a build plugin is invisible in review and in
+CI when CI is Linux. The failure names a plausible-looking path, so the instinct is to go
+looking for a missing dependency rather than for two disagreeing definitions of "root".

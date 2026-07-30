@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { ScrollView, Share, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Clipboard, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { verifyAuditCertificate } from '@jagoo/sdk';
 import type { FeatureDestination } from '../catalog';
-import { useNodeSearch } from '../../data/node';
+import { useNodePost, useNodeSearch } from '../../data/node';
 import type { HomeNode } from '../../data/node-config';
 import {
   createForumIdentity,
@@ -31,6 +31,7 @@ import {
   type ReachState,
 } from '../../design-system';
 import { certificateStatus, listAuditCertificates, type StoredAuditCertificate } from '../../audit';
+import { verifyProvenance } from '../../verify';
 import { useDebouncedValue } from '../../hooks/use-debounced-value';
 import { FeatureWorkspace, MessagingWorkspace } from '../capabilities/workspace';
 
@@ -67,6 +68,9 @@ export function AuditScreen({
       setRecord(records.find((item) => item.certificate.identifier === contentId) ?? null);
     });
   }, [contentId]);
+  const post = useNodePost(baseUrl, contentId);
+  const provenance = post.data?.value.provenance ?? null;
+  const contentVerification = provenance ? verifyProvenance(provenance) : null;
   const verification = record ? verifyAuditCertificate(record.certificate) : null;
   const receipt = record?.certificate.acknowledgement;
   const rows = receipt
@@ -118,28 +122,30 @@ export function AuditScreen({
         />
       </View>
       <ContentColumn>
-        {record ? (
+        {record || provenance ? (
           <>
             <View style={styles.auditHero}>
               <View style={[styles.auditSeal, { backgroundColor: colors.verified }]}>
                 <Ionicons name="shield-checkmark" size={32} color={colors.onAccent} />
               </View>
               <Text style={[typography.h1, { color: colors.text }]}>
-                {verification?.valid ? 'Verified independently' : 'Proof needs attention'}
+                {contentVerification?.verified || verification?.valid
+                  ? 'Verified independently'
+                  : 'Proof needs attention'}
               </Text>
               <Text style={[typography.body, styles.center, { color: colors.text2 }]}>
                 This device verified the author, node receipt, and transparency proof without
                 trusting the rendered page.
               </Text>
             </View>
-            <View style={[styles.auditList, { borderColor: colors.border }]}>
-              {rows.map(([title, status, detail], index) => (
+            {rows.length > 0 ? <View style={[styles.auditList, { borderColor: colors.border }]}>
+              {rows.map(([title, rowStatus, detail], index) => (
                 <View key={title}>
                   <View style={styles.auditRow}>
-                    <Ionicons name="checkmark-circle" size={20} color={colors.verified} />
+                    <Ionicons name={rowStatus === 'Failed' ? 'close-circle-outline' : 'checkmark-circle'} size={20} color={rowStatus === 'Failed' ? colors.blackout : colors.verified} />
                     <View style={styles.flex}>
                       <Text style={[typography.label, { color: colors.text }]}>{title}</Text>
-                      <Text style={[typography.caption, { color: colors.verified }]}>{status}</Text>
+                      <Text style={[typography.caption, { color: rowStatus === 'Failed' ? colors.blackout : colors.verified }]}>{rowStatus}</Text>
                     </View>
                     <Text style={[typography.mono, styles.auditDetail, { color: colors.text2 }]}>
                       {detail}
@@ -148,7 +154,46 @@ export function AuditScreen({
                   {index < rows.length - 1 ? <Divider colors={colors} /> : null}
                 </View>
               ))}
-            </View>
+            </View> : null}
+            {provenance ? (
+              <View style={[styles.cryptoEvidence, { borderColor: colors.border, backgroundColor: colors.surface }]}>
+                <Text style={[typography.h2, { color: colors.text }]}>Cryptographic evidence</Text>
+                {[
+                  ['Content hash', provenance.contentId],
+                  ['Author public key', provenance.authorKey],
+                  ['Signature algorithm', provenance.keyAlg],
+                  ['Author signature', provenance.signature],
+                  ['Canonical envelope', provenance.canonicalBytes],
+                  ['Node identity', provenance.receipt?.serverId ?? 'No node receipt attached'],
+                  ['Node signature', provenance.receipt?.serverSignature ?? 'No node receipt attached'],
+                  ['Merkle root hash', provenance.receipt?.sth.rootHash ?? 'No tree head attached'],
+                  ['Tree-head signature', provenance.receipt?.sth.signature ?? 'No tree head attached'],
+                  ['Inclusion path', provenance.receipt?.inclusionProof.join('\n') || 'No inclusion proof attached'],
+                ].map(([label, value]) => (
+                  <View key={label} style={styles.cryptoRow}>
+                    <Text style={[typography.overline, { color: colors.text2 }]}>{label}</Text>
+                    <Text selectable style={[typography.mono, styles.cryptoValue, { color: colors.text }]}>
+                      {value}
+                    </Text>
+                  </View>
+                ))}
+                <Divider colors={colors} />
+                {[
+                  ['Content ID recomputed', contentVerification?.contentId],
+                  ['Author signature verified', contentVerification?.authorSignature],
+                  ['Receipt and inclusion verified', contentVerification?.publicationReceipt],
+                ].map(([label, passed]) => (
+                  <View key={label as string} style={styles.proofCheck}>
+                    <Ionicons
+                      name={passed ? 'checkmark-circle' : 'close-circle-outline'}
+                      size={18}
+                      color={passed ? colors.verified : colors.blackout}
+                    />
+                    <Text style={[typography.label, { color: colors.text }]}>{label as string}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
             <StatusBanner
               colors={colors}
               icon="cloud-offline-outline"
@@ -165,7 +210,7 @@ export function AuditScreen({
                 tone={status.status === 'online' ? 'verified' : 'warning'}
               />
             ) : null}
-            <View style={styles.pageActions}>
+            {record ? <View style={styles.pageActions}>
               <Button
                 colors={colors}
                 label="Ask server for status"
@@ -176,8 +221,12 @@ export function AuditScreen({
                   )
                 }
               />
-            </View>
+            </View> : null}
           </>
+        ) : post.isLoading ? (
+          <View style={[styles.cryptoEvidence, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[typography.body, { color: colors.text2 }]}>Loading and verifying cryptographic evidence…</Text>
+          </View>
         ) : (
           <EmptyState
             colors={colors}
@@ -235,6 +284,7 @@ function IdentityPanel({
   const [recoverySalt, setRecoverySalt] = useState('');
   const [importPhrase, setImportPhrase] = useState('');
   const [recoveryPhrase, setRecoveryPhrase] = useState('');
+  const [recoveryCopied, setRecoveryCopied] = useState(false);
   const [revokeConfirm, setRevokeConfirm] = useState('');
   const [summary, setSummary] = useState<ForumSessionSummary | null>(null);
   const [busy, setBusy] = useState(false);
@@ -452,14 +502,34 @@ function IdentityPanel({
         />
       )}
       {recoveryPhrase ? (
-        <View style={[styles.recoveryPhrase, { backgroundColor: colors.surface2 }]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Copy Forum recovery phrase"
+          onPress={() => {
+            Clipboard.setString(recoveryPhrase);
+            setRecoveryCopied(true);
+          }}
+          style={[
+            styles.recoveryPhrase,
+            {
+              backgroundColor: colors.surface2,
+              borderColor: recoveryCopied ? colors.verified : colors.border,
+            },
+          ]}
+        >
           <Text style={[typography.label, { color: colors.constrained }]}>
             Write this down now. It is shown only in this session.
           </Text>
           <Text selectable style={[typography.mono, { color: colors.text }]}>
             {recoveryPhrase}
           </Text>
-        </View>
+          <Text
+            accessibilityLiveRegion="polite"
+            style={[typography.caption, { color: recoveryCopied ? colors.verified : colors.ember }]}
+          >
+            {recoveryCopied ? 'Copied to clipboard' : 'Tap to copy all 24 words'}
+          </Text>
+        </Pressable>
       ) : null}
       {notice ? (
         <StatusBanner
@@ -697,6 +767,17 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   auditDetail: { maxWidth: '42%', textAlign: 'right' },
+  cryptoEvidence: {
+    marginHorizontal: spacing.md,
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    gap: spacing.md,
+  },
+  cryptoRow: { gap: spacing.xxs },
+  cryptoValue: { width: '100%', lineHeight: 20 },
+  proofCheck: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   pageActions: { padding: spacing.md },
   searchBox: {
     margin: spacing.md,
@@ -770,7 +851,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   recoveryInput: { minHeight: 96 },
-  recoveryPhrase: { padding: spacing.md, borderRadius: radius.md, gap: spacing.sm },
+  recoveryPhrase: { padding: spacing.md, borderRadius: radius.md, borderWidth: 1, gap: spacing.sm },
   featureRow: {
     minHeight: 72,
     marginHorizontal: spacing.md,

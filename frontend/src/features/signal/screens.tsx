@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { DeliveryState, VouchLevel } from '@jagoo/sdk/proto';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Clipboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { AppPalette, ReachState, ThemeMode } from '../../design-system';
 import {
   AppHeader,
@@ -11,6 +11,7 @@ import {
   Pill,
   Screen,
   SectionHeader,
+  Skeleton,
   StatusBanner,
 } from '../../design-system';
 import { radius, spacing, type as typography } from '../../design-system';
@@ -220,7 +221,15 @@ function SignalActions({
           ]}
         >
           <Ionicons name={icon as 'people-outline'} color={colors.signal} size={22} />
-          <Text style={[typography.label, { color: colors.text }]}>{label as string}</Text>
+          <Text
+            adjustsFontSizeToFit
+            maxFontSizeMultiplier={1.15}
+            minimumFontScale={0.85}
+            numberOfLines={2}
+            style={[typography.label, styles.actionLabel, { color: colors.text }]}
+          >
+            {label as string}
+          </Text>
         </Pressable>
       ))}
     </View>
@@ -311,6 +320,7 @@ export function SignalHomeScreen({
   onMap,
   onIdentity,
   onMessages,
+  onMesh,
   onChannel,
 }: SignalScreenProps & {
   readonly onChannels: () => void;
@@ -318,6 +328,7 @@ export function SignalHomeScreen({
   readonly onMap: () => void;
   readonly onIdentity: () => void;
   readonly onMessages: () => void;
+  readonly onMesh: () => void;
   readonly onChannel: (channel: string) => void;
 }) {
   const query = useNodeDocument<NodePage<SignalBroadcast>>(
@@ -338,11 +349,7 @@ export function SignalHomeScreen({
   const rows = query.data?.value.items ?? [];
   const visible = useMemo(
     () =>
-      rows.filter((row) =>
-        subscriptions.length === 0
-          ? row.severity < 4 || row.verification !== 'unverified'
-          : subscriptionAllows(row, subscriptions, Date.now()),
-      ),
+      rows.filter((row) => subscriptionAllows(row, subscriptions, Date.now())),
     [rows, subscriptions],
   );
   const ordered = [...visible].sort((left, right) => {
@@ -369,14 +376,15 @@ export function SignalHomeScreen({
         </View>
       </View>
       <SignalActions colors={colors} onChannels={onChannels} onCheckIn={onCheckIn} onMap={onMap} />
-      <View style={styles.row}>
+      <View style={styles.homeActionRow}>
         <Button colors={colors} label="Signal identity" onPress={onIdentity} variant="secondary" system="signal" />
         <Button colors={colors} label="Private messages" onPress={onMessages} variant="secondary" system="signal" />
+        <Button colors={colors} label="LXMF mesh" onPress={onMesh} variant="secondary" system="signal" icon="radio-outline" />
       </View>
       {subscriptions.length === 0 ? (
         <StatusBanner
           action="Choose channels"
-          body="Until you subscribe, this screen shows received non-critical traffic for discovery. Unverified critical alerts stay blocked."
+          body="No broadcast enters this inbox until you follow its channel. Discovery remains available without exposing your follow list."
           colors={colors}
           icon="options-outline"
           onAction={onChannels}
@@ -395,9 +403,14 @@ export function SignalHomeScreen({
           tone="warning"
         />
       ) : null}
-      {ordered.length === 0 ? (
+      {query.isLoading ? (
+        <View style={styles.loadingStack}>
+          <Skeleton colors={colors} height={92} />
+          <Skeleton colors={colors} height={92} />
+        </View>
+      ) : ordered.length === 0 ? (
         <EmptyState
-          body="No alert matching your local filters has arrived yet."
+          body={subscriptions.length === 0 ? 'Follow a channel to receive its signed broadcasts.' : 'No alert matching your local subscription filters has arrived yet.'}
           colors={colors}
           icon="radio-outline"
           system="signal"
@@ -1016,6 +1029,7 @@ export function SignalIdentityScreen({ colors, mode, homeNode, reach, onNetwork,
   const [restorePhrase, setRestorePhrase] = useState('');
   const [revokeConfirm, setRevokeConfirm] = useState('');
   const [notice, setNotice] = useState('');
+  const [recoveryCopied, setRecoveryCopied] = useState(false);
   const [busy, setBusy] = useState(false);
   const refresh = async () => setSummary(await signalSessionSummary());
   useEffect(() => {
@@ -1102,10 +1116,30 @@ export function SignalIdentityScreen({ colors, mode, homeNode, reach, onNetwork,
         </>
       ) : null}
       {recovery ? (
-        <View style={[styles.recovery, { backgroundColor: colors.surface, borderColor: colors.constrained }]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Copy Signal recovery phrase"
+          onPress={() => {
+            Clipboard.setString(recovery);
+            setRecoveryCopied(true);
+          }}
+          style={[
+            styles.recovery,
+            {
+              backgroundColor: colors.surface,
+              borderColor: recoveryCopied ? colors.verified : colors.constrained,
+            },
+          ]}
+        >
           <Text style={[typography.label, { color: colors.constrained }]}>Write this down offline</Text>
           <Text selectable style={[typography.mono, { color: colors.text }]}>{recovery}</Text>
-        </View>
+          <Text
+            accessibilityLiveRegion="polite"
+            style={[typography.caption, { color: recoveryCopied ? colors.verified : colors.signal }]}
+          >
+            {recoveryCopied ? 'Copied to clipboard' : 'Tap to copy all 24 words'}
+          </Text>
+        </Pressable>
       ) : null}
       {summary.unlocked ? (
         <>
@@ -1532,13 +1566,17 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     minHeight: 72,
     justifyContent: 'center',
-    padding: spacing.sm,
+    paddingHorizontal: spacing.xxs,
+    paddingVertical: spacing.sm,
   },
-  actionRail: { flexDirection: 'row', gap: spacing.sm },
+  actionLabel: { textAlign: 'center' },
+  actionRail: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.md },
   alert: {
     borderLeftWidth: 4,
     borderRadius: radius.md,
     gap: spacing.sm,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
     padding: spacing.md,
   },
   alertHeading: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
@@ -1560,7 +1598,16 @@ const styles = StyleSheet.create({
   field: { gap: spacing.xs },
   fingerprint: { lineHeight: 24 },
   flex: { flex: 1 },
-  hero: { alignItems: 'flex-start', flexDirection: 'row', gap: spacing.md, paddingVertical: spacing.md },
+  hero: { alignItems: 'flex-start', flexDirection: 'row', gap: spacing.md, padding: spacing.md },
+  homeActionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+  },
+  loadingStack: { gap: spacing.sm, paddingHorizontal: spacing.md },
   input: {
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,

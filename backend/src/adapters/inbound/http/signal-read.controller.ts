@@ -178,14 +178,20 @@ export class SignalReadController {
     const page = paginate(
       rows.filter((profile) => {
         if (!needle) return true;
-        return `${profile.displayName}\n${profile.bio}\n${profile.claims.map((claim) => claim.value).join('\n')}`
+        return `${profile.displayName}\n${profile.codename || profile.id}\n${profile.bio}\n${profile.claims.map((claim) => claim.value).join('\n')}`
           .toLocaleLowerCase()
           .includes(needle);
       }),
       limit,
       cursor,
     );
-    return { items: page.items, nextCursor: page.nextCursor };
+    return {
+      items: page.items.map((profile) => ({
+        ...profile,
+        codename: profile.codename || profile.id,
+      })),
+      nextCursor: page.nextCursor,
+    };
   }
 
   @Get('directory/:identityId')
@@ -196,7 +202,7 @@ export class SignalReadController {
     if (!profile || !profile.discoverable) {
       throw new HttpException({ detail: 'Signal profile not found' }, 404);
     }
-    return profile;
+    return { ...profile, codename: profile.codename || profile.id };
   }
 
   @Get('channels')

@@ -7,6 +7,7 @@ import {
 } from 'react';
 import {
   Platform,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -52,11 +53,28 @@ export function TabBarInsetProvider({ children }: PropsWithChildren) {
 /**
  * The reading column (root cause: two duplicated `760` literals, `layout.wideMin` unused).
  * Centres content on wide/tablet screens without every screen re-deriving the breakpoint math.
+ *
+ * `fill` is required whenever the column wraps a virtualized list. Without it the column is
+ * height-auto, and a `FlatList` inside a height-auto parent measures to zero — which is how
+ * the entire home feed rendered as a blank page below its sort chips while the query itself
+ * was returning posts. Content-sized screens (a scrolling article, a form) must NOT set it:
+ * inside a `ScrollView` a `flex: 1` child clamps to the viewport and stops scrolling.
  */
-export function ContentColumn({ children }: { readonly children: ReactNode }) {
+export function ContentColumn({
+  children,
+  fill = false,
+}: {
+  readonly children: ReactNode;
+  readonly fill?: boolean;
+}) {
   const { bp, contentMax } = useResponsive();
   return (
-    <View style={bp === 'compact' ? undefined : [styles.columnWide, { maxWidth: contentMax }]}>
+    <View
+      style={[
+        fill ? styles.flex : null,
+        bp === 'compact' ? null : [styles.columnWide, { maxWidth: contentMax }],
+      ]}
+    >
       {children}
     </View>
   );
@@ -113,6 +131,7 @@ export function PageHeader({
   onReach,
   actions = [],
   variant = 'frosted',
+  showBrand = false,
 }: {
   readonly colors: AppPalette;
   readonly mode: ThemeMode;
@@ -124,6 +143,8 @@ export function PageHeader({
   readonly onReach?: () => void;
   readonly actions?: readonly PageHeaderAction[];
   readonly variant?: 'frosted' | 'flat';
+  /** Show the actual app mark on a root destination instead of an empty back-button spacer. */
+  readonly showBrand?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const router: Router = useRouter();
@@ -151,6 +172,15 @@ export function PageHeader({
           >
             <Ionicons name="arrow-back" size={22} color={colors.text} />
           </Pressable>
+        ) : showBrand ? (
+          <Image
+            accessibilityIgnoresInvertColors
+            accessibilityLabel="Jagoo Bahee"
+            // Metro resolves bundled image assets through the React Native `require` contract.
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            source={require('../../assets/jagoo-app-icon.png')}
+            style={styles.headerBrand}
+          />
         ) : (
           <View style={styles.headerIconButton} />
         )}
@@ -352,6 +382,12 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  headerBrand: {
+    width: 36,
+    height: 36,
+    marginHorizontal: 4,
+    borderRadius: radius.pill,
   },
   headerBadge: {
     position: 'absolute',

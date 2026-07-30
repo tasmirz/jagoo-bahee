@@ -37,12 +37,14 @@ export function SavedScreen({
   homeNode,
   onBack,
   onOpenPost,
+  onOpenAudit,
 }: {
   readonly colors: AppPalette;
   readonly mode: ThemeMode;
   readonly homeNode: HomeNode;
   readonly onBack: () => void;
   readonly onOpenPost: (contentId: string) => void;
+  readonly onOpenAudit: (contentId: string) => void;
 }) {
   const saved = useNodeDocument<NodePage<SavedRow>>(homeNode.baseUrl, '/v1/me/saved');
   const rows = saved.data?.value.items ?? [];
@@ -87,6 +89,7 @@ export function SavedScreen({
                   homeNode={homeNode}
                   post={post}
                   onPress={() => onOpenPost(row.target)}
+                  onOpenProof={() => onOpenAudit(row.target)}
                 />
               );
             })}

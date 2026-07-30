@@ -59,6 +59,7 @@ export function CommunityScreen({
   onBack,
   onOpenPost,
   onOpenAuthor,
+  onOpenAudit,
   onOpenNetwork,
   onOpenManagement,
   onCreatePost,
@@ -71,15 +72,17 @@ export function CommunityScreen({
   readonly onBack: () => void;
   readonly onOpenPost: (contentId: string) => void;
   readonly onOpenAuthor: (keyId: string) => void;
+  readonly onOpenAudit: (contentId: string) => void;
   readonly onOpenNetwork: () => void;
   readonly onOpenManagement: () => void;
   readonly onCreatePost: () => void;
 }) {
   const queryClient = useQueryClient();
   const baseUrl = homeNode.baseUrl;
+  const communityPath = `/v1/communities/${encodeURIComponent(communityId)}`;
   const community = useNodeDocument<NodeCommunity>(
     baseUrl,
-    `/v1/communities/${encodeURIComponent(communityId)}`,
+    communityPath,
     { viewer: true },
   );
   const stats = useNodeDocument<CommunityStats>(baseUrl, `/v1/communities/${encodeURIComponent(communityId)}/stats`);
@@ -93,7 +96,7 @@ export function CommunityScreen({
   const [tab, setTab] = useState<Tab>('posts');
   const [myKey, setMyKey] = useState<string | null>(null);
   const [membershipBusy, setMembershipBusy] = useState(false);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<{ readonly text: string; readonly error: boolean } | null>(null);
 
   useEffect(() => {
     void forumSessionSummary().then((summary) => setMyKey(summary.identityKeyHex ?? null));
@@ -108,13 +111,20 @@ export function CommunityScreen({
   const toggleMembership = async () => {
     if (!item) return;
     setMembershipBusy(true);
-    setNotice('');
+    setNotice(null);
     try {
       await setForumMembership(baseUrl, item.id, !item.joined, homeNode.discovery.services.auditLogs);
-      setNotice(item.joined ? 'Left this community.' : 'Joined this community.');
-      await queryClient.invalidateQueries({ queryKey: ['node', baseUrl, 'document', `/v1/communities/${communityId}`] });
+      setNotice({ text: item.joined ? 'Left this community.' : 'Joined this community.', error: false });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['node', baseUrl, 'document', communityPath] }),
+        queryClient.invalidateQueries({ queryKey: ['node', baseUrl, 'document', '/v1/me/communities'] }),
+        community.refetch(),
+      ]);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Membership could not be updated.');
+      setNotice({
+        text: error instanceof Error ? error.message : 'Membership could not be updated.',
+        error: true,
+      });
     } finally {
       setMembershipBusy(false);
     }
@@ -150,18 +160,19 @@ export function CommunityScreen({
                 <Button
                   colors={colors}
                   disabled={membershipBusy || item.archived}
-                  label={membershipBusy ? 'Signing…' : item.joined ? 'Leave' : 'Join'}
+                  label={item.joined ? 'Leave' : 'Join'}
+                  loading={membershipBusy}
                   onPress={() => void toggleMembership()}
                   variant={item.joined ? 'secondary' : 'primary'}
                 />
               </View>
-              {isModerator ? (
+              {isModerator || (myKey !== null && item.ownerKey === myKey) ? (
                 <Button colors={colors} icon="shield-checkmark-outline" label="Manage" variant="secondary" onPress={onOpenManagement} />
               ) : null}
             </View>
             {notice ? (
-              <Text accessibilityLiveRegion="polite" maxFontSizeMultiplier={maxFontScale.caption} style={[typography.caption, styles.notice, { color: colors.text2 }]}>
-                {notice}
+              <Text accessibilityLiveRegion="polite" maxFontSizeMultiplier={maxFontScale.caption} style={[typography.caption, styles.notice, { color: notice.error ? colors.blackout : colors.verified }]}>
+                {notice.text}
               </Text>
             ) : null}
             {item.archived ? (
@@ -208,6 +219,7 @@ export function CommunityScreen({
                     post={post}
                     onPress={() => onOpenPost(post.contentId)}
                     onOpenAuthor={() => onOpenAuthor(post.authorKey)}
+                    onOpenProof={() => onOpenAudit(post.contentId)}
                   />
                 )}
                 ListEmptyComponent={

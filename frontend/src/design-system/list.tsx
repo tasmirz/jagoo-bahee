@@ -1,8 +1,7 @@
-import { FlatList, Pressable, StyleSheet, Text, View, type FlatListProps } from 'react-native';
+import { FlatList, RefreshControl, StyleSheet, View, type FlatListProps } from 'react-native';
 import type { AppPalette } from './tokens';
-import { spacing, type as typography } from './tokens';
+import { spacing } from './tokens';
 import { useContentInsets } from './layout';
-import { WorkProgress } from './feedback';
 
 /**
  * Root cause #7: `FeedScreen` rendered `posts.map()` inside a plain `ScrollView` at a fixed
@@ -10,6 +9,13 @@ import { WorkProgress } from './feedback';
  * `FlatList` so every list in the app gets virtualization, pull-to-refresh, and an
  * `onEndReached` page fetch for free, with the correct bottom content inset from `Page`
  * instead of a flat `spacing.lg` guess.
+ *
+ * Refresh is the platform gesture, not a widget. The previous version rendered a "Refresh
+ * content" text button above the list and swapped it for a progress banner while fetching,
+ * which pushed the first row down, stole a tap target from the content, and left the pull
+ * gesture doing nothing at all — the one interaction every reader already knows. `FlatList`
+ * has `RefreshControl` for exactly this, so it also gets the spinner's platform placement,
+ * its accessibility semantics, and its overscroll behaviour for free.
  */
 export function InfiniteList<T>({
   data,
@@ -36,21 +42,6 @@ export function InfiniteList<T>({
   const { bottom } = useContentInsets();
   return (
     <View style={styles.container}>
-      {onRefresh && colors ? (
-        refreshing ? (
-          <View style={styles.refresh}>
-            <WorkProgress colors={colors} label="Refreshing content" />
-          </View>
-        ) : (
-          <Pressable
-            accessibilityRole="button"
-            onPress={onRefresh}
-            style={styles.refreshButton}
-          >
-            <Text style={[typography.caption, { color: colors.text2 }]}>Refresh content</Text>
-          </Pressable>
-        )
-      ) : null}
       <FlatList
         data={data as T[]}
         keyExtractor={keyExtractor}
@@ -64,6 +55,20 @@ export function InfiniteList<T>({
         showsVerticalScrollIndicator={false}
         keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              // Colour alone never carries the meaning (`CLAUDE.md` §6) — the spinner is the
+              // shape, the label is the text, and the tint only matches the app.
+              accessibilityLabel="Pull down to refresh"
+              colors={colors ? [colors.ember] : undefined}
+              tintColor={colors?.ember}
+              progressBackgroundColor={colors?.surface}
+            />
+          ) : undefined
+        }
         {...rest}
       />
     </View>
@@ -74,11 +79,4 @@ export const listGaps = { section: spacing.sm } as const;
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  refresh: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
-  refreshButton: {
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.md,
-  },
 });

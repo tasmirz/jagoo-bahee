@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import {
   ChipGroup,
   ContentColumn,
@@ -43,6 +43,7 @@ export function FeedScreen({
   onOpenPost,
   onOpenCommunity,
   onOpenAuthor,
+  onOpenAudit,
   onOpenNetwork,
   onOpenSearch,
   onOpenNotifications,
@@ -55,6 +56,7 @@ export function FeedScreen({
   readonly onOpenPost: (contentId: string) => void;
   readonly onOpenCommunity: (communityId: string) => void;
   readonly onOpenAuthor: (keyId: string) => void;
+  readonly onOpenAudit: (contentId: string) => void;
   readonly onOpenNetwork: () => void;
   readonly onOpenSearch: () => void;
   readonly onOpenNotifications: () => void;
@@ -74,6 +76,7 @@ export function FeedScreen({
         colors={colors}
         mode={mode}
         title="Jagoo Bahee"
+        showBrand
         reach={reach}
         onReach={onOpenNetwork}
         actions={[
@@ -83,8 +86,8 @@ export function FeedScreen({
         ]}
       />
       <Page colors={colors} scroll={false}>
-        <ContentColumn>
-          <View style={{ paddingHorizontal: spacing.md, paddingTop: spacing.sm }}>
+        <ContentColumn fill>
+          <View style={styles.feedControls}>
             <ChipGroup>
               {SORTS.map((option) => (
                 <Pill
@@ -157,6 +160,7 @@ export function FeedScreen({
                   onPress={() => onOpenPost(post.contentId)}
                   onOpenCommunity={() => onOpenCommunity(post.community)}
                   onOpenAuthor={() => onOpenAuthor(post.authorKey)}
+                  onOpenProof={() => onOpenAudit(post.contentId)}
                   onRequireJoin={() => setJoinNotice(true)}
                   onVoteError={setVoteError}
                 />
@@ -184,3 +188,11 @@ export function FeedScreen({
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  feedControls: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
+  },
+});

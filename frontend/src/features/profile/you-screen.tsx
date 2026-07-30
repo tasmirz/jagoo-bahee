@@ -44,6 +44,7 @@ export function YouScreen({
   onOpenIdentity,
   onOpenProofs,
   onOpenOperator,
+  onSignOut,
 }: {
   readonly colors: AppPalette;
   readonly mode: ThemeMode;
@@ -58,8 +59,10 @@ export function YouScreen({
   readonly onOpenProofs: () => void;
   /** Absent entirely for a non-operator — hidden, not a fake/disabled control (Plan 12 §7.1). */
   readonly onOpenOperator?: () => void;
+  readonly onSignOut: () => void;
 }) {
   const [session, setSession] = useState<ForumSessionSummary | null>(null);
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   useEffect(() => {
     void forumSessionSummary().then(setSession);
   }, []);
@@ -132,6 +135,57 @@ export function YouScreen({
             </View>
           </Pressable>
         </Section>
+
+        {/*
+          Sign out locks the vault and remembers that it is locked; it deletes nothing. The
+          confirmation exists because "keeps your identity" is the part people cannot verify
+          from the button alone, and getting that wrong on a device that holds the only copy
+          of a key is not a recoverable mistake. Removing the identity for real lives behind
+          Identity & security, where the recovery phrase is in front of you.
+        */}
+        <Section title="Session" colors={colors}>
+          {confirmingSignOut ? (
+            <View style={styles.confirm}>
+              <Text maxFontSizeMultiplier={maxFontScale.body} style={[typography.body, { color: colors.text2 }]}>
+                Your recovery phrase, keys, and home server stay on this device. You can sign
+                back in with your app password — or your phrase if you set no password.
+              </Text>
+              <View style={styles.confirmActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setConfirmingSignOut(false)}
+                  style={[styles.confirmButton, { borderColor: colors.border }]}
+                >
+                  <Text maxFontSizeMultiplier={maxFontScale.label} style={[typography.label, { color: colors.text }]}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={onSignOut}
+                  style={[styles.confirmButton, { borderColor: colors.blackout, backgroundColor: colors.blackout }]}
+                >
+                  <Text maxFontSizeMultiplier={maxFontScale.label} style={[typography.label, { color: colors.onAccent }]}>Sign out</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setConfirmingSignOut(true)}
+              style={[styles.row, { borderBottomColor: colors.border }]}
+            >
+              <View style={[styles.iconWrap, { backgroundColor: colors.surface2 }]}>
+                <Ionicons name="log-out-outline" size={19} color={colors.ember} />
+              </View>
+              <View style={styles.flex}>
+                <Text maxFontSizeMultiplier={maxFontScale.label} style={[typography.label, { color: colors.text }]}>Sign out</Text>
+                <Text numberOfLines={2} maxFontSizeMultiplier={maxFontScale.caption} style={[typography.caption, { color: colors.text2 }]}>
+                  Locks this device. Your identity and recovery phrase stay here.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.text2} />
+            </Pressable>
+          )}
+        </Section>
       </Page>
     </View>
   );
@@ -150,4 +204,15 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   iconWrap: { width: 36, height: 36, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  confirm: { marginHorizontal: spacing.md, gap: spacing.sm },
+  confirmActions: { flexDirection: 'row', gap: spacing.sm },
+  confirmButton: {
+    flex: 1,
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.md,
+  },
 });

@@ -235,7 +235,11 @@ describe('Signal directory and LXMF binding', () => {
       await h.projections
         .collection<SignalDirectoryProfileDoc>(SIGNAL_DIRECTORY_PROFILES_COLLECTION)
         .findOne({}),
-    ).toMatchObject({ displayName: 'Amina Rahman', lxmfDestinationHash: '07070707070707070707070707070707' });
+    ).toMatchObject({
+      displayName: 'Amina Rahman',
+      codename: expect.stringMatching(/^jbk1/),
+      lxmfDestinationHash: '07070707070707070707070707070707',
+    });
 
     await expect(
       h.pipeline.accept(

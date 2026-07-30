@@ -32,6 +32,7 @@ import {
   ReportCreate,
   RoleAssign,
   RoleDefine,
+  TargetKind,
   VoteCast,
 } from '@jagoo/sdk/proto';
 import { Plane as SdkPlane, revocationAuthorizationBytes } from '@jagoo/sdk';
@@ -463,6 +464,24 @@ describe('moderation (T1.23)', () => {
             verb: ModVerb.BAN,
             target: hex(AUTHOR_KEY),
             reason: 'coup',
+          }),
+        ).finish(),
+      }),
+    ).rejects.toMatchObject({ code: RejectionCode.FORBIDDEN });
+  });
+
+  it('binds moderation authority to the stored target type', async () => {
+    const target = await createPost();
+    await expect(
+      accept({
+        domain: 'jb:mod:action:v1',
+        scope: communityId,
+        body: ModAction.encode(
+          ModAction.fromPartial({
+            verb: ModVerb.REMOVE,
+            target,
+            target_kind: TargetKind.TARGET_KIND_COMMENT,
+            reason: 'mislabeled target',
           }),
         ).finish(),
       }),

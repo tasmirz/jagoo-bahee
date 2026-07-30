@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Crypto from 'expo-crypto';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useMemo, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Clipboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Button, Screen, StatusBanner } from '../../design-system';
 import type { HomeNode } from '../../data/node-config';
@@ -11,7 +11,14 @@ import {
   configureClientTransport,
   type ClientTransport,
 } from '../../data/request';
-import { createForumIdentity, importForumIdentity, registerForumIdentity } from '../../signer';
+import {
+  createForumIdentity,
+  deleteForumIdentityVault,
+  importForumIdentity,
+  registerForumIdentity,
+  signInForumIdentity,
+} from '../../signer';
+import type { IdentityProfile } from '../../data/identity-profiles';
 import { radius, spacing, type as typography, type AppPalette } from '../../design-system';
 
 type Step = 'welcome' | 'server' | 'confirm' | 'identity' | 'protection' | 'backup' | 'register' | 'ready';
@@ -22,9 +29,12 @@ const steps: readonly Step[] = ['welcome', 'server', 'confirm', 'identity', 'pro
 
 export function WelcomeFlow({
   colors,
+  identityProfiles = [],
   onComplete,
 }: {
   readonly colors: AppPalette;
+  /** Used to recognise a restored phrase as an identity this device already stores. */
+  readonly identityProfiles?: readonly IdentityProfile[];
   readonly onComplete: (
     address: string,
     options: {
@@ -34,12 +44,16 @@ export function WelcomeFlow({
     },
   ) => Promise<void>;
 }) {
-  const vaultId = useMemo(
+  const newVaultId = useMemo(
     () =>
       Crypto.randomUUID?.()?.replaceAll('-', '') ||
       `vault_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`,
     [],
   );
+  // Which vault the flow actually ended up writing to. A restore that turns out to be an
+  // identity this device already holds moves back into that identity's own vault instead of
+  // leaving a duplicate profile behind for the same 24 words.
+  const [vaultId, setVaultId] = useState(newVaultId);
   const [step, setStep] = useState<Step>('welcome');
   const [candidate, setCandidate] = useState<HomeNode | null>(null);
   const [mode, setMode] = useState<IdentityMode>('create');
@@ -85,13 +99,38 @@ export function WelcomeFlow({
       const appPassword = requiresPassword ? password : undefined;
       const salt = protection === 'salt' ? recoverySalt : '';
       if (mode === 'create') {
-        const created = await createForumIdentity(appPassword, salt, vaultId);
+        const created = await createForumIdentity(appPassword, salt, newVaultId);
+        setVaultId(newVaultId);
         setPhrase(created.recoveryPhrase);
         setIdentityId(created.identityId);
         setStep('backup');
-      } else {
-        const restoredId = await importForumIdentity(phrase, appPassword, salt, vaultId);
-        setIdentityId(restoredId);
+        return;
+      }
+      let restoredId = await importForumIdentity(phrase, appPassword, salt, newVaultId);
+      let restoredVaultId = newVaultId;
+      const known = identityProfiles.find(
+        (profile) => profile.identityId === restoredId && profile.vaultId !== newVaultId,
+      );
+      if (known) {
+        // The phrase is authoritative, so re-importing it into the existing vault rewrites
+        // that vault with the same key under whatever protection was just chosen. Without
+        // this, restoring produced a second profile for one identity every single time.
+        await deleteForumIdentityVault(newVaultId);
+        restoredId = await importForumIdentity(phrase, appPassword, salt, known.vaultId);
+        restoredVaultId = known.vaultId;
+      }
+      setVaultId(restoredVaultId);
+      setIdentityId(restoredId);
+      if (!candidate) throw new Error('Choose a home server first.');
+      // A restored identity is one the node most likely already knows: authenticate, and
+      // only fall back to the registration step if that fails. Landing on "Register with your
+      // server" after typing a correct recovery phrase is what made signing in
+      // indistinguishable from signing up.
+      try {
+        await signInForumIdentity(candidate.baseUrl, candidate.discovery.services.auditLogs);
+        setPhrase('');
+        setStep('ready');
+      } catch {
         setStep('register');
       }
     });
@@ -99,7 +138,11 @@ export function WelcomeFlow({
   const register = () =>
     run(async () => {
       if (!candidate) throw new Error('Choose a home server first.');
-      await registerForumIdentity(candidate.baseUrl, candidate.discovery.services.auditLogs);
+      if (mode === 'create') {
+        await registerForumIdentity(candidate.baseUrl, candidate.discovery.services.auditLogs);
+      } else {
+        await signInForumIdentity(candidate.baseUrl, candidate.discovery.services.auditLogs);
+      }
       setStep('ready');
     });
 
@@ -136,8 +179,8 @@ export function WelcomeFlow({
         {step === 'identity' ? <IdentityStep colors={colors} mode={mode} phrase={phrase} onPhrase={setPhrase} onContinue={() => setStep('protection')} onChangeMode={() => { setMode(mode === 'create' ? 'restore' : 'create'); setPhrase(''); }} /> : null}
         {step === 'protection' ? <ProtectionStep colors={colors} protection={protection} password={password} salt={recoverySalt} onProtection={setProtection} onPassword={setPassword} onSalt={setRecoverySalt} onContinue={createOrRestore} busy={busy} /> : null}
         {step === 'backup' ? <BackupStep colors={colors} phrase={phrase} confirmIndex={confirmIndex} wordCheck={wordCheck} onWordCheck={setWordCheck} onContinue={() => { setPhrase(''); setStep('register'); }} /> : null}
-        {step === 'register' ? <RegisterStep busy={busy} colors={colors} identityId={identityId} candidate={candidate} onRegister={register} onOffline={() => setStep('ready')} /> : null}
-        {step === 'ready' ? <ReadyStep colors={colors} candidate={candidate} identityId={identityId} busy={busy} onFinish={finish} /> : null}
+        {step === 'register' ? <RegisterStep busy={busy} colors={colors} identityId={identityId} candidate={candidate} mode={mode} onRegister={register} onOffline={() => setStep('ready')} /> : null}
+        {step === 'ready' ? <ReadyStep colors={colors} candidate={candidate} identityId={identityId} mode={mode} busy={busy} onFinish={finish} /> : null}
       </View>
     </Screen>
   );
@@ -202,19 +245,29 @@ function ProtectionStep({ colors, protection, password, salt, busy, onProtection
 }
 
 function BackupStep({ colors, phrase, confirmIndex, wordCheck, onWordCheck, onContinue }: { readonly colors: AppPalette; readonly phrase: string; readonly confirmIndex: number; readonly wordCheck: string; readonly onWordCheck: (value: string) => void; readonly onContinue: () => void }) {
+  const [copied, setCopied] = useState(false);
   const words = phrase.trim().split(/\s+/);
   const checked = wordCheck.trim().toLowerCase() === words[confirmIndex]?.toLowerCase();
-  return <View style={styles.stack}><StatusBanner colors={colors} icon="eye-off-outline" title="Shown once" body="Jagoo Bahee and your server cannot recover this phrase. Save it somewhere private before continuing." tone="warning" /><Text accessibilityRole="header" style={[typography.h1, { color: colors.text }]}>Write down your recovery phrase</Text><View style={[styles.wordGrid, { borderColor: colors.border, backgroundColor: colors.surface }]}>{words.map((word, index) => <Text key={`${word}-${index}`} selectable style={[typography.mono, { color: colors.text }]}>{String(index + 1).padStart(2, '0')}. {word}</Text>)}</View><Text style={[typography.label, { color: colors.text }]}>What is word {confirmIndex + 1}?</Text><TextInput accessibilityLabel={`Recovery word ${confirmIndex + 1}`} autoCapitalize="none" autoCorrect={false} style={[styles.input, typography.body, { borderColor: colors.border, backgroundColor: colors.surface, color: colors.text }]} value={wordCheck} onChangeText={onWordCheck} /><Button colors={colors} disabled={!checked} label="I saved it safely" onPress={onContinue} /></View>;
+  const copy = () => {
+    Clipboard.setString(phrase);
+    setCopied(true);
+  };
+  return <View style={styles.stack}><StatusBanner colors={colors} icon="eye-off-outline" title="Shown once" body="Jagoo Bahee and your server cannot recover this phrase. Save it somewhere private before continuing." tone="warning" /><Text accessibilityRole="header" style={[typography.h1, { color: colors.text }]}>Write down your recovery phrase</Text><Pressable accessibilityRole="button" accessibilityLabel="Copy recovery phrase" onPress={copy} style={[styles.wordGrid, { borderColor: copied ? colors.verified : colors.border, backgroundColor: colors.surface }]}>{words.map((word, index) => <Text key={`${word}-${index}`} selectable style={[typography.mono, { color: colors.text }]}>{String(index + 1).padStart(2, '0')}. {word}</Text>)}<View style={styles.copyHint}><Ionicons name={copied ? 'checkmark-circle' : 'copy-outline'} size={17} color={copied ? colors.verified : colors.ember} /><Text accessibilityLiveRegion="polite" style={[typography.caption, { color: copied ? colors.verified : colors.ember }]}>{copied ? 'Copied to clipboard' : 'Tap to copy all 24 words'}</Text></View></Pressable><Text style={[typography.label, { color: colors.text }]}>What is word {confirmIndex + 1}?</Text><TextInput accessibilityLabel={`Recovery word ${confirmIndex + 1}`} autoCapitalize="none" autoCorrect={false} style={[styles.input, typography.body, { borderColor: colors.border, backgroundColor: colors.surface, color: colors.text }]} value={wordCheck} onChangeText={onWordCheck} /><Button colors={colors} disabled={!checked} label="I saved it safely" onPress={onContinue} /></View>;
 }
 
-function RegisterStep({ busy, colors, identityId, candidate, onRegister, onOffline }: { readonly busy: boolean; readonly colors: AppPalette; readonly identityId: string; readonly candidate: HomeNode | null; readonly onRegister: () => void; readonly onOffline: () => void }) {
-  return <View style={styles.stack}><Text accessibilityRole="header" style={[typography.h1, { color: colors.text }]}>Register with your server</Text><Text selectable style={[typography.mono, { color: colors.text2 }]}>{identityId}</Text><Text style={[typography.body, { color: colors.text2 }]}>Jagoo will certify your Forum key, complete a signed challenge, and obtain an anonymous publishing credential from {candidate?.discovery.node.displayName ?? 'your selected node'}.</Text><View style={[styles.detailCard, { borderColor: colors.border, backgroundColor: colors.surface }]}>{['Check server policy', 'Solve anonymous proof of work', 'Certify your Forum key', 'Authenticate and cache credential'].map((item, index) => <View key={item} style={styles.timelineRow}><Text style={[typography.mono, { color: colors.ember }]}>{index + 1}</Text><Text style={[typography.body, { color: colors.text }]}>{item}</Text></View>)}</View><Button colors={colors} disabled={busy} label={busy ? 'Registering…' : 'Register now'} onPress={onRegister} /><Button colors={colors} label="Finish offline" variant="secondary" onPress={onOffline} /></View>;
+function RegisterStep({ busy, colors, identityId, candidate, mode, onRegister, onOffline }: { readonly busy: boolean; readonly colors: AppPalette; readonly identityId: string; readonly candidate: HomeNode | null; readonly mode: IdentityMode; readonly onRegister: () => void; readonly onOffline: () => void }) {
+  const restoring = mode === 'restore';
+  const stages = restoring
+    ? ['Check server policy', 'Authenticate with a signed challenge', 'Cache your publishing credential']
+    : ['Check server policy', 'Solve anonymous proof of work', 'Certify your Forum key', 'Authenticate and cache credential'];
+  return <View style={styles.stack}><Text accessibilityRole="header" style={[typography.h1, { color: colors.text }]}>{restoring ? 'Sign in to your server' : 'Register with your server'}</Text><Text selectable style={[typography.mono, { color: colors.text2 }]}>{identityId}</Text><Text style={[typography.body, { color: colors.text2 }]}>{restoring ? `This identity could not be reached on ${candidate?.discovery.node.displayName ?? 'your selected node'} a moment ago. Try again, or continue offline and sign in when a path opens.` : `Jagoo will certify your Forum key, complete a signed challenge, and obtain an anonymous publishing credential from ${candidate?.discovery.node.displayName ?? 'your selected node'}.`}</Text><View style={[styles.detailCard, { borderColor: colors.border, backgroundColor: colors.surface }]}>{stages.map((item, index) => <View key={item} style={styles.timelineRow}><Text style={[typography.mono, { color: colors.ember }]}>{index + 1}</Text><Text style={[typography.body, { color: colors.text }]}>{item}</Text></View>)}</View><Button colors={colors} disabled={busy} label={busy ? (restoring ? 'Signing in…' : 'Registering…') : restoring ? 'Try again' : 'Register now'} onPress={onRegister} /><Button colors={colors} label="Finish offline" variant="secondary" onPress={onOffline} /></View>;
 }
 
-function ReadyStep({ colors, candidate, identityId, busy, onFinish }: { readonly colors: AppPalette; readonly candidate: HomeNode | null; readonly identityId: string; readonly busy: boolean; readonly onFinish: () => void }) {
-  return <View style={styles.stack}><Ionicons name="shield-checkmark" size={42} color={colors.verified} /><Text accessibilityRole="header" style={[typography.h1, { color: colors.text }]}>Your Forum identity is ready</Text><Text style={[typography.body, { color: colors.text2 }]}>You can now explore communities on {candidate?.discovery.node.displayName ?? 'your selected server'}. Your Signal identity remains separate and can be set up later.</Text><Text selectable style={[typography.mono, { color: colors.text2 }]}>{identityId}</Text><Button colors={colors} disabled={busy} label={busy ? 'Opening Jagoo…' : 'Explore communities'} icon="arrow-forward" onPress={onFinish} /></View>;
+function ReadyStep({ colors, candidate, identityId, mode, busy, onFinish }: { readonly colors: AppPalette; readonly candidate: HomeNode | null; readonly identityId: string; readonly mode: IdentityMode; readonly busy: boolean; readonly onFinish: () => void }) {
+  const restoring = mode === 'restore';
+  return <View style={styles.stack}><Ionicons name="shield-checkmark" size={42} color={colors.verified} /><Text accessibilityRole="header" style={[typography.h1, { color: colors.text }]}>{restoring ? 'Welcome back' : 'Your Forum identity is ready'}</Text><Text style={[typography.body, { color: colors.text2 }]}>{restoring ? `You are signed back in to the same identity on ${candidate?.discovery.node.displayName ?? 'your selected server'}. Everything you published with it is still yours.` : `You can now explore communities on ${candidate?.discovery.node.displayName ?? 'your selected server'}. Your Signal identity remains separate and can be set up later.`}</Text><Text selectable style={[typography.mono, { color: colors.text2 }]}>{identityId}</Text><Button colors={colors} disabled={busy} label={busy ? 'Opening Jagoo…' : 'Explore communities'} icon="arrow-forward" onPress={onFinish} /></View>;
 }
 
 const styles = StyleSheet.create({
-  hero: { minHeight: 260, padding: spacing.lg, justifyContent: 'space-between' }, brandRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, seal: { width: 28, height: 28, borderWidth: 5, borderRadius: radius.pill }, heroTitle: { fontSize: 35, lineHeight: 42, letterSpacing: -0.8 }, progress: { flexDirection: 'row', gap: spacing.xs, paddingHorizontal: spacing.lg, paddingTop: spacing.lg }, progressDot: { height: 4, flex: 1, borderRadius: radius.pill }, content: { width: '100%', maxWidth: 680, alignSelf: 'center', padding: spacing.lg, gap: spacing.md }, stack: { gap: spacing.md }, input: { minHeight: 52, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md }, phraseInput: { minHeight: 140, borderWidth: 1, borderRadius: radius.md, padding: spacing.md, textAlignVertical: 'top' }, serverRow: { minHeight: 68, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, transportSelect: { minHeight: 68, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, transportMenu: { borderWidth: 1, borderRadius: radius.md, overflow: 'hidden' }, transportOption: { minHeight: 68, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, flex: { flex: 1, minWidth: 180 }, detailCard: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.xs }, option: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }, wordGrid: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, gap: spacing.xs }, timelineRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 }, actionRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm }, scanner: { height: 320, borderWidth: 1, borderRadius: radius.lg, overflow: 'hidden', justifyContent: 'flex-end', padding: spacing.md },
+  hero: { minHeight: 260, padding: spacing.lg, justifyContent: 'space-between' }, brandRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, seal: { width: 28, height: 28, borderWidth: 5, borderRadius: radius.pill }, heroTitle: { fontSize: 35, lineHeight: 42, letterSpacing: -0.8 }, progress: { flexDirection: 'row', gap: spacing.xs, paddingHorizontal: spacing.lg, paddingTop: spacing.lg }, progressDot: { height: 4, flex: 1, borderRadius: radius.pill }, content: { width: '100%', maxWidth: 680, alignSelf: 'center', padding: spacing.lg, gap: spacing.md }, stack: { gap: spacing.md }, copyHint: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingTop: spacing.xs }, input: { minHeight: 52, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md }, phraseInput: { minHeight: 140, borderWidth: 1, borderRadius: radius.md, padding: spacing.md, textAlignVertical: 'top' }, serverRow: { minHeight: 68, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, transportSelect: { minHeight: 68, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, transportMenu: { borderWidth: 1, borderRadius: radius.md, overflow: 'hidden' }, transportOption: { minHeight: 68, paddingHorizontal: spacing.md, flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, flex: { flex: 1, minWidth: 180 }, detailCard: { borderWidth: 1, borderRadius: radius.lg, padding: spacing.md, gap: spacing.xs }, option: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }, wordGrid: { borderWidth: 1, borderRadius: radius.md, padding: spacing.md, gap: spacing.xs }, timelineRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 }, actionRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.sm }, scanner: { height: 320, borderWidth: 1, borderRadius: radius.lg, overflow: 'hidden', justifyContent: 'flex-end', padding: spacing.md },
 });

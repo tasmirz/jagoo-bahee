@@ -5,7 +5,8 @@ import { useNodeDocument } from '../../src/data/node';
 
 export default function ProfileRoute() {
   const router = useRouter();
-  const { colors, locale, reach, setLocale, setThemePreference, themeMode, homeNode } = useApp();
+  const { colors, locale, reach, setLocale, setThemePreference, signOut, themeMode, homeNode } =
+    useApp();
   // Operator-only rows are hidden entirely for a non-operator rather than shown as a fake or
   // disabled control (`Plans/12` §7.1) — a cheap probe against an admin-gated route decides.
   const operatorProbe = useNodeDocument<{ readonly identities: number }>(
@@ -31,6 +32,12 @@ export default function ProfileRoute() {
         operatorProbe.data
           ? () => router.push({ pathname: '/feature/[featureId]', params: { featureId: 'admin' } })
           : undefined
+      }
+      onSignOut={() =>
+        void signOut().then(() => {
+          router.dismissAll();
+          router.replace('/');
+        })
       }
     />
   );

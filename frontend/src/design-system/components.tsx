@@ -6,6 +6,7 @@ import {
 } from 'react';
 import {
   AccessibilityInfo,
+  ActivityIndicator,
   Animated,
   Platform,
   Pressable,
@@ -13,6 +14,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -82,6 +84,8 @@ export function AppHeader({
   readonly onReach?: () => void;
   readonly onSearch?: () => void;
 }) {
+  const { width, fontScale } = useWindowDimensions();
+  const compactReach = width < 420 || fontScale > 1.1;
   return (
     <BlurView
       intensity={Platform.OS === 'android' ? 30 : 55}
@@ -106,7 +110,7 @@ export function AppHeader({
         </Text>
       </View>
       <View style={styles.headerActions}>
-        <ReachPill colors={colors} state={reach} onPress={onReach} />
+        <ReachPill colors={colors} state={reach} onPress={onReach} compact={compactReach} />
         {onSearch ? (
           <IconButton colors={colors} icon="search-outline" label="Search" onPress={onSearch} />
         ) : null}
@@ -182,11 +186,15 @@ export function Button({
           : 'transparent';
   const textColor =
     variant === 'primary' || variant === 'destructive' ? colors.onAccent : colors.text;
-  const isDisabled = Boolean(disabled) || loading;
+  // Existing feature buttons already switch their copy to “Signing…”, “Encrypting…”, etc.
+  // Treat that shared convention as loading so every long-running action gets a spinner even
+  // before its call site is migrated to the explicit prop.
+  const isLoading = loading || /(?:…|\.{3})$/.test(label.trim());
+  const isDisabled = Boolean(disabled) || isLoading;
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      accessibilityState={{ disabled: isDisabled, busy: isLoading }}
       disabled={isDisabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -199,7 +207,15 @@ export function Button({
         },
       ]}
     >
-      {icon ? <Ionicons name={icon} size={18} color={textColor} /> : null}
+      {isLoading ? (
+        <ActivityIndicator
+          accessibilityLabel={`${label} in progress`}
+          color={textColor}
+          size="small"
+        />
+      ) : icon ? (
+        <Ionicons name={icon} size={18} color={textColor} />
+      ) : null}
       <Text
         numberOfLines={1}
         maxFontSizeMultiplier={maxFontScale.label}
@@ -408,6 +424,7 @@ export function BottomNavigation({
       style={[
         styles.bottomNav,
         {
+          backgroundColor: colors.surface,
           borderTopColor: colors.border,
           minHeight: size.bottomNavigation - 8 + insets.bottom,
           paddingBottom: Math.max(spacing.sm, insets.bottom),
@@ -501,10 +518,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  brand: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
   brandMark: { width: 22, height: 22, borderRadius: radius.pill, padding: 5 },
   brandMarkHole: { flex: 1, borderRadius: radius.pill },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  headerActions: { flexShrink: 0, flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   iconButton: {
     width: 44,
     height: 44,

@@ -52,7 +52,11 @@ import { refreshMeshCertificates } from '../offline/certificate-cache';
 import { configureAuditIssueReporting } from '../audit';
 import {
   LEGACY_FORUM_VAULT_ID,
+  forumSessionSummary,
+  restoreForumSession,
   selectForumIdentityVault,
+  signOutForumIdentity,
+  type ForumSessionSummary,
 } from '../signer';
 
 const THEME_KEY = 'jb.theme-preference.v1';
@@ -78,6 +82,16 @@ export interface AppContextValue {
   readonly locale: Locale;
   readonly reach: ReachState;
   readonly refreshHomeNode: () => Promise<void>;
+  /**
+   * The Forum key vault's state on this device. `null` only while the launch restore is still
+   * running, so a route can tell "not signed in" apart from "not known yet" and stop
+   * flashing onboarding at someone who is already signed in.
+   */
+  readonly session: ForumSessionSummary | null;
+  /** Re-read the vault state after a screen changes it (unlock, register, revoke). */
+  readonly refreshSession: () => Promise<void>;
+  /** Locks the vault and remembers the choice. Keeps the identity and the home node. */
+  readonly signOut: () => Promise<void>;
   /** TP-20 — the scope this device is currently on. Null until the node has answered once. */
   readonly scope: ScopeStatus | null;
   readonly setLocale: (value: Locale) => Promise<void>;
@@ -114,6 +128,7 @@ function AppStateProvider({ children }: PropsWithChildren) {
   const [activeProfileId, setActiveProfileIdState] = useState<string | null>(null);
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>('system');
   const [locale, setLocaleState] = useState<Locale>(deviceLocale);
+  const [session, setSession] = useState<ForumSessionSummary | null>(null);
   const [inspecting, setInspecting] = useState(false);
   const { reach } = useNodeReach(homeNode?.baseUrl ?? null);
   const { status: scope, fromCache: scopeFromCache } = useScopeStatus(homeNode?.baseUrl ?? null);
@@ -155,9 +170,18 @@ function AppStateProvider({ children }: PropsWithChildren) {
           setThemePreferenceState(storedTheme);
         }
         if (storedLocale && storedLocale in messages) setLocaleState(storedLocale as Locale);
+        // The one call that makes a session survive a cold start: the vault is on disk, but
+        // the signer and its access token are module state and start every launch empty.
+        const restored = await restoreForumSession(
+          node?.baseUrl ?? null,
+          node?.discovery.services.auditLogs ?? [],
+        );
+        if (active) setSession(restored);
       })
-      .catch(() => {
-        if (active) setHomeNode(null);
+      .catch(async () => {
+        if (!active) return;
+        setHomeNode(null);
+        setSession(await forumSessionSummary());
       });
     return () => {
       active = false;
@@ -258,12 +282,14 @@ function AppStateProvider({ children }: PropsWithChildren) {
     setIdentityProfiles(await loadIdentityProfiles());
     setActiveProfileIdState(vaultId);
     setHomeNode(discovered);
+    setSession(await forumSessionSummary());
   }, [activeProfileId, identityProfiles]);
 
   const disconnectHomeNode = useCallback(async () => {
     await forgetHomeNode();
     queryClient.clear();
     setHomeNode(null);
+    setSession(await forumSessionSummary());
   }, []);
 
   const switchIdentity = useCallback(async (vaultId: string) => {
@@ -277,7 +303,20 @@ function AppStateProvider({ children }: PropsWithChildren) {
     setIdentityProfiles(await loadIdentityProfiles());
     setActiveProfileIdState(vaultId);
     setHomeNode(profile.homeNode);
+    setSession(
+      await restoreForumSession(profile.homeNode.baseUrl, profile.homeNode.discovery.services.auditLogs),
+    );
   }, [identityProfiles]);
+
+  const refreshSession = useCallback(async () => {
+    setSession(await forumSessionSummary());
+  }, []);
+
+  const signOut = useCallback(async () => {
+    await signOutForumIdentity();
+    queryClient.clear();
+    setSession(await forumSessionSummary());
+  }, []);
 
   const refreshHomeNode = useCallback(async () => {
     if (!homeNode) return;
@@ -317,6 +356,9 @@ function AppStateProvider({ children }: PropsWithChildren) {
       locale,
       reach,
       refreshHomeNode,
+      refreshSession,
+      session,
+      signOut,
       scope,
       setLocale,
       setThemePreference,
@@ -334,6 +376,9 @@ function AppStateProvider({ children }: PropsWithChildren) {
       locale,
       reach,
       refreshHomeNode,
+      refreshSession,
+      session,
+      signOut,
       scope,
       setLocale,
       setThemePreference,

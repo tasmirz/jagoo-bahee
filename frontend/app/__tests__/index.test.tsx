@@ -10,6 +10,7 @@ import { featureDestinations } from '../../src/features/catalog';
 import { FeatureScreen } from '../../src/features/forum';
 import { CommunityCreateScreen } from '../../src/features/communities';
 import { palettes } from '../../src/design-system';
+import type { ForumSessionSummary } from '../../src/signer';
 
 jest.mock('expo-router', () => ({
   Redirect: ({ href }: { readonly href: string }) => {
@@ -68,7 +69,18 @@ afterEach(() => {
   queryClient.clear();
 });
 
-function appValue(homeNode: HomeNode | null | undefined) {
+const signedIn: ForumSessionSummary = {
+  configured: true,
+  unlocked: true,
+  authenticated: true,
+  signedOut: false,
+  identityId: `jb1${'b'.repeat(52)}`,
+};
+
+function appValue(
+  homeNode: HomeNode | null | undefined,
+  session: ForumSessionSummary | null = signedIn,
+) {
   return {
     activeProfileId: 'legacy',
     colors: palettes.light,
@@ -79,6 +91,9 @@ function appValue(homeNode: HomeNode | null | undefined) {
     locale: 'en' as const,
     reach: 'constrained' as const,
     refreshHomeNode: jest.fn(async () => undefined),
+    refreshSession: jest.fn(async () => undefined),
+    session,
+    signOut: jest.fn(async () => undefined),
     scope: null,
     setLocale: jest.fn(async () => undefined),
     setThemePreference: jest.fn(async () => undefined),
@@ -112,6 +127,41 @@ describe('bootstrap route', () => {
     expect(
       view.root.findAllByProps({ accessibilityLabel: 'Redirect to /(tabs)' }),
     ).not.toHaveLength(0);
+    act(() => view.unmount());
+  });
+
+  it('waits for the launch restore instead of flashing onboarding at a signed-in device', async () => {
+    mockUseApp.mockReturnValue(appValue(savedNode, null));
+    let view!: renderer.ReactTestRenderer;
+    await act(async () => {
+      view = renderer.create(<BootstrapRoute />);
+    });
+    expect(view.root.findAllByProps({ accessibilityLabel: 'Opening Jagoo Bahee' })).not.toHaveLength(0);
+    expect(view.root.findAllByProps({ accessibilityLabel: 'Redirect to /(tabs)' })).toHaveLength(0);
+    act(() => view.unmount());
+  });
+
+  it('offers sign-in, not registration, when the vault is configured but locked', async () => {
+    mockUseApp.mockReturnValue(
+      appValue(savedNode, {
+        configured: true,
+        unlocked: false,
+        authenticated: false,
+        signedOut: true,
+        identityId: `jb1${'b'.repeat(52)}`,
+      }),
+    );
+    let view!: renderer.ReactTestRenderer;
+    await act(async () => {
+      view = renderer.create(<BootstrapRoute />);
+    });
+    expect(
+      view.root.findAll(
+        (node) =>
+          node.props.accessibilityRole === 'header' && node.props.children === 'Unlock your identity',
+      ),
+    ).not.toHaveLength(0);
+    expect(view.root.findAllByProps({ accessibilityLabel: 'Redirect to /(tabs)' })).toHaveLength(0);
     act(() => view.unmount());
   });
 });

@@ -2,6 +2,7 @@
  * Forum key vault. Raw mnemonic and derived seeds never leave this module (SG-01).
  * SecureStore keeps the root device-bound and unavailable while the phone is locked.
  */
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
 import * as FileSystem from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
@@ -86,6 +87,13 @@ import { submitSignedEnvelope } from '../offline/outbox';
 const ROOT_KEY = 'jb.forum.root.v1';
 const FORUM_CREDENTIAL_KEY = 'jb.forum.credential.v1';
 const FORUM_DEVICE_LOCK_KEY = 'jb.forum.device-lock.v1';
+/**
+ * Deliberate sign-out is device state and must outlive the process, otherwise the next cold
+ * start silently unlocks a device-lock vault and the person is signed back in against their
+ * wishes. It lives in AsyncStorage rather than SecureStore because it is a preference, not a
+ * secret — nothing about "this device is signed out" is worth a keystore slot.
+ */
+const FORUM_SIGNED_OUT_KEY = 'jb.forum.signed-out.v1';
 export const LEGACY_FORUM_VAULT_ID = 'legacy';
 let activeVaultId = LEGACY_FORUM_VAULT_ID;
 
@@ -508,6 +516,8 @@ export interface ForumSessionSummary {
   readonly configured: boolean;
   readonly unlocked: boolean;
   readonly authenticated: boolean;
+  /** True only after a deliberate sign-out, so a cold start does not undo it. */
+  readonly signedOut: boolean;
   readonly identityId?: string;
   readonly identityKeyHex?: string;
 }
@@ -568,12 +578,16 @@ async function submitAuditedEnvelope(
 }
 
 export async function forumSessionSummary(): Promise<ForumSessionSummary> {
-  const configured = await SecureForumSigner.exists();
+  const [configured, signedOut] = await Promise.all([
+    SecureForumSigner.exists(),
+    isForumSignedOut(),
+  ]);
   const identity = activeSigner ? await activeSigner.identity({ kind: 'device' }) : null;
   return {
     configured,
     unlocked: activeSigner !== null,
     authenticated: activeAccessToken !== null,
+    signedOut,
     ...(identity
       ? {
           identityId: identity.id,
@@ -630,6 +644,7 @@ export async function createForumIdentity(
   activeAccessToken = null;
   activeCredential = null;
   await SecureStore.deleteItemAsync(vaultKey(FORUM_CREDENTIAL_KEY), storeOptions);
+  await AsyncStorage.removeItem(vaultKey(FORUM_SIGNED_OUT_KEY));
   const identity = await activeSigner.identity({ kind: 'device' });
   return { recoveryPhrase, identityId: identity.id };
 }
@@ -652,6 +667,7 @@ export async function importForumIdentity(
   activeAccessToken = null;
   activeCredential = null;
   await SecureStore.deleteItemAsync(vaultKey(FORUM_CREDENTIAL_KEY), storeOptions);
+  await AsyncStorage.removeItem(vaultKey(FORUM_SIGNED_OUT_KEY));
   return (await activeSigner.identity({ kind: 'device' })).id;
 }
 
@@ -668,6 +684,7 @@ export async function unlockForumIdentity(
     storeOptions,
   );
   activeCredential = storedCredential ? { bytes: unbase64(storedCredential) } : null;
+  await AsyncStorage.removeItem(vaultKey(FORUM_SIGNED_OUT_KEY));
   return (await activeSigner.identity({ kind: 'device' })).id;
 }
 
@@ -697,6 +714,141 @@ export function lockForumIdentity(): void {
   activeSigner = null;
   activeAccessToken = null;
   activeCredential = null;
+}
+
+async function isForumSignedOut(): Promise<boolean> {
+  return (await AsyncStorage.getItem(vaultKey(FORUM_SIGNED_OUT_KEY))) === 'true';
+}
+
+/**
+ * Sign out without destroying anything. The vault, its credential, and the home node all
+ * stay — signing back in must not require the recovery phrase, because a person who has to
+ * dig out 24 words to read a feed will either stop signing out or stop using the app.
+ * Use `deleteForumIdentityVault` for "remove this identity from the device".
+ */
+export async function signOutForumIdentity(): Promise<void> {
+  lockForumIdentity();
+  await AsyncStorage.setItem(vaultKey(FORUM_SIGNED_OUT_KEY), 'true');
+}
+
+/**
+ * Mint an access token from a signed challenge. This is the whole of "sign in": it does not
+ * certify a key and it never pays proof of work, because neither is what returning to an
+ * identity the node already knows costs.
+ */
+export async function authenticateForumIdentity(baseUrl: string): Promise<string> {
+  if (!activeSigner) throw new Error('Unlock your Forum identity first');
+  const signer = activeSigner;
+  const identity = await signer.identity({ kind: 'device' });
+  const challenge = await requestJson<{
+    readonly challenge: string;
+    readonly claim: string;
+  }>(baseUrl, `/v1/auth/challenge?public_key=${encodeURIComponent(base64(identity.publicKey))}`);
+  const signature = await signer.sign(
+    { kind: 'device' },
+    authBytes(identity.publicKey, unbase64(challenge.challenge)),
+  );
+  const session = await requestJson<{ readonly accessToken: string }>(baseUrl, '/v1/auth', {
+    method: 'POST',
+    body: JSON.stringify({
+      public_key: base64(identity.publicKey),
+      challenge: challenge.challenge,
+      claim: challenge.claim,
+      signature: base64(signature),
+    }),
+  });
+  activeAccessToken = session.accessToken;
+  await AsyncStorage.removeItem(vaultKey(FORUM_SIGNED_OUT_KEY));
+  return identity.id;
+}
+
+/** Acquire a blind publishing credential if this vault is not already holding one. */
+async function ensureForumCredential(baseUrl: string): Promise<void> {
+  if (activeCredential || !activeSigner || !activeAccessToken) return;
+  const signer = activeSigner;
+  const parameters = await requestJson<BlindCredentialPublicKey>(
+    baseUrl,
+    '/v1/credentials/parameters',
+  );
+  signer.configureCredentialKey(parameters);
+  const blinded = await signer.blind(await Crypto.getRandomBytesAsync(32));
+  const issued = await requestJson<{ readonly blindSignature: string }>(
+    baseUrl,
+    '/v1/credentials/request',
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${activeAccessToken}` },
+      body: JSON.stringify({ blinded: base64(blinded.blinded) }),
+    },
+  );
+  activeCredential = await signer.unblind(blinded.state, unbase64(issued.blindSignature));
+  await SecureStore.setItemAsync(
+    vaultKey(FORUM_CREDENTIAL_KEY),
+    base64(activeCredential.bytes),
+    storeOptions,
+  );
+}
+
+/**
+ * Sign an unlocked vault in to `baseUrl`, registering only if the node does not know the key.
+ *
+ * Restoring a recovery phrase used to drop straight into the registration path, which
+ * re-certified an already-certified key and made returning to your own identity look and cost
+ * exactly like creating a new one. Authentication is tried first for that reason; the fall
+ * back to full registration is for the genuinely new case — a phrase restored onto a node that
+ * has never seen it — and is not reached otherwise.
+ */
+export async function signInForumIdentity(
+  baseUrl: string,
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<string> {
+  if (!activeSigner) throw new Error('Unlock your Forum identity first');
+  let identityId: string;
+  try {
+    identityId = await authenticateForumIdentity(baseUrl);
+  } catch {
+    identityId = await registerForumIdentity(baseUrl, auditServices);
+    await AsyncStorage.removeItem(vaultKey(FORUM_SIGNED_OUT_KEY));
+    return identityId;
+  }
+  await ensureForumCredential(baseUrl);
+  return identityId;
+}
+
+/**
+ * Reopen the session a previous run left behind. Called once per launch.
+ *
+ * `activeSigner` and `activeAccessToken` are module state, so before this existed every cold
+ * start left a fully registered device holding a locked vault and no token: the feed rendered,
+ * every signed action failed with "Unlock your Forum identity first", and the only way back
+ * was the onboarding flow. Nothing here is fatal — a device-lock vault that cannot reach its
+ * node stays unlocked and offline rather than bouncing the person to a sign-in wall, which is
+ * the whole point of a client that assumes the network is missing.
+ */
+export async function restoreForumSession(
+  baseUrl: string | null,
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<ForumSessionSummary> {
+  if (!(await SecureForumSigner.exists())) return forumSessionSummary();
+  if (await isForumSignedOut()) return forumSessionSummary();
+  if (!activeSigner) {
+    try {
+      // No argument: only a vault whose wrapping secret is in the device keystore opens
+      // silently. A password-protected vault throws here and the caller shows its unlock
+      // screen, which is exactly the protection the person asked for.
+      await unlockForumIdentity();
+    } catch {
+      return forumSessionSummary();
+    }
+  }
+  if (baseUrl && !activeAccessToken) {
+    try {
+      await signInForumIdentity(baseUrl, auditServices);
+    } catch {
+      // Offline, or the node is down. The vault is open and reads come from cache.
+    }
+  }
+  return forumSessionSummary();
 }
 
 export async function checkCaptchaReachability(
@@ -787,56 +939,12 @@ export async function registerForumIdentity(
   await submitAuditedEnvelope(baseUrl, certificate.wireBytes, auditServices);
   console.log('[Register] Certificate envelope accepted.');
 
-  console.log('[Register] Requesting auth challenge from /v1/auth/challenge...');
-  const challenge = await requestJson<{
-    readonly challenge: string;
-    readonly claim: string;
-  }>(baseUrl, `/v1/auth/challenge?public_key=${encodeURIComponent(base64(identity.publicKey))}`);
-
-  const challengeBytes = unbase64(challenge.challenge);
-  const signature = await signer.sign(
-    { kind: 'device' },
-    authBytes(identity.publicKey, challengeBytes),
-  );
-
-  console.log('[Register] Authenticating via POST /v1/auth...');
-  const session = await requestJson<{ readonly accessToken: string }>(baseUrl, '/v1/auth', {
-    method: 'POST',
-    body: JSON.stringify({
-      public_key: base64(identity.publicKey),
-      challenge: challenge.challenge,
-      claim: challenge.claim,
-      signature: base64(signature),
-    }),
-  });
-  activeAccessToken = session.accessToken;
+  console.log('[Register] Authenticating with a signed challenge...');
+  await authenticateForumIdentity(baseUrl);
   console.log('[Register] Auth token obtained.');
 
-  console.log('[Register] Requesting blind credential parameters...');
-  const parameters = await requestJson<BlindCredentialPublicKey>(
-    baseUrl,
-    '/v1/credentials/parameters',
-  );
-  signer.configureCredentialKey(parameters);
-
   console.log('[Register] Requesting blind credential issue...');
-  const blinded = await signer.blind(await Crypto.getRandomBytesAsync(32));
-  const issued = await requestJson<{ readonly blindSignature: string }>(
-    baseUrl,
-    '/v1/credentials/request',
-    {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${activeAccessToken}` },
-      body: JSON.stringify({ blinded: base64(blinded.blinded) }),
-    },
-  );
-
-  activeCredential = await signer.unblind(blinded.state, unbase64(issued.blindSignature));
-  await SecureStore.setItemAsync(
-    vaultKey(FORUM_CREDENTIAL_KEY),
-    base64(activeCredential.bytes),
-    storeOptions,
-  );
+  await ensureForumCredential(baseUrl);
   console.log('[Register] Registration and credential issuance complete for:', identity.id);
   return identity.id;
 }

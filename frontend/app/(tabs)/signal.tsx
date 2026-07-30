@@ -22,6 +22,7 @@ export default function SignalTabRoute() {
         onIdentity={() => router.push('/signal/identity')}
         onMap={() => router.push('/signal/map')}
         onMessages={() => router.push('/signal/messages')}
+        onMesh={() => router.push('/signal/mesh' as never)}
         onNetwork={() => router.push('/network')}
         reach={reach}
       />

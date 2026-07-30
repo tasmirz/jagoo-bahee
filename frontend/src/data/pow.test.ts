@@ -16,6 +16,7 @@ describe('proof of work', () => {
     const authorKey = new Uint8Array(32).fill(5);
     const challenge: PowChallengeJson = {
       challenge: globalThis.btoa(String.fromCharCode(...challengeBytes)),
+      boundTo: globalThis.btoa(String.fromCharCode(...authorKey)),
       memoryKiB: 1024,
       iterations: 2,
       parallelism: 1,
@@ -35,5 +36,22 @@ describe('proof of work', () => {
     expect(Number(new DataView(proof.buffer).getBigUint64(1, false))).toBe(challenge.expiresAtMs);
     expect(hex(proof.slice(9, 41))).toBe(hex(challengeBytes));
     expect(hex(proof.slice(41))).toBe(hex(expectedDigest));
+  });
+
+  it('rejects a challenge bound to another registration key', async () => {
+    const authorKey = new Uint8Array(32).fill(5);
+    await expect(
+      solvePow(
+        {
+          challenge: globalThis.btoa(String.fromCharCode(...new Uint8Array(32).fill(7))),
+          boundTo: globalThis.btoa(String.fromCharCode(...new Uint8Array(32).fill(6))),
+          memoryKiB: 1024,
+          iterations: 2,
+          parallelism: 1,
+          expiresAtMs: 1_900_000_000_000,
+        },
+        authorKey,
+      ),
+    ).rejects.toThrow('not bound to this signing key');
   });
 });

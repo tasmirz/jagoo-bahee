@@ -18,6 +18,9 @@ export default function CommunityRoute() {
       onOpenNetwork={() => router.push('/network')}
       onOpenPost={(contentId) => router.push({ pathname: '/post/[contentId]', params: { contentId } })}
       onOpenAuthor={(keyId) => router.push(`/identity/${keyId}` as never)}
+      onOpenAudit={(contentId) =>
+        router.push({ pathname: '/audit/[contentId]', params: { contentId } })
+      }
       onOpenManagement={() => router.push(`/community/${communityId}/manage` as never)}
       onCreatePost={() => router.push(`/composer?community=${communityId}` as never)}
     />

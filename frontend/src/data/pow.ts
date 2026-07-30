@@ -2,6 +2,7 @@ import { cryptoBackend } from '@jagoo/sdk/crypto';
 
 export interface PowChallengeJson {
   readonly challenge: string;
+  readonly boundTo: string;
   readonly memoryKiB: number;
   readonly iterations: number;
   readonly parallelism: number;
@@ -48,15 +49,33 @@ export async function solvePow(
     );
   }
   const challengeBytes = fromBase64(challenge.challenge);
+  const boundKey = fromBase64(challenge.boundTo);
+  if (
+    challengeBytes.length !== 32 ||
+    boundKey.length !== authorKey.length ||
+    !boundKey.every((byte, index) => byte === authorKey[index])
+  ) {
+    throw new Error('proof-of-work challenge is not bound to this signing key');
+  }
+  if (
+    !Number.isInteger(challenge.memoryKiB) ||
+    challenge.memoryKiB < 8 ||
+    !Number.isInteger(challenge.iterations) ||
+    challenge.iterations < 1 ||
+    !Number.isInteger(challenge.parallelism) ||
+    challenge.parallelism < 1
+  ) {
+    throw new Error('proof-of-work challenge parameters are invalid');
+  }
   console.log('[PoW] Solving Argon2id challenge...');
   const hash = cryptoBackend().argon2id(
     powPassword(challengeBytes),
     authorKey,
     {
-      // The dependency-free development node advertises deliberately tiny test values;
-      // every backend enforces these portable minimums.
-      memoryKiB: Math.max(1024, challenge.memoryKiB),
-      iterations: Math.max(2, challenge.iterations),
+      // These values are part of the issued challenge. Substituting local minimums creates
+      // a perfectly valid Argon2 digest which the issuing node cannot verify.
+      memoryKiB: challenge.memoryKiB,
+      iterations: challenge.iterations,
       parallelism: challenge.parallelism,
       dkLen: 32,
     },

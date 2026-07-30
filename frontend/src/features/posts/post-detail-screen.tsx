@@ -222,7 +222,7 @@ export function PostDetailScreen({
                 {' '}
                 · u/{item.authorKey.slice(0, 10)}…
               </Text>
-              <Seal colors={colors} state={seal} />
+              <Seal colors={colors} state={seal} onPress={onAudit} />
             </View>
             <Text maxFontSizeMultiplier={maxFontScale.h1} style={[typography.h1, { color: colors.text }]}>
               {item.title}

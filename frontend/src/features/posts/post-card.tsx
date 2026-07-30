@@ -50,6 +50,7 @@ export function PostCard({
   onPress,
   onOpenCommunity,
   onOpenAuthor,
+  onOpenProof,
   onOverflow,
   onRequireJoin,
   onVoteError,
@@ -60,6 +61,7 @@ export function PostCard({
   readonly onPress: () => void;
   readonly onOpenCommunity?: () => void;
   readonly onOpenAuthor?: () => void;
+  readonly onOpenProof?: () => void;
   readonly onOverflow?: () => void;
   readonly onRequireJoin?: () => void;
   readonly onVoteError?: (message: string) => void;
@@ -94,7 +96,7 @@ export function PostCard({
             · u/{post.authorKey.slice(0, 8)}… · {relativeTime(post.createdAtMs)}
           </Text>
           <View style={styles.metaTrailing}>
-            <Seal colors={colors} state={seal} />
+            <Seal colors={colors} state={seal} onPress={onOpenProof} />
             {onOverflow ? (
               <IconButton colors={colors} icon="ellipsis-horizontal" label="More actions" onPress={onOverflow} />
             ) : null}

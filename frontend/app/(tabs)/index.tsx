@@ -21,6 +21,9 @@ export default function FeedRoute() {
         router.push({ pathname: '/community/[communityId]', params: { communityId } })
       }
       onOpenAuthor={(keyId) => router.push(`/identity/${keyId}` as never)}
+      onOpenAudit={(contentId) =>
+        router.push({ pathname: '/audit/[contentId]', params: { contentId } })
+      }
     />
   );
 }

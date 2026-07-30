@@ -1,4 +1,4 @@
-import { Redirect, Tabs, useRouter } from 'expo-router';
+import { Tabs, useRouter } from 'expo-router';
 import { useApp } from '../../src/application/app-provider';
 import { AppLoading, BottomNavigation, TABS } from '../../src/design-system';
 import { TabBarInsetProvider } from '../../src/design-system/layout';
