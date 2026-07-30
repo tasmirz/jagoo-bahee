@@ -55,15 +55,26 @@ export function callerAddress(request: FastifyRequest): string | null {
   const configured = Number(process.env.TRUSTED_PROXY_HOPS ?? 0);
   const trustedHops = Number.isSafeInteger(configured) && configured >= 0 ? configured : 0;
   const forwarded = request.headers['x-forwarded-for'];
-  try {
-    return networkSubjects(
-      request.raw.socket.remoteAddress ?? request.ip,
-      Array.isArray(forwarded) ? forwarded[0] : forwarded,
-      trustedHops,
-    ).address;
-  } catch {
-    // An unparseable or short forwarded chain means we do not know who is calling. The
-    // caller of this function must render that as "unknown", never as a default scope.
-    return null;
+  // Both sources, in order of directness. `remoteAddress` used to be taken alone whenever it
+  // was merely PRESENT, so a socket that reported something unparseable — or one already
+  // torn down — made the whole classification "unknown" while `request.ip` held the answer.
+  // The client renders that as "Unknown route", which is indistinguishable from a node that
+  // genuinely cannot tell.
+  const candidates = [request.raw.socket?.remoteAddress, request.ip].filter(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  );
+  for (const candidate of candidates) {
+    try {
+      return networkSubjects(
+        candidate,
+        Array.isArray(forwarded) ? forwarded[0] : forwarded,
+        trustedHops,
+      ).address;
+    } catch {
+      // Try the next source. An unparseable or short forwarded chain means we do not know
+      // who is calling, and the caller of this function must render that as "unknown",
+      // never as a default scope.
+    }
   }
+  return null;
 }

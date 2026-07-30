@@ -45,15 +45,48 @@ export interface LinkClassification {
 
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 
-/** Strip a port, brackets and the IPv4-mapped-IPv6 prefix. Returns '' when unusable. */
+/**
+ * Reduce anything that names a host to a bare IP. Returns '' when there is no IP in it.
+ *
+ * Both sides of the comparison in `classifyLink` reach it in different shapes and BOTH must
+ * be accepted here or the comparison silently never matches. The caller address arrives bare
+ * (`192.168.1.77`, or `::ffff:192.168.1.77` from a dual-stack socket); the node's own
+ * addresses arrive as published URLs (`http://192.168.1.20:3000`), because that list is the
+ * one clients dial. Feeding a URL to the old parser produced the string
+ * `http://192.168.1.20:3000` — which `subnetOf` happily turned into a `::/64` that could
+ * never equal a caller's `/24`, so `shared-subnet` was unreachable in production while its
+ * unit test passed on hand-written bare IPs. A phone on the same Wi-Fi therefore never read
+ * "Same network".
+ *
+ * A hostname resolves to '' rather than to itself: an unresolved name is not evidence of a
+ * shared segment, and the asymmetry documented above says absent evidence must not become a
+ * narrow answer.
+ */
 export function normaliseAddress(value: string): string {
-  const trimmed = value.trim().replace(/^\[|\]$/g, '');
-  const withoutPort = IPV4.test(trimmed.replace(/:\d+$/, '')) ? trimmed.replace(/:\d+$/, '') : trimmed;
+  let text = value.trim();
+  if (!text) return '';
+  const scheme = /^[a-z][a-z0-9+.-]*:\/\//i.exec(text);
+  if (scheme) text = text.slice(scheme[0].length);
+  // Keep the authority only — a path, query or fragment says nothing about the host.
+  text = text.split('/', 1)[0]!.split('?', 1)[0]!.split('#', 1)[0]!;
+  const userInfo = text.lastIndexOf('@');
+  if (userInfo >= 0) text = text.slice(userInfo + 1);
+  // Brackets exist precisely so an IPv6 authority's port is unambiguous; without them a
+  // trailing `:\d+` is only a port when what precedes it is a complete IPv4 address.
+  const bracketed = /^\[([^\]]*)\](?::\d+)?$/.exec(text);
+  if (bracketed) {
+    text = bracketed[1]!;
+  } else {
+    // Unbracketed, so a single colon can only be a port: an IPv6 literal always has at
+    // least two, and one may not carry a port without brackets.
+    const parts = text.split(':');
+    if (parts.length === 2 && /^\d+$/.test(parts[1]!)) text = parts[0]!;
+  }
   // `::ffff:192.0.2.1` is how a dual-stack listener reports an IPv4 peer. Comparing it as an
   // IPv6 address against an IPv4 interface address would never match, so a phone on the same
   // Wi-Fi would read as remote purely because the socket was dual-stack.
-  const unmapped = withoutPort.replace(/^::ffff:/i, '');
-  return IPV4.test(unmapped) || unmapped.includes(':') ? unmapped : '';
+  const unmapped = text.replace(/^::ffff:/i, '');
+  return isIpv4(unmapped) || unmapped.includes(':') ? unmapped : '';
 }
 
 function isIpv4(value: string): boolean {

@@ -15,22 +15,29 @@ import {
 } from '../../design-system';
 import { spacing, type as typography } from '../../design-system';
 import { publishSignalDirectoryProfile, signalSessionSummary } from '../../signer/signal';
+/*
+  Imported from the modules themselves, never from `./index`. `index.ts` re-exports this
+  file, so pulling the barrel back in here makes `signal/index.ts -> rns-screen.tsx ->
+  signal/index.ts` a require cycle: Metro warns, and every binding this file reads is
+  whatever the half-initialised barrel happens to hold at that moment.
+*/
 import {
   deleteSignalContact,
   loadSignalContacts,
-  drainSignalLxmf,
   markSignalContactMessaged,
-  searchSignalDirectory,
-  sendSignalLxmf,
+  saveSignalContactFromDirectory,
   setSignalContactFollowed,
+  verifySignalContact,
+  type SignalContact,
+} from './contacts';
+import { searchSignalDirectory, type SignalDirectoryProfile } from './directory';
+import {
+  drainSignalLxmf,
+  sendSignalLxmf,
   signalRnsStatus,
   startSignalRns,
   stopSignalRns,
-  saveSignalContactFromDirectory,
-  verifySignalContact,
-  type SignalContact,
-  type SignalDirectoryProfile,
-} from '.';
+} from './rns';
 import type { RnsStatus } from '../../../modules/jagoo-rns';
 
 const DEFAULT_INDEX = process.env.EXPO_PUBLIC_SIGNAL_INDEX_URL ?? '';

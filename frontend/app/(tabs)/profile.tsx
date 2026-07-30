@@ -33,12 +33,14 @@ export default function ProfileRoute() {
           ? () => router.push({ pathname: '/feature/[featureId]', params: { featureId: 'admin' } })
           : undefined
       }
-      onSignOut={() =>
-        void signOut().then(() => {
-          router.dismissAll();
-          router.replace('/');
-        })
-      }
+      /*
+        No navigation. `signOut` locks the vault and flips `session`, and the tab layout's
+        `useSessionGate` renders the sign-in screen in place of the tabs on the next paint.
+        The previous `router.dismissAll()` dispatched `POP_TO_TOP` from the root stack's
+        FIRST route, which no navigator can handle — React Native logged an error and the
+        `replace('/')` behind it was left deciding a security boundary by route resolution.
+      */
+      onSignOut={() => void signOut()}
     />
   );
 }

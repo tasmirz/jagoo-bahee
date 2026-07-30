@@ -53,7 +53,15 @@ export function CommunitiesScreen({
   const [query, setQuery] = useState('');
   const debounced = useDebouncedValue(query, 250);
   const discover = useNodeCommunities(homeNode.baseUrl, debounced);
-  const joined = useNodeDocument<NodePage<MyMembershipRow>>(homeNode.baseUrl, '/v1/me/communities');
+  // `/v1/me/*` is `actor()`-gated, not `optionalActor()`-gated: without the bearer token it
+  // answers 401, the query falls back to an empty cached page, and every joined community
+  // renders as unjoined with a live "Join" button. `viewer: true` is what attaches the token
+  // AND puts the viewer in the query key, so the list cannot survive an identity switch.
+  const joined = useNodeDocument<NodePage<MyMembershipRow>>(
+    homeNode.baseUrl,
+    '/v1/me/communities',
+    { viewer: true },
+  );
   const joinedIds = new Set((joined.data?.value.items ?? []).map((row) => row.community));
   const discoverItems = discover.data?.value.items ?? [];
   const items: readonly NodeCommunity[] =

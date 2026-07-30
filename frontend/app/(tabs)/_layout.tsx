@@ -1,6 +1,7 @@
 import { Tabs, useRouter } from 'expo-router';
 import { useApp } from '../../src/application/app-provider';
-import { AppLoading, BottomNavigation, TABS } from '../../src/design-system';
+import { useSessionGate } from '../../src/application/session-gate';
+import { BottomNavigation, TABS } from '../../src/design-system';
 import { TabBarInsetProvider } from '../../src/design-system/layout';
 import { useUnreadCount } from '../../src/features/notifications/use-unread-count';
 
@@ -14,7 +15,11 @@ export default function TabLayout() {
   const { colors, homeNode, themeMode } = useApp();
   const unreadCount = useUnreadCount(homeNode?.baseUrl ?? null);
   const router = useRouter();
-  if (homeNode === undefined) return <AppLoading colors={colors} />;
+  // Signing out is a state change, not a navigation: the moment the vault locks, the tabs
+  // stop rendering and the gate takes their place. Nothing here depends on `POP_TO_TOP`
+  // reaching a navigator that can handle it, or on how `/` resolves against this group.
+  const gate = useSessionGate();
+  if (gate) return gate;
   return (
     <TabBarInsetProvider>
       <Tabs

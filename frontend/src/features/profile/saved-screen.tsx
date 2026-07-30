@@ -46,7 +46,11 @@ export function SavedScreen({
   readonly onOpenPost: (contentId: string) => void;
   readonly onOpenAudit: (contentId: string) => void;
 }) {
-  const saved = useNodeDocument<NodePage<SavedRow>>(homeNode.baseUrl, '/v1/me/saved');
+  // `actor()`-gated on the node — without `viewer: true` no bearer token is sent, the route
+  // answers 401 and the screen renders as "nothing saved" for someone who saved things.
+  const saved = useNodeDocument<NodePage<SavedRow>>(homeNode.baseUrl, '/v1/me/saved', {
+    viewer: true,
+  });
   const rows = saved.data?.value.items ?? [];
   const postRows = rows.filter((row) => row.targetKind === 1);
   const commentRows = rows.filter((row) => row.targetKind === 2);

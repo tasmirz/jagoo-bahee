@@ -85,6 +85,9 @@ const ROOT_KEY = 'jb.signal.root.v1';
 const CHANNEL_MAP_KEY = 'jb.signal.channels.v1';
 const text = new TextEncoder();
 const RNS_BINDING_PREFIX = text.encode('jb:signal:lxmf-binding:v1\0');
+/** X25519 || Ed25519 — a Reticulum identity's public half. Mirrors the node's check. */
+const RNS_PUBLIC_KEY_BYTES = 64;
+const LXMF_DESTINATION_BYTES = 16;
 const storeOptions: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
 };
@@ -883,6 +886,30 @@ export async function publishSignalDirectoryProfile(
   // in the envelope is a partial binding, which the node rejects.
   const transport = destination ? await signer.rnsTransportIdentity() : null;
   try {
+    /*
+      Check the binding's shape HERE, not at the node.
+
+      `SignalDirectoryProfileHandler.validate` accepts a binding that is wholly absent or
+      wholly valid and rejects everything between, so a transport key that is not exactly
+      64 bytes (X25519 || Ed25519) comes back as `rns_public_key must be 64 bytes` — a
+      server-side protocol error surfaced to someone who was typing a username, with no
+      indication that the mesh transport is what went wrong. Whatever produced the wrong
+      length is on this device, so this device is where it has to be named.
+    */
+    if (transport && destination) {
+      if (transport.publicKey.length !== RNS_PUBLIC_KEY_BYTES) {
+        throw new Error(
+          `The mesh transport key is ${transport.publicKey.length} bytes, not ${RNS_PUBLIC_KEY_BYTES}. ` +
+            'Your username can still be published without a mesh address — stop RNS and try again.',
+        );
+      }
+      if (destination.length !== LXMF_DESTINATION_BYTES) {
+        throw new Error(
+          `The LXMF destination is ${destination.length} bytes, not ${LXMF_DESTINATION_BYTES}. ` +
+            'Restart the Signal transport and try again.',
+        );
+      }
+    }
     const bound = transport && destination
       ? {
           rns_public_key: transport.publicKey,

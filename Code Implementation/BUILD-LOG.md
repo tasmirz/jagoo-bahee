@@ -1797,3 +1797,115 @@ apart from the pre-existing `load-env.ts` dotenv error.
 pinned by the compiler and by `gutter.test.tsx`; "it looks right on the phone" has not been
 re-observed since the change.
 
+
+---
+
+## 2026-07-31 — Four reported client faults: joined state, sign-out, the link pill, the require cycle
+
+**Reported:** joining a community still offered "Join"; sign-out logged
+`The action 'POP_TO_TOP' was not handled by any navigator` and did not sign out; the network
+indicator read "Unknown route" and "Same network" at the same time; Metro warned about a
+require cycle in `features/signal`; and publishing a Signal profile failed with
+`rns_public_key must be 64 bytes`.
+
+### 1. `/v1/me/*` was read anonymously (the "joined" bug)
+
+`useNodeDocument` attaches the bearer token **only** when the call passes `{ viewer: true }`.
+`/v1/me/communities` and `/v1/me/saved` did not pass it. On the node those two routes go
+through `actor()` — the strict form, which throws 401 — not `optionalActor()`, so the answer
+was always 401, `OfflineApi` fell back to the empty cache, and `joinedIds` was permanently
+empty. Every community in the directory therefore rendered as unjoined, and Saved rendered as
+empty for someone with saved items. One missing option, two screens, and no error anywhere:
+an empty list is what "success with nothing in it" looks like too.
+
+`/v1/communities/:id` was already correct, which is why the community page's own Join/Leave
+button worked while the list beside it did not — the two disagreed and both looked plausible.
+
+**Gate:** `src/data/viewer-scoped-reads.test.ts` parses every `useNodeDocument(...)` call in
+`frontend/src` with a balanced-paren scanner and fails if any `/v1/me/` path omits
+`viewer: true`. Per §7.4 it also asserts the scanner flags a hand-written violating call and
+passes a compliant one, plus a control that it matches any calls at all — a source scanner
+that silently matched nothing would pass for ever.
+
+### 2. Sign-out was three imperative steps and only one of them was reliable
+
+`(tabs)/profile.tsx` did `signOut()` → `router.dismissAll()` → `router.replace('/')`.
+`dismissAll()` dispatches `POP_TO_TOP` at the root navigator; from inside `(tabs)`, the root
+stack's FIRST route, `StackRouter` returns null for it and React Native logs the unhandled
+action. What was left deciding whether the person was actually signed out was `replace('/')`
+resolving against `app/index.tsx` rather than `app/(tabs)/index.tsx` — route resolution as a
+security boundary.
+
+**Fix:** the gate is declarative and shared. `src/application/session-gate.tsx` holds the
+whole decision (`useSessionGate`); `app/index.tsx` and `app/(tabs)/_layout.tsx` both render
+it. Signing out is now a state change: the vault locks, `session` flips, and the tabs stop
+rendering on the next paint. No navigation, so nothing depends on an action reaching a
+navigator that can handle it — and a locked vault can no longer sit behind the tabs by any
+route at all, which is the invariant `app/index.tsx` already claimed to hold.
+
+### 3. `shared-subnet` was unreachable in production while its unit test passed
+
+`classifyLink` compares the caller's address against `ServiceDirectory.localAddresses()`.
+That directory publishes **URLs** — `http://192.168.1.20:3000` — because its other consumer
+is the client's dial list. `normaliseAddress` only understood bare addresses, so a URL fell
+through to its `includes(':')` branch and came back verbatim; `subnetOf` then turned it into
+`http://192.168.1.20:3000::/64`, which cannot equal a caller's `192.168.1.0/24`. The
+`shared-subnet` branch was therefore dead in every real deployment, and a phone on the same
+Wi-Fi as the node read "Nearby network" or "Unknown route" beside a sheet reporting the
+node's own reach as LAN — "Same network". Two labels, one screen, contradicting each other.
+
+Every existing test in `link-scope.spec.ts` hands the function hand-written bare IPs, so the
+gate was green on input production never supplies. `normaliseAddress` now reduces any of
+URL / authority / bracketed IPv6 / host:port / bare address to an IP, and returns `''` for a
+hostname — an unresolved name is not evidence of a shared segment, and the file's own
+asymmetry rule says absent evidence must never become the narrow answer.
+
+`callerAddress` also tried `request.raw.socket.remoteAddress` alone whenever it was merely
+present; an unparseable or torn-down socket made the whole classification "unknown" while
+`request.ip` held the answer. It now tries both in order of directness.
+
+**Gate:** `link-scope.spec.ts` gains the production shape (URLs on both IPv4 and IPv6), a
+no-false-positive case on a different segment, a hostname-only case, and a table for
+`normaliseAddress` covering every written form plus the things that are not addresses.
+
+### 4. `signal/index.ts → rns-screen.tsx → signal/index.ts`
+
+`rns-screen.tsx` imported its twelve neighbours from the barrel that re-exports it. Fixed by
+importing `./contacts`, `./directory` and `./rns` directly.
+
+### 5. `rns_public_key must be 64 bytes` — NOT reproduced, guard added
+
+Traced end to end and could not reproduce it against this tree. `publishSignalDirectoryProfile`
+attaches the LXMF binding all-or-nothing, and the derived key is 64 bytes
+(X25519 32 ‖ Ed25519 32 — confirmed by running the derivation against the JS backend); the
+onboarding username step attaches no binding at all, and the node has accepted an absent
+binding since a8e017f. So a partial or short binding cannot come from this code.
+
+What was added is a client-side precondition that names the observed lengths and says the
+username can be published without a mesh address, because the node's answer to a wrong-length
+key is a protocol error shown to someone who was typing a username. If it recurs, the message
+now says which field and how long it actually was.
+
+**Also:** `react-native-svg` was only ever present as an auto-installed **peer** of
+`react-native-qrcode-svg`, at 15.15.5 against Expo SDK 52's 15.8.0. A native module that two
+screens render (mesh pairing and the Signal identity card) must be a declared dependency at
+the SDK's version, or the resolved version is whatever the lockfile happens to produce.
+Declared at 15.8.0; `expo install --check` is clean. **This needs a native rebuild** of the
+Android dev client to take effect.
+
+**Lesson (L-…):** three of these five were one shape — a value that only differs in
+production. `viewer: true` is absent only when signed in; `localAddresses()` returns URLs only
+outside the test; `POP_TO_TOP` is unhandled only from the first root route. Each had a green
+test beside it, written against the input the author had in hand. When a function's inputs
+come from two different producers, the test has to take them from BOTH producers, not from a
+literal.
+
+**Verified:** `pnpm vectors` → 3 implementations agree on 16 vectors, `expected.json` matches;
+`pnpm lint` → 0 errors workspace-wide; frontend 34 suites / 183 tests; backend 41 files /
+517 tests with 3 files and 13 tests skipped without Mongo/Redis; frontend `tsc --noEmit`
+clean; backend `tsc --noEmit` clean apart from the pre-existing `load-env.ts` dotenv error.
+One backend run showed a single failure that did not reproduce across two subsequent full
+runs — the federation FD-16 case asserts over ~24 s of wall clock and is timing-sensitive.
+
+**Not claimed:** not re-run on a device. The `rns_public_key` report is not closed — it was
+not reproduced, only instrumented.
