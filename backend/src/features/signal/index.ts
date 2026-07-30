@@ -30,6 +30,7 @@ import {
   SignalKeyCertifyHandler,
   SignalKeyRevokeHandler,
 } from './identity/certificate.handlers.js';
+import { SignalDirectoryProfileHandler } from './directory/profile.handlers.js';
 
 /** P4 handlers stay in one plane-specific registration list; ingress remains unchanged. */
 export function signalHandlers(
@@ -45,6 +46,7 @@ export function signalHandlers(
     new ChannelRetireHandler(projections),
     new ChannelVouchHandler(projections),
     new ChannelSubscribeHandler(projections),
+    new SignalDirectoryProfileHandler(projections),
     new BroadcastEmitHandler(projections, push),
     new BroadcastRevokeHandler(projections),
     new CheckInHandler(projections),

@@ -12,6 +12,7 @@ import {
   SignalGroupUpdate,
   SignalMessage,
   SignalSessionInit,
+  SignalDirectoryProfile,
 } from '@jagoo/sdk/proto';
 import { channelId } from '@jagoo/sdk';
 import {
@@ -23,7 +24,7 @@ import {
 } from '@jagoo/sdk/crypto';
 import { Plane, Priority } from '../../core/domain/envelope.js';
 
-import { AUTHOR_KEY, NOW_MS, buildHarness, signEnvelope } from '../../testing/harness.js';
+import { AUTHOR_KEY, AUTHOR_SEED, NOW_MS, buildHarness, signEnvelope } from '../../testing/harness.js';
 import { signalHandlers } from './index.js';
 import {
   SIGNAL_CHANNELS_COLLECTION,
@@ -50,6 +51,11 @@ import {
   type SignalMessageDoc,
   type SignalSessionDoc,
 } from './message/signal-message.handlers.js';
+import {
+  SIGNAL_DIRECTORY_PROFILES_COLLECTION,
+  signalTransportBindingBytes,
+  type SignalDirectoryProfileDoc,
+} from './directory/profile.handlers.js';
 
 let nonce = 20;
 const nextNonce = (): Uint8Array => new Uint8Array(16).fill((nonce += 1));
@@ -191,6 +197,57 @@ describe('P4 channels and broadcasts', () => {
     expect(defaultSeverityAllows(4, 'unverified')).toBe(false);
     expect(defaultSeverityAllows(4, 'known')).toBe(true);
     expect(defaultSeverityAllows(3, 'unverified')).toBe(true);
+  });
+});
+
+describe('Signal directory and LXMF binding', () => {
+  it('indexes an opt-in Signal profile only when the identity signs its RNS/LXMF binding', async () => {
+    const h = await signalHarness();
+    const rnsPublicKey = new Uint8Array(64).fill(9);
+    const destinationHash = new Uint8Array(16).fill(7);
+    const encode = (revision: bigint) =>
+      SignalDirectoryProfile.encode(
+        SignalDirectoryProfile.fromPartial({
+          display_name: 'Amina Rahman',
+          bio: 'Mutual aid contact',
+          rns_public_key: rnsPublicKey,
+          lxmf_destination_hash: destinationHash,
+          transport_binding_sig: ed25519.sign(
+            signalTransportBindingBytes(rnsPublicKey, destinationHash),
+            AUTHOR_SEED,
+          ),
+          languages: ['bn', 'en'],
+          discoverable: true,
+          revision,
+        }),
+      ).finish();
+
+    await h.pipeline.accept(
+      signEnvelope({
+        plane: Plane.SIGNAL,
+        domain: 'jb:signal:profile:v1',
+        priority: Priority.BULK,
+        nonce: nextNonce(),
+        body: encode(1n),
+      }),
+    );
+    expect(
+      await h.projections
+        .collection<SignalDirectoryProfileDoc>(SIGNAL_DIRECTORY_PROFILES_COLLECTION)
+        .findOne({}),
+    ).toMatchObject({ displayName: 'Amina Rahman', lxmfDestinationHash: '07070707070707070707070707070707' });
+
+    await expect(
+      h.pipeline.accept(
+        signEnvelope({
+          plane: Plane.SIGNAL,
+          domain: 'jb:signal:profile:v1',
+          priority: Priority.BULK,
+          nonce: nextNonce(),
+          body: encode(1n),
+        }),
+      ),
+    ).rejects.toThrow(/revision must increase/i);
   });
 });
 

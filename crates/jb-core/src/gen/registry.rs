@@ -477,6 +477,18 @@ pub const DOMAIN_SPECS: &[DomainSpec] = &[
         federate: false,
     },
     DomainSpec {
+        domain: "jb:signal:profile:v1",
+        plane: Plane::Signal,
+        body: "jagoo.v1.SignalDirectoryProfile",
+        priority: Priority::Bulk,
+        idempotent: false,
+        scope_kind: ScopeKind::None,
+        max_bytes: 4096,
+        credit_cost: 1,
+        requires_certificate: true,
+        federate: true,
+    },
+    DomainSpec {
         domain: "jb:broadcast:emit:v1",
         plane: Plane::Signal,
         body: "jagoo.v1.BroadcastEmit",

@@ -13,6 +13,7 @@
       "expo-secure-store",
       "expo-notifications",
       "expo-camera",
+      "./plugins/with-jagoo-rns",
       "@config-plugins/react-native-webrtc",
       [
         "expo-build-properties",

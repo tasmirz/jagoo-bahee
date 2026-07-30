@@ -1,0 +1,25 @@
+services:
+  relay:
+    image: python:3.11-slim
+    working_dir: /suite
+    volumes: ["./:/suite:ro"]
+    command: ["python", "relay.py"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import socket; socket.create_connection((\"localhost\",4242),2).close()'"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+  tcp-client:
+    image: python:3.11-slim
+    working_dir: /suite
+    volumes: ["./:/suite:ro"]
+    depends_on:
+      relay: { condition: service_healthy }
+    command: ["python", "tcp_client.py", "relay"]
+  wifi-client:
+    image: python:3.11-slim
+    working_dir: /suite
+    volumes: ["./:/suite:ro"]
+    # Keep this probe alive while the TCP client finishes; --abort-on-container-exit would
+    # otherwise stop the relay before the dependent client has had a chance to run.
+    command: ["sh", "-c", "python wifi_client.py && tail -f /dev/null"]

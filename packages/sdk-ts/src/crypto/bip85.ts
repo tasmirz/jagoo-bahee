@@ -54,6 +54,14 @@ export const SIGNAL_PATH = {
   MESSAGING: 22,
   /** m/83696968'/23'/0' — signed prekey batch seed. */
   PREKEY: 23,
+  /**
+   * m/83696968'/24'/n' — Reticulum transport material.
+   *
+   * This is intentionally distinct from the legacy Jagoo message/prekey tree. Reticulum
+   * identities contain an X25519 key followed by an Ed25519 key, and reusing either
+   * legacy key would create a cross-protocol correlation point.
+   */
+  RNS_TRANSPORT: 24,
 } as const;
 
 export type ForumPath = (typeof FORUM_PATH)[keyof typeof FORUM_PATH];

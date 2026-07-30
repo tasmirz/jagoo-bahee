@@ -265,3 +265,6 @@ vectors-rust:
 
 vectors-python:
     pnpm run vectors:python
+
+publish remote_port="12001":
+    bore local 3000 --to bore.pub -p {{remote_port}}

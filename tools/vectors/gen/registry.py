@@ -458,6 +458,18 @@ DOMAIN_SPECS: list[DomainSpec] = [
         federate=False,
     ),
     DomainSpec(
+        domain="jb:signal:profile:v1",
+        plane="SIGNAL",
+        body="jagoo.v1.SignalDirectoryProfile",
+        priority="BULK",
+        idempotent=False,
+        scope_kind="NONE",
+        max_bytes=4096,
+        credit_cost=1,
+        requires_certificate=True,
+        federate=True,
+    ),
+    DomainSpec(
         domain="jb:broadcast:emit:v1",
         plane="SIGNAL",
         body="jagoo.v1.BroadcastEmit",
