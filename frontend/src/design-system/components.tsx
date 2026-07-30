@@ -1,5 +1,4 @@
 import {
-  useEffect,
   useRef,
   type ComponentProps,
   type PropsWithChildren,
@@ -18,12 +17,11 @@ import {
 import { BlurView } from 'expo-blur';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { AppPalette } from './tokens';
-import { motion, radius, spacing, type as typography } from './tokens';
-import { useReachScope, type ReachTone } from './reach-scope';
+import type { AppPalette, ThemeMode } from './tokens';
+import { maxFontScale, motion, radius, size, spacing, type as typography } from './tokens';
+import { ReachPill, type ReachState } from './trust';
 
 type IconName = ComponentProps<typeof Ionicons>['name'];
-export type ReachState = 'connected' | 'constrained' | 'blackout';
 
 export function Screen({
   children,
@@ -56,30 +54,54 @@ export function Screen({
   );
 }
 
+/**
+ * @deprecated Prefer `PageHeader` from `design-system/layout` for new screens — it is sticky
+ * (rendered outside the scroll body, fixing root cause #3: this header used to scroll away
+ * with the content) and shows a back control automatically. Kept for screens not yet migrated.
+ */
 export function AppHeader({
   colors,
+  mode,
   reach,
   title = 'Jagoo',
+  onBack,
   onReach,
   onSearch,
 }: {
   readonly colors: AppPalette;
+  /** Which palette is active — avoids string-comparing `colors.bg` against a literal hex. */
+  readonly mode?: ThemeMode;
   readonly reach: ReachState;
   readonly title?: string;
+  /**
+   * When present, renders a leading back control in place of the brand mark — every pushed
+   * (non-tab-root) screen using this legacy header should pass one (root cause #1: several
+   * Signal screens had no back control at all beyond an implicit OS gesture).
+   */
+  readonly onBack?: () => void;
   readonly onReach?: () => void;
   readonly onSearch?: () => void;
 }) {
   return (
     <BlurView
       intensity={Platform.OS === 'android' ? 30 : 55}
-      tint={colors.bg === '#0E0F11' ? 'dark' : 'light'}
+      tint={mode === 'dark' ? 'dark' : 'light'}
       style={[styles.header, { borderBottomColor: colors.border }]}
     >
       <View style={styles.brand}>
-        <View style={[styles.brandMark, { backgroundColor: colors.ember }]}>
-          <View style={[styles.brandMarkHole, { backgroundColor: colors.bg }]} />
-        </View>
-        <Text accessibilityRole="header" style={[typography.h2, { color: colors.text }]}>
+        {onBack ? (
+          <IconButton colors={colors} icon="arrow-back" label="Go back" onPress={onBack} />
+        ) : (
+          <View style={[styles.brandMark, { backgroundColor: colors.ember }]}>
+            <View style={[styles.brandMarkHole, { backgroundColor: colors.bg }]} />
+          </View>
+        )}
+        <Text
+          accessibilityRole="header"
+          numberOfLines={1}
+          maxFontSizeMultiplier={maxFontScale.h2}
+          style={[typography.h2, styles.flex, { color: colors.text }]}
+        >
           {title}
         </Text>
       </View>
@@ -90,177 +112,6 @@ export function AppHeader({
         ) : null}
       </View>
     </BlurView>
-  );
-}
-
-/**
- * The Reach Pill — design.md §4.1, extended for TP-20.
- *
- * ── One device, two levels of truth ────────────────────────────────────────────────
- * design.md §9 says a screen touching reach must reuse one of the seven signature devices
- * rather than invent an eighth. So the scope indicator TP-20 demands IS this pill: when the
- * node has told us which scope it is on, the pill says "Same ISP"; until then it falls back
- * to the three-state Connected / Constrained / Blackout it has always shown. Nothing
- * regresses, and no screen had to be edited to gain the new information.
- *
- * ── Colour is never the sole carrier ───────────────────────────────────────────────
- * Each state and each scope has its own icon shape and its own text label, so the pill still
- * reads completely in greyscale, at maximum font scale, and to a screen reader. That is
- * NFR-A06 and the design-system README's rule, and it is the reason the scope's `icon` is
- * part of its display record rather than derived from its colour.
- */
-export function ReachPill({
-  colors,
-  state,
-  onPress,
-  compact = false,
-}: {
-  readonly colors: AppPalette;
-  readonly state: ReachState;
-  readonly onPress?: () => void;
-  readonly compact?: boolean;
-}) {
-  const { display: scope, onInspect } = useReachScope();
-  const toneColor: Record<ReachTone, string> = {
-    ok: colors.verified,
-    limited: colors.constrained,
-    critical: colors.blackout,
-  };
-  const fallback = {
-    connected: {
-      label: 'Connected',
-      icon: 'cellular-outline' as IconName,
-      color: colors.verified,
-      hint: 'Shows what still works right now',
-    },
-    constrained: {
-      label: 'Constrained',
-      icon: 'swap-vertical-outline' as IconName,
-      color: colors.constrained,
-      hint: 'Shows what still works right now',
-    },
-    blackout: {
-      label: 'Blackout',
-      icon: 'cloud-offline-outline' as IconName,
-      color: colors.blackout,
-      hint: 'Shows what still works right now',
-    },
-  }[state];
-  const settings = scope
-    ? { label: scope.label, icon: scope.icon, color: toneColor[scope.tone], hint: scope.consequence }
-    : fallback;
-
-  // design.md §6 — a 300 ms state change, colour and icon together, no bounce. A crossfade
-  // rather than an interpolated colour because the icon changes at the same moment and a
-  // half-morphed glyph is noise, not information. Reduced motion skips it entirely.
-  const fade = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    let cancelled = false;
-    void AccessibilityInfo.isReduceMotionEnabled().then((reduced) => {
-      if (cancelled || reduced) return;
-      fade.setValue(0);
-      Animated.timing(fade, {
-        toValue: 1,
-        duration: motion.stateMs,
-        useNativeDriver: true,
-      }).start();
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [fade, settings.label, settings.color]);
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Network reach: ${settings.label}`}
-      accessibilityHint={settings.hint}
-      onPress={onInspect ?? onPress}
-      style={({ pressed }) => [
-        styles.reach,
-        {
-          backgroundColor: colors.surface2,
-          borderColor: settings.color,
-          opacity: pressed ? 0.72 : 1,
-          paddingHorizontal: compact ? spacing.sm : spacing.md,
-        },
-      ]}
-    >
-      <Animated.View style={[styles.reachContent, { opacity: fade }]}>
-        <Ionicons name={settings.icon} size={15} color={settings.color} />
-        {!compact ? (
-          <Text numberOfLines={1} style={[typography.caption, { color: settings.color }]}>
-            {settings.label}
-          </Text>
-        ) : null}
-      </Animated.View>
-    </Pressable>
-  );
-}
-
-/**
- * The Seal — design.md §4.2.
- *
- * ── There is no default state, on purpose ───────────────────────────────────────────
- * `state` used to default to `'synced'`, so every `<Seal colors={...} />` in the app
- * asserted "verified · synced" whether or not anything had been verified. A badge that
- * claims verification by default is worse than no badge: it is the server's word wearing
- * the client's uniform. Callers must now say what they checked, and the only honest source
- * for that is `sealStateFor` in `src/verify`.
- *
- * Colour is never the sole carrier (NFR-A06): the ring style — solid for synced, dashed
- * for queued and unverified — carries the same meaning, and the mono caption states it in
- * words for a screen reader and for a grayscale display.
- */
-export function Seal({
-  colors,
-  state,
-  label,
-}: {
-  readonly colors: AppPalette;
-  readonly state: 'synced' | 'queued' | 'failed' | 'unsigned';
-  readonly label?: string;
-}) {
-  const setting = {
-    synced: {
-      color: colors.verified,
-      icon: 'shield-checkmark' as IconName,
-      text: 'verified · synced',
-      dashed: false,
-    },
-    queued: {
-      color: colors.constrained,
-      icon: 'shield-outline' as IconName,
-      text: 'verified · queued',
-      dashed: true,
-    },
-    failed: {
-      color: colors.blackout,
-      icon: 'shield-outline' as IconName,
-      text: 'verification failed',
-      dashed: true,
-    },
-    // No claim is being made. design.md §4.2: the absence of a seal is itself informative.
-    unsigned: {
-      color: colors.text3,
-      icon: 'shield-outline' as IconName,
-      text: 'no proof attached',
-      dashed: true,
-    },
-  }[state];
-  return (
-    <View
-      accessible
-      accessibilityRole="text"
-      accessibilityLabel={label ?? setting.text}
-      style={[
-        styles.seal,
-        setting.dashed ? { borderStyle: 'dashed', borderWidth: 1, borderColor: setting.color } : null,
-      ]}
-    >
-      <Ionicons name={setting.icon} size={14} color={setting.color} />
-      <Text style={[typography.mono, { color: setting.color }]}>{label ?? setting.text}</Text>
-    </View>
   );
 }
 
@@ -308,6 +159,7 @@ export function Button({
   system = 'ember',
   icon,
   disabled,
+  loading = false,
 }: {
   readonly colors: AppPalette;
   readonly label: string;
@@ -316,6 +168,7 @@ export function Button({
   readonly system?: 'ember' | 'signal';
   readonly icon?: IconName;
   readonly disabled?: boolean;
+  readonly loading?: boolean;
 }) {
   const fill =
     variant === 'primary'
@@ -329,24 +182,31 @@ export function Button({
           : 'transparent';
   const textColor =
     variant === 'primary' || variant === 'destructive' ? colors.onAccent : colors.text;
+  const isDisabled = Boolean(disabled) || loading;
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled: Boolean(disabled) }}
-      disabled={disabled}
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      disabled={isDisabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
         {
           backgroundColor: fill,
           borderColor: variant === 'secondary' ? colors.border : fill,
-          opacity: disabled ? 0.45 : pressed ? 0.78 : 1,
+          opacity: isDisabled ? 0.55 : pressed ? 0.78 : 1,
           transform: [{ scale: pressed ? 0.98 : 1 }],
         },
       ]}
     >
       {icon ? <Ionicons name={icon} size={18} color={textColor} /> : null}
-      <Text style={[typography.label, { color: textColor }]}>{label}</Text>
+      <Text
+        numberOfLines={1}
+        maxFontSizeMultiplier={maxFontScale.label}
+        style={[typography.label, { color: textColor }]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -364,12 +224,18 @@ export function SectionHeader({
 }) {
   return (
     <View style={styles.sectionHeader}>
-      <Text accessibilityRole="header" style={[typography.h2, { color: colors.text }]}>
+      <Text
+        accessibilityRole="header"
+        maxFontSizeMultiplier={maxFontScale.h2}
+        style={[typography.h2, { color: colors.text }]}
+      >
         {title}
       </Text>
       {action ? (
         <Pressable accessibilityRole="button" onPress={onAction} hitSlop={8}>
-          <Text style={[typography.label, { color: colors.ember }]}>{action}</Text>
+          <Text maxFontSizeMultiplier={maxFontScale.label} style={[typography.label, { color: colors.ember }]}>
+            {action}
+          </Text>
         </Pressable>
       ) : null}
     </View>
@@ -401,15 +267,15 @@ export function Pill({
         },
       ]}
     >
-      <Text style={[typography.caption, { color: selected ? colors.onAccent : colors.text2 }]}>
+      <Text
+        numberOfLines={1}
+        maxFontSizeMultiplier={maxFontScale.caption}
+        style={[typography.caption, { color: selected ? colors.onAccent : colors.text2 }]}
+      >
         {label}
       </Text>
     </Pressable>
   );
-}
-
-export function Divider({ colors }: { readonly colors: AppPalette }) {
-  return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border }} />;
 }
 
 export function EmptyState({
@@ -435,8 +301,15 @@ export function EmptyState({
       <View style={[styles.emptyIcon, { backgroundColor: colors.surface2 }]}>
         <Ionicons name={icon} size={28} color={accent} />
       </View>
-      <Text style={[typography.h2, { color: colors.text }]}>{title}</Text>
-      <Text style={[typography.body, styles.centerText, { color: colors.text2 }]}>{body}</Text>
+      <Text maxFontSizeMultiplier={maxFontScale.h2} style={[typography.h2, { color: colors.text }]}>
+        {title}
+      </Text>
+      <Text
+        maxFontSizeMultiplier={maxFontScale.body}
+        style={[typography.body, styles.centerText, { color: colors.text2 }]}
+      >
+        {body}
+      </Text>
       {action ? <Button colors={colors} label={action} onPress={onAction} system={system} /> : null}
     </View>
   );
@@ -471,11 +344,17 @@ export function StatusBanner({
     <View style={[styles.banner, { borderColor: colors.border, backgroundColor: colors.surface }]}>
       <Ionicons name={icon} size={20} color={color} />
       <View style={styles.flex}>
-        <Text style={[typography.label, { color: colors.text }]}>{title}</Text>
-        <Text style={[typography.caption, { color: colors.text2 }]}>{body}</Text>
+        <Text maxFontSizeMultiplier={maxFontScale.label} style={[typography.label, { color: colors.text }]}>
+          {title}
+        </Text>
+        <Text maxFontSizeMultiplier={maxFontScale.caption} style={[typography.caption, { color: colors.text2 }]}>
+          {body}
+        </Text>
         {action && onAction ? (
           <Pressable accessibilityRole="button" onPress={onAction} style={styles.bannerAction}>
-            <Text style={[typography.label, { color }]}>{action}</Text>
+            <Text maxFontSizeMultiplier={maxFontScale.label} style={[typography.label, { color }]}>
+              {action}
+            </Text>
           </Pressable>
         ) : null}
       </View>
@@ -483,37 +362,59 @@ export function StatusBanner({
   );
 }
 
+export interface TabDescriptor {
+  readonly id: string;
+  readonly label: string;
+  readonly icon: IconName;
+  readonly activeIcon: IconName;
+  readonly signal?: boolean;
+  readonly badge?: boolean;
+}
+
+/**
+ * The single source of truth for the tab bar (root cause #10: the item list previously lived
+ * twice — once as `<Tabs.Screen>` entries in `app/(tabs)/_layout.tsx`, once as this component's
+ * own array — bridged by a fragile string mapping. `app/(tabs)/_layout.tsx` now imports this
+ * same list instead of re-declaring it.
+ */
+export const TABS: readonly TabDescriptor[] = [
+  { id: 'home', label: 'Home', icon: 'home-outline', activeIcon: 'home' },
+  { id: 'communities', label: 'Communities', icon: 'people-outline', activeIcon: 'people' },
+  { id: 'create', label: 'Create', icon: 'add', activeIcon: 'add' },
+  { id: 'signal', label: 'Signal', icon: 'radio-outline', activeIcon: 'radio', signal: true },
+  { id: 'profile', label: 'You', icon: 'person-outline', activeIcon: 'person' },
+] as const;
+
 export function BottomNavigation({
   colors,
+  mode,
   active,
   onChange,
+  unreadCount = 0,
 }: {
   readonly colors: AppPalette;
+  /** Which palette is active — avoids string-comparing `colors.bg` against a literal hex. */
+  readonly mode?: ThemeMode;
   readonly active: string;
   readonly onChange: (id: string) => void;
+  /** Badge count on the Home item, for unread notifications/messages. */
+  readonly unreadCount?: number;
 }) {
   const insets = useSafeAreaInsets();
-  const items: readonly { id: string; label: string; icon: IconName; signal?: boolean }[] = [
-    { id: 'home', label: 'Home', icon: 'home-outline' },
-    { id: 'communities', label: 'Communities', icon: 'people-outline' },
-    { id: 'create', label: 'Create', icon: 'add' },
-    { id: 'signal', label: 'Signal', icon: 'radio-outline', signal: true },
-    { id: 'profile', label: 'You', icon: 'person-outline' },
-  ];
   return (
     <BlurView
       intensity={Platform.OS === 'android' ? 35 : 65}
-      tint={colors.bg === '#0E0F11' ? 'dark' : 'light'}
+      tint={mode === 'dark' ? 'dark' : 'light'}
       style={[
         styles.bottomNav,
         {
           borderTopColor: colors.border,
-          minHeight: 76 + insets.bottom,
+          minHeight: size.bottomNavigation - 8 + insets.bottom,
           paddingBottom: Math.max(spacing.sm, insets.bottom),
         },
       ]}
     >
-      {items.map((item) => {
+      {TABS.map((item) => {
         const selected = active === item.id;
         const tint = item.signal ? colors.signal : selected ? colors.ember : colors.text2;
         const create = item.id === 'create';
@@ -528,19 +429,26 @@ export function BottomNavigation({
           >
             <View
               style={[
-                create ? styles.createButton : null,
+                create ? styles.createButton : styles.navIconWrap,
                 create ? { backgroundColor: colors.ember } : null,
               ]}
             >
               <Ionicons
-                name={
-                  selected && !create ? (item.icon.replace('-outline', '') as IconName) : item.icon
-                }
+                name={selected && !create ? item.activeIcon : item.icon}
                 size={create ? 25 : 20}
                 color={create ? colors.onAccent : tint}
               />
+              {item.id === 'home' && unreadCount > 0 ? (
+                <View style={[styles.navBadge, { backgroundColor: colors.ember, borderColor: colors.bg }]} />
+              ) : null}
             </View>
-            <Text style={[typography.caption, { color: tint, fontSize: 10 }]}>{item.label}</Text>
+            <Text
+              numberOfLines={1}
+              maxFontSizeMultiplier={1.15}
+              style={[typography.caption, styles.navLabel, { color: tint }]}
+            >
+              {item.label}
+            </Text>
           </Pressable>
         );
       })}
@@ -562,7 +470,7 @@ export function PressScale({
     if (await AccessibilityInfo.isReduceMotionEnabled()) return;
     Animated.timing(scale, {
       toValue,
-      duration: 100,
+      duration: motion.pressMs,
       useNativeDriver: true,
     }).start();
   };
@@ -597,25 +505,6 @@ const styles = StyleSheet.create({
   brandMark: { width: 22, height: 22, borderRadius: radius.pill, padding: 5 },
   brandMarkHole: { flex: 1, borderRadius: radius.pill },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  reach: {
-    minHeight: 44,
-    borderWidth: 1,
-    borderRadius: radius.pill,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    // A Bangla scope label is wider than its English counterpart; the pill grows to a bound
-    // rather than clipping, and the header's search button keeps its 44 pt target.
-    maxWidth: 190,
-  },
-  reachContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    flexShrink: 1,
-  },
-  seal: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs, flexShrink: 1 },
   iconButton: {
     width: 44,
     height: 44,
@@ -674,15 +563,25 @@ const styles = StyleSheet.create({
   },
   bannerAction: { minHeight: 44, alignSelf: 'flex-start', justifyContent: 'center' },
   bottomNav: {
-    minHeight: 76,
-    paddingBottom: spacing.sm,
     paddingTop: spacing.xs,
     borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-around',
+    overflow: 'visible',
   },
-  navItem: { width: 68, minHeight: 56, alignItems: 'center', justifyContent: 'flex-end', gap: 2 },
+  navItem: { flex: 1, minHeight: 56, alignItems: 'center', justifyContent: 'flex-end', gap: 2 },
+  navIconWrap: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  navLabel: { fontSize: 10, lineHeight: 13 },
+  navBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 8,
+    height: 8,
+    borderRadius: radius.pill,
+    borderWidth: 1.5,
+  },
   createButton: {
     width: 44,
     height: 44,
@@ -690,5 +589,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
   },
 });

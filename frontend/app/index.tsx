@@ -1,7 +1,7 @@
 import { Redirect } from 'expo-router';
 import { WelcomeFlow } from '../src/features/onboarding';
 import { useApp } from '../src/application/app-provider';
-import { AppLoading, AppScene } from '../src/ui/scene';
+import { AppLoading, AppScene } from '../src/design-system';
 
 export default function BootstrapRoute() {
   const { colors, connectHomeNode, homeNode } = useApp();

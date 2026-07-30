@@ -2,8 +2,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '../../src/application/app-provider';
 import { featureDestinations } from '../../src/features/catalog';
 import { FeatureScreen } from '../../src/features/forum';
-import { AppScene } from '../../src/ui/scene';
-import { EmptyState, Screen } from '../../src/ui/primitives';
+import { AppScene } from '../../src/design-system';
+import { EmptyState, Screen } from '../../src/design-system';
 
 export default function FeatureRoute() {
   const router = useRouter();

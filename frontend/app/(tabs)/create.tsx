@@ -1,20 +1,10 @@
-import { useRouter } from 'expo-router';
-import { useApp } from '../../src/application/app-provider';
-import { ComposeScreen } from '../../src/features/forum';
-import { AppScene } from '../../src/ui/scene';
+import { Redirect } from 'expo-router';
 
+/**
+ * The Create tab is a modal composer (`/composer`), opened directly by the tab bar's
+ * `onChange` handler so it is reachable from every tab, not only Home. This route only exists
+ * so a deep link or a stale nav state landing on the literal tab still gets somewhere useful.
+ */
 export default function CreateRoute() {
-  const router = useRouter();
-  const { colors, homeNode, reach } = useApp();
-  if (!homeNode) return null;
-  return (
-    <AppScene colors={colors}>
-      <ComposeScreen
-        colors={colors}
-        homeNode={homeNode}
-        onOpenNetwork={() => router.push('/network')}
-        reach={reach}
-      />
-    </AppScene>
-  );
+  return <Redirect href={'/composer' as never} />;
 }

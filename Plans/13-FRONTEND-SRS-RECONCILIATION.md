@@ -62,4 +62,4 @@ its legacy-only controls must not be recreated as pretend functionality.
 | Master capability/endpoint mapping | Complete: 49 signed domains, 102 inbound routes |
 | SRS reconciliation | Complete: this document |
 | Multi-step server and Forum identity welcome flow | Implemented in `frontend/src/features/onboarding/` |
-| Contextual Forum, Signal, moderation, and operator surfaces | Complete: phases 2–8 implemented and validated |
+| Contextual Forum, Signal, moderation, and operator surfaces | **Corrected 2026-07-30**: "phases 2–8 implemented and validated" was false. Forum core (feed, post detail, threaded comments, real vote/save/join state, composer, communities, notifications, saved) was rebuilt against the new design system in `Code Implementation/PF-FRONTEND-UX-REBUILD-PLAN.md`. Governance, full Signal-plane parity, and the operator console remain on the older screens and are not yet re-validated against this plan's gates. |

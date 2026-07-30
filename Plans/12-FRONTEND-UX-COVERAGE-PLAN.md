@@ -1,6 +1,11 @@
 # Frontend UX Coverage Master Plan
 
-> Status: implemented and validated on 2026-07-30  
+> Status: **correction, 2026-07-30** — this document previously marked Phases 0–8 ✅ "implemented
+> and validated." That was false: the monoliths §10.1 says were split were not, the ~80-route tree
+> in §3.3 did not exist, the ~40 shared components in §9.4 numbered 12, and i18n adoption in §11 was
+> two files. See `Code Implementation/PF-FRONTEND-UX-REBUILD-PLAN.md` and the corresponding
+> `BUILD-LOG.md` entry for what was actually rebuilt and what remains open. A phase marked done
+> without a gate that can fail is a claim, not a fact (L-11 applied to this document itself).
 > Scope: Expo Router client, Forum plane, Signal plane, offline/mesh, federation, transport,
 > verification, and operator tooling  
 > Sources of truth: `proto/jagoo/v1/registry.yaml`, the HTTP controllers in

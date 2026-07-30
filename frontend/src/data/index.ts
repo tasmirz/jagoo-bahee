@@ -17,14 +17,24 @@ export interface CachedValue<T> {
 export class OfflineApi {
   constructor(private readonly baseUrl: string) {}
 
-  async get<T>(path: string): Promise<CachedValue<T>> {
+  /**
+   * `viewerHeaders` carries an optional bearer token for reads that hydrate additive,
+   * per-caller fields (`myVote`, `saved`, `joined`). The cache key includes whether a token was
+   * sent — not the token itself — so an authenticated viewer's cached response is never
+   * silently served back to an anonymous read of the same path, or vice versa, once this
+   * device switches identity or signs out.
+   */
+  async get<T>(
+    path: string,
+    viewerHeaders?: Record<string, string>,
+  ): Promise<CachedValue<T>> {
     const requestUrl = new URL(path, this.baseUrl).toString();
-    const key = `${CACHE_PREFIX}${encodeURIComponent(requestUrl)}`;
+    const key = `${CACHE_PREFIX}${viewerHeaders ? 'viewer:' : ''}${encodeURIComponent(requestUrl)}`;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12_000);
     try {
       const response = await networkRequest(requestUrl, {
-        headers: { Accept: 'application/json' },
+        headers: { Accept: 'application/json', ...viewerHeaders },
         signal: controller.signal,
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);

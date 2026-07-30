@@ -35,6 +35,8 @@ import {
   verifyModChain,
   type ModEventDoc,
 } from '../../../features/forum/moderation/moderation.projection.js';
+import { hasFlag, MembershipFlag } from '../../../features/forum/shared/flags.js';
+import { membershipKey } from '../../../features/forum/shared/membership.projection.js';
 import {
   REPORTS_COLLECTION,
   type ReportDoc,
@@ -48,11 +50,13 @@ import {
 import {
   BLOCKS_COLLECTION,
   FEED_PREFS_COLLECTION,
+  FOLLOWS_COLLECTION,
   SAVED_COLLECTION,
   type EdgeDoc,
   type FeedPrefsDoc,
   type SavedDoc,
 } from '../../../features/forum/social/social.handlers.js';
+import { VOTES_COLLECTION, voteKey, type VoteDoc } from '../../../features/forum/vote/vote-cast.handler.js';
 import {
   NOTIFICATIONS_COLLECTION,
   type NotificationDoc,
@@ -158,6 +162,40 @@ export class ForumReadController {
     }
   }
 
+  /**
+   * Same check as `actor()`, but never rejects an anonymous or malformed request — used only
+   * to decide whether to attach optional viewer fields (`myVote`, `saved`, `joined`) to an
+   * otherwise-public read. A bad/missing bearer token here means "read as anonymous", not 401;
+   * `actor()` stays the strict form for routes that require a session.
+   */
+  private async optionalActor(authorization?: string): Promise<string | null> {
+    if (!authorization) return null;
+    try {
+      return await this.actor(authorization);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Batch — avoids one query per feed row for the viewer's own vote. */
+  private async myVotes(actorKey: string, targets: readonly string[]): Promise<Map<string, number>> {
+    const votes = this.projections.collection<VoteDoc>(VOTES_COLLECTION);
+    const rows = await Promise.all(targets.map((target) => votes.findOne({ id: voteKey(actorKey, target) })));
+    const result = new Map<string, number>();
+    rows.forEach((row, index) => {
+      if (row) result.set(targets[index]!, row.value);
+    });
+    return result;
+  }
+
+  private async mySaved(actorKey: string, targets: readonly string[]): Promise<Set<string>> {
+    const rows = await this.projections
+      .collection<SavedDoc>(SAVED_COLLECTION)
+      .find({ actorKey }, MAX_SCAN);
+    const targetSet = new Set(targets);
+    return new Set(rows.filter((row) => targetSet.has(row.target)).map((row) => row.target));
+  }
+
   private receipt(receipt: NonNullable<Awaited<ReturnType<EnvelopeReader['get']>>>['receipt']) {
     if (!receipt) return null;
     return {
@@ -198,20 +236,35 @@ export class ForumReadController {
     };
   }
 
-  private async renderPost(post: PostDoc): Promise<Record<string, unknown>> {
+  /**
+   * `myVote`/`saved` are optional viewer-hydration fields, only ever populated for the
+   * requesting identity and only when it presented a valid bearer token — an unauthenticated
+   * read gets the exact same response shape as before this was added (no proto change, no
+   * envelope change, no registry row; see `Code Implementation/ADR-018`).
+   */
+  private async renderPost(
+    post: PostDoc,
+    viewer?: { readonly myVote?: number; readonly saved?: boolean },
+  ): Promise<Record<string, unknown>> {
     return {
       ...post,
       bodyMarkdown: post.removed ? null : post.bodyMarkdown,
       url: post.removed ? null : post.url,
       provenance: await this.provenance(post.contentId),
+      ...(viewer?.myVote !== undefined ? { myVote: viewer.myVote } : {}),
+      ...(viewer?.saved !== undefined ? { saved: viewer.saved } : {}),
     };
   }
 
-  private async renderComment(comment: CommentDoc): Promise<Record<string, unknown>> {
+  private async renderComment(
+    comment: CommentDoc,
+    viewer?: { readonly myVote?: number },
+  ): Promise<Record<string, unknown>> {
     return {
       ...comment,
       bodyMarkdown: comment.removed ? null : comment.bodyMarkdown,
       provenance: await this.provenance(comment.contentId),
+      ...(viewer?.myVote !== undefined ? { myVote: viewer.myVote } : {}),
     };
   }
 
@@ -279,10 +332,25 @@ export class ForumReadController {
       cursor,
       compare,
     );
+    const targets = result.items.map((post) => post.contentId);
+    const [votes, saved] = actorKey
+      ? await Promise.all([this.myVotes(actorKey, targets), this.mySaved(actorKey, targets)])
+      : [null, null];
     const response = {
-      items: await Promise.all(result.items.map((post) => this.renderPost(post))),
+      items: await Promise.all(
+        result.items.map((post) =>
+          this.renderPost(
+            post,
+            votes
+              ? { myVote: votes.get(post.contentId) ?? 0, saved: saved!.has(post.contentId) }
+              : undefined,
+          ),
+        ),
+      ),
       nextCursor: result.nextCursor,
     };
+    // Per-actor responses are cached under a key that already includes `actorKey`, so this
+    // cache entry only ever serves the same identity's viewer fields back to itself.
     await this.cache.put(
       cacheKey,
       response,
@@ -293,17 +361,30 @@ export class ForumReadController {
   }
 
   @Get('posts/:contentId')
-  async post(@Param('contentId') contentId: string): Promise<Record<string, unknown>> {
+  async post(
+    @Param('contentId') contentId: string,
+    @Headers('authorization') authorization?: string,
+  ): Promise<Record<string, unknown>> {
+    // The base render is cached per content ID, shared across every viewer — so viewer fields
+    // are applied AFTER the cache lookup, never baked into the shared cache entry, or one
+    // person's vote/save state would leak into every other reader's response.
     const cacheKey = `post:${contentId}`;
-    const cached = await this.cache.get<Record<string, unknown>>(cacheKey);
-    if (cached) return cached;
-    const post = await this.projections
-      .collection<PostDoc>(POSTS_COLLECTION)
-      .findOne({ id: contentId });
-    if (!post) throw new HttpException({ detail: 'post not found' }, 404);
-    const response = await this.renderPost(post);
-    await this.cache.put(cacheKey, response, ['forum', `content:${contentId}`], 60_000);
-    return response;
+    let base = await this.cache.get<Record<string, unknown>>(cacheKey);
+    if (!base) {
+      const post = await this.projections
+        .collection<PostDoc>(POSTS_COLLECTION)
+        .findOne({ id: contentId });
+      if (!post) throw new HttpException({ detail: 'post not found' }, 404);
+      base = await this.renderPost(post);
+      await this.cache.put(cacheKey, base, ['forum', `content:${contentId}`], 60_000);
+    }
+    const actorKey = await this.optionalActor(authorization);
+    if (!actorKey) return base;
+    const [votes, saved] = await Promise.all([
+      this.myVotes(actorKey, [contentId]),
+      this.mySaved(actorKey, [contentId]),
+    ]);
+    return { ...base, myVote: votes.get(contentId) ?? 0, saved: saved.has(contentId) };
   }
 
   @Get('posts/:contentId/comments')
@@ -313,6 +394,7 @@ export class ForumReadController {
     @Query('sort') sort = 'top',
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
+    @Headers('authorization') authorization?: string,
   ): Promise<Record<string, unknown>> {
     const rows = await this.projections
       .collection<CommentDoc>(COMMENTS_COLLECTION)
@@ -328,19 +410,35 @@ export class ForumReadController {
           ? b.createdAtMs - a.createdAtMs
           : b.score - a.score || a.createdAtMs - b.createdAtMs,
     );
+    const actorKey = await this.optionalActor(authorization);
+    const votes = actorKey
+      ? await this.myVotes(actorKey, result.items.map((comment) => comment.contentId))
+      : null;
     return {
-      items: await Promise.all(result.items.map((comment) => this.renderComment(comment))),
+      items: await Promise.all(
+        result.items.map((comment) =>
+          this.renderComment(
+            comment,
+            votes ? { myVote: votes.get(comment.contentId) ?? 0 } : undefined,
+          ),
+        ),
+      ),
       nextCursor: result.nextCursor,
     };
   }
 
   @Get('comments/:contentId')
-  async comment(@Param('contentId') contentId: string): Promise<Record<string, unknown>> {
+  async comment(
+    @Param('contentId') contentId: string,
+    @Headers('authorization') authorization?: string,
+  ): Promise<Record<string, unknown>> {
     const comment = await this.projections
       .collection<CommentDoc>(COMMENTS_COLLECTION)
       .findOne({ id: contentId });
     if (!comment) throw new HttpException({ detail: 'comment not found' }, 404);
-    return this.renderComment(comment);
+    const actorKey = await this.optionalActor(authorization);
+    const votes = actorKey ? await this.myVotes(actorKey, [contentId]) : null;
+    return this.renderComment(comment, votes ? { myVote: votes.get(contentId) ?? 0 } : undefined);
   }
 
   @Get('posts/:contentId/audit')
@@ -395,12 +493,21 @@ export class ForumReadController {
   }
 
   @Get('communities/:id')
-  async community(@Param('id') id: string): Promise<CommunityDoc> {
+  async community(
+    @Param('id') id: string,
+    @Headers('authorization') authorization?: string,
+  ): Promise<CommunityDoc & { readonly joined?: boolean }> {
     const row = await this.projections
       .collection<CommunityDoc>(COMMUNITIES_COLLECTION)
       .findOne({ id });
     if (!row) throw new HttpException({ detail: 'community not found' }, 404);
-    return row;
+    const actorKey = await this.optionalActor(authorization);
+    if (!actorKey) return row;
+    const membership = await this.projections
+      .collection<MembershipDoc>(MEMBERSHIPS_COLLECTION)
+      .findOne({ id: membershipKey(id, actorKey) });
+    const flags = membership ? BigInt(membership.flags) : 0n;
+    return { ...row, joined: hasFlag(flags, MembershipFlag.MEMBER) && !hasFlag(flags, MembershipFlag.BANNED) };
   }
 
   private async communityMemberships(id: string): Promise<readonly MembershipDoc[]> {
@@ -598,6 +705,63 @@ export class ForumReadController {
     const result = page(
       await this.projections
         .collection<SavedDoc>(SAVED_COLLECTION)
+        .find({ actorKey: await this.actor(authorization) }, MAX_SCAN),
+      limit,
+      cursor,
+    );
+    return { items: result.items, nextCursor: result.nextCursor };
+  }
+
+  /**
+   * Batch vote lookup for the caller's own votes — `jb:vote:cast:v1` had no read counterpart
+   * at all (the vote projection is keyed by `(authorKey, target)` but nothing served it back),
+   * so a client had no honest way to show which arrow a person had already pressed. Used by a
+   * cached list (e.g. Saved) that needs several targets' vote state without one request each.
+   */
+  @Get('me/votes')
+  async myVotesRoute(
+    @Query('targets') targets?: string,
+    @Headers('authorization') authorization?: string,
+  ): Promise<Record<string, number>> {
+    const actorKey = await this.actor(authorization);
+    const list = (targets ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const votes = await this.myVotes(actorKey, list);
+    return Object.fromEntries(list.map((target) => [target, votes.get(target) ?? 0]));
+  }
+
+  /**
+   * `jb:social:follow:v1` / `jb:social:block:v1` were write-only from the client's point of
+   * view — there was no way to render a Follow/Block button's true state. Each row is one
+   * direction (`EdgeDoc`), so this just lists the caller's own outgoing edges.
+   */
+  @Get('me/follows')
+  async myFollows(
+    @Headers('authorization') authorization?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<Record<string, unknown>> {
+    const result = page(
+      await this.projections
+        .collection<EdgeDoc>(FOLLOWS_COLLECTION)
+        .find({ actorKey: await this.actor(authorization) }, MAX_SCAN),
+      limit,
+      cursor,
+    );
+    return { items: result.items, nextCursor: result.nextCursor };
+  }
+
+  @Get('me/blocks')
+  async myBlocks(
+    @Headers('authorization') authorization?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<Record<string, unknown>> {
+    const result = page(
+      await this.projections
+        .collection<EdgeDoc>(BLOCKS_COLLECTION)
         .find({ actorKey: await this.actor(authorization) }, MAX_SCAN),
       limit,
       cursor,

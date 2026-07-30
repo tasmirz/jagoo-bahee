@@ -3,7 +3,7 @@ import { DeliveryState, VouchLevel } from '@jagoo/sdk/proto';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import type { AppPalette, ReachState } from '../../design-system';
+import type { AppPalette, ReachState, ThemeMode } from '../../design-system';
 import {
   AppHeader,
   Button,
@@ -66,9 +66,12 @@ import {
 
 interface SignalScreenProps {
   readonly colors: AppPalette;
+  readonly mode?: ThemeMode;
   readonly homeNode: HomeNode;
   readonly reach: ReachState;
   readonly onNetwork: () => void;
+  /** Root cause #1 — every pushed Signal screen previously had no back control at all. */
+  readonly onBack?: () => void;
 }
 
 export interface SignalChannel {
@@ -299,6 +302,7 @@ function AlertCard({
 
 export function SignalHomeScreen({
   colors,
+  mode,
   homeNode,
   reach,
   onNetwork,
@@ -354,7 +358,7 @@ export function SignalHomeScreen({
 
   return (
     <Screen colors={colors}>
-      <AppHeader colors={colors} reach={reach} title="Signal" onReach={onNetwork} />
+      <AppHeader colors={colors} mode={mode} reach={reach} title="Signal" onReach={onNetwork} />
       <View style={styles.hero}>
         <View style={[styles.signalMark, { backgroundColor: colors.signal }]} />
         <View style={styles.flex}>
@@ -417,9 +421,11 @@ export function SignalHomeScreen({
 
 export function SignalChannelsScreen({
   colors,
+  mode,
   homeNode,
   reach,
   onNetwork,
+  onBack,
   onChannel,
   onStudio,
 }: SignalScreenProps & {
@@ -434,7 +440,7 @@ export function SignalChannelsScreen({
   const rows = query.data?.value.items ?? [];
   return (
     <Screen colors={colors}>
-      <AppHeader colors={colors} reach={reach} title="Channels" onReach={onNetwork} />
+      <AppHeader colors={colors} mode={mode} reach={reach} title="Channels" onBack={onBack} onReach={onNetwork} />
       <Field colors={colors} label="Find a broadcaster" onChangeText={setQueryText} value={queryText} />
       <Button colors={colors} label="Create or publish" onPress={onStudio} system="signal" />
       {rows.map((channel) => (
@@ -487,9 +493,11 @@ function hexToBase64(value: string): string {
 export function SignalChannelScreen({
   channelId,
   colors,
+  mode,
   homeNode,
   reach,
   onNetwork,
+  onBack,
 }: SignalScreenProps & { readonly channelId: string }) {
   const channelQuery = useNodeDocument<SignalChannel>(
     homeNode.baseUrl,
@@ -562,7 +570,7 @@ export function SignalChannelScreen({
 
   return (
     <Screen colors={colors}>
-      <AppHeader colors={colors} reach={reach} title={channel?.name ?? 'Channel'} onReach={onNetwork} />
+      <AppHeader colors={colors} mode={mode} reach={reach} title={channel?.name ?? 'Channel'} onBack={onBack} onReach={onNetwork} />
       {channel ? (
         <>
           <View style={styles.hero}>
@@ -765,7 +773,7 @@ export function SignalChannelScreen({
 }
 
 export function SignalCrisisScreen(props: SignalScreenProps) {
-  const { colors, homeNode, reach, onNetwork } = props;
+  const { colors, mode: themeMode, homeNode, reach, onNetwork, onBack } = props;
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<'checkin' | 'missing' | 'resource'>('checkin');
   const [status, setStatus] = useState(1);
@@ -825,7 +833,7 @@ export function SignalCrisisScreen(props: SignalScreenProps) {
 
   return (
     <Screen colors={colors}>
-      <AppHeader colors={colors} reach={reach} title="Crisis desk" onReach={onNetwork} />
+      <AppHeader colors={colors} mode={themeMode} reach={reach} title="Crisis desk" onBack={onBack} onReach={onNetwork} />
       <View style={styles.rowCompact}>
         {(['checkin', 'missing', 'resource'] as const).map((value) => (
           <Pill
@@ -921,7 +929,7 @@ export function SignalCrisisScreen(props: SignalScreenProps) {
   );
 }
 
-export function SignalMapScreen({ colors, homeNode, reach, onNetwork }: SignalScreenProps) {
+export function SignalMapScreen({ colors, mode, homeNode, reach, onNetwork, onBack }: SignalScreenProps) {
   const checkins = useNodeDocument<NodePage<SignalCheckIn>>(
     homeNode.baseUrl,
     '/v1/signal/checkins?latest=true&limit=200',
@@ -947,7 +955,7 @@ export function SignalMapScreen({ colors, homeNode, reach, onNetwork }: SignalSc
 
   return (
     <Screen colors={colors}>
-      <AppHeader colors={colors} reach={reach} title="Offline area map" onReach={onNetwork} />
+      <AppHeader colors={colors} mode={mode} reach={reach} title="Offline area map" onBack={onBack} onReach={onNetwork} />
       <Text style={[typography.body, { color: colors.text2 }]}>
         A lightweight coordinate plot cached with the reports. It does not load map tiles or reveal your viewport.
       </Text>
@@ -997,7 +1005,7 @@ export function SignalMapScreen({ colors, homeNode, reach, onNetwork }: SignalSc
   );
 }
 
-export function SignalIdentityScreen({ colors, homeNode, reach, onNetwork }: SignalScreenProps) {
+export function SignalIdentityScreen({ colors, mode, homeNode, reach, onNetwork, onBack }: SignalScreenProps) {
   const [summary, setSummary] = useState<SignalSessionSummary>({
     configured: false,
     unlocked: false,
@@ -1031,7 +1039,7 @@ export function SignalIdentityScreen({ colors, homeNode, reach, onNetwork }: Sig
   };
   return (
     <Screen colors={colors}>
-      <AppHeader colors={colors} reach={reach} title="Signal identity" onReach={onNetwork} />
+      <AppHeader colors={colors} mode={mode} reach={reach} title="Signal identity" onBack={onBack} onReach={onNetwork} />
       <StatusBanner
         body="This vault has a separate recovery phrase and storage root. It cannot derive or reveal your Forum identity."
         colors={colors}
@@ -1181,7 +1189,7 @@ export function SignalIdentityScreen({ colors, homeNode, reach, onNetwork }: Sig
   );
 }
 
-export function SignalMessagesScreen({ colors, homeNode, reach, onNetwork }: SignalScreenProps) {
+export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach, onNetwork, onBack }: SignalScreenProps) {
   const [mode, setMode] = useState<'sessions' | 'groups'>('sessions');
   const [recipient, setRecipient] = useState('');
   const [message, setMessage] = useState('');
@@ -1301,7 +1309,7 @@ export function SignalMessagesScreen({ colors, homeNode, reach, onNetwork }: Sig
   };
   return (
     <Screen colors={colors}>
-      <AppHeader colors={colors} reach={reach} title="Private Signal" onReach={onNetwork} />
+      <AppHeader colors={colors} mode={themeMode} reach={reach} title="Private Signal" onBack={onBack} onReach={onNetwork} />
       <StatusBanner
         body="The node receives the recipient key and authenticated ciphertext only. Session initiation combines X25519 and ML-KEM-768."
         colors={colors}
@@ -1405,7 +1413,7 @@ export function SignalMessagesScreen({ colors, homeNode, reach, onNetwork }: Sig
   );
 }
 
-export function SignalStudioScreen({ colors, homeNode, reach, onNetwork }: SignalScreenProps) {
+export function SignalStudioScreen({ colors, mode: themeMode, homeNode, reach, onNetwork, onBack }: SignalScreenProps) {
   const [mode, setMode] = useState<'channel' | 'broadcast' | 'revoke'>('channel');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -1458,7 +1466,7 @@ export function SignalStudioScreen({ colors, homeNode, reach, onNetwork }: Signa
   };
   return (
     <Screen colors={colors}>
-      <AppHeader colors={colors} reach={reach} title="Signal studio" onReach={onNetwork} />
+      <AppHeader colors={colors} mode={themeMode} reach={reach} title="Signal studio" onBack={onBack} onReach={onNetwork} />
       <View style={styles.rowCompact}>
         <Pill colors={colors} label="Declare channel" onPress={() => setMode('channel')} selected={mode === 'channel'} />
         <Pill colors={colors} label="Emit broadcast" onPress={() => setMode('broadcast')} selected={mode === 'broadcast'} />

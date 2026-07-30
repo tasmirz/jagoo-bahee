@@ -6,12 +6,13 @@ import { AppScene } from '../../src/design-system';
 /** Signal is a primary destination, not an item hidden behind the Forum inbox. */
 export default function SignalTabRoute() {
   const router = useRouter();
-  const { colors, homeNode, reach } = useApp();
+  const { colors, homeNode, reach, themeMode } = useApp();
   if (!homeNode) return null;
   return (
     <AppScene colors={colors}>
       <SignalHomeScreen
         colors={colors}
+        mode={themeMode}
         homeNode={homeNode}
         onChannel={(channel) =>
           router.push({ pathname: '/signal/channel/[channelId]', params: { channelId: channel } })

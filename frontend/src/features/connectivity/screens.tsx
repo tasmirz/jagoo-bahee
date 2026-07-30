@@ -23,8 +23,8 @@ import {
 import { translate, type Locale, type MessageKey } from '../../i18n';
 import type { HomeNode } from '../../data/node-config';
 import type { IdentityProfile } from '../../data/identity-profiles';
-import type { AppPalette } from '../../theme';
-import { radius, spacing, type as typography } from '../../theme';
+import type { AppPalette } from '../../design-system';
+import { radius, spacing, type as typography } from '../../design-system';
 import {
   Button,
   Divider,
@@ -35,7 +35,7 @@ import {
   Seal,
   StatusBanner,
   type ReachState,
-} from '../../ui/primitives';
+} from '../../design-system';
 
 export function HomeServerSetupScreen({
   colors,
@@ -70,8 +70,8 @@ export function HomeServerSetupScreen({
           style={[styles.onboardingHero, wide ? styles.onboardingHeroWide : null]}
         >
           <View style={styles.wordmark}>
-            <View style={styles.wordmarkSeal}>
-              <View style={[styles.wordmarkHole, { backgroundColor: colors.ember }]} />
+            <View style={[styles.wordmarkSeal, { backgroundColor: colors.ember }]}>
+              <View style={[styles.wordmarkHole, { backgroundColor: colors.bg }]} />
             </View>
             <Text style={[typography.h2, { color: colors.onAccent }]}>Jagoo Bahee</Text>
           </View>
@@ -713,7 +713,6 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: radius.pill,
-    backgroundColor: '#FFF9F5',
     padding: 7,
   },
   wordmarkHole: { flex: 1, borderRadius: radius.pill },

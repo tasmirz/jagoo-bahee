@@ -1,8 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
-import type { ReachState } from '../ui/primitives';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import type { ReachState } from '../design-system';
 import { OfflineApi, type CachedValue } from './index';
 import type { DiscoveredService } from './node-config';
 import type { ProvenanceJson } from '../verify';
+import { forumViewerHeaders } from '../signer';
 
 export interface FeedPost {
   readonly contentId: string;
@@ -30,6 +31,7 @@ export interface FeedPost {
   readonly score: number;
   readonly commentCount: number;
   readonly removed: boolean;
+  readonly removedReason?: string;
   /**
    * The full block the node sends, not a subset.
    *
@@ -38,6 +40,14 @@ export interface FeedPost {
    * needs. A type that cannot express the evidence guarantees the evidence is never checked.
    */
   readonly provenance: ProvenanceJson | null;
+  /**
+   * Present only when the request carried a bearer token — the additive viewer-hydration
+   * fields added to `forum-read.controller.ts` (`Code Implementation/ADR-018`). Root cause #6:
+   * before this, vote state and saved state were pure client-side `useState` that reset to
+   * neutral on every remount, since nothing served them back.
+   */
+  readonly myVote?: -1 | 0 | 1;
+  readonly saved?: boolean;
 }
 
 export interface FeedPage {
@@ -51,10 +61,15 @@ export interface NodeComment {
   readonly bodyMarkdown: string | null;
   readonly createdAtMs: number;
   readonly depth: number;
+  readonly post: string;
+  readonly parentComment: string;
+  readonly replyCount: number;
   readonly score: number;
   readonly removed: boolean;
+  readonly removedReason?: string | null;
   /** The node sends this for comments too; dropping it is what made their seals decorative. */
   readonly provenance: ProvenanceJson | null;
+  readonly myVote?: -1 | 0 | 1;
 }
 
 export interface CommentPage {
@@ -67,9 +82,28 @@ export interface NodeCommunity {
   readonly name: string;
   readonly title: string;
   readonly description: string;
+  readonly rulesMarkdown?: string;
+  readonly ownerKey?: string;
+  readonly isPrivate?: boolean;
+  readonly isNsfw?: boolean;
   readonly memberCount: number;
   readonly postCount: number;
   readonly archived: boolean;
+  readonly settings?: {
+    readonly allowTextPosts: boolean;
+    readonly allowLinkPosts: boolean;
+    readonly allowImagePosts: boolean;
+    readonly allowVideoPosts: boolean;
+    readonly allowCrossposts: boolean;
+  };
+  readonly theme?: {
+    readonly primary: string;
+    readonly accent: string;
+    readonly background: string;
+    readonly foreground: string;
+  };
+  /** Present only for an authenticated caller — see `myVote`/`saved` above. */
+  readonly joined?: boolean;
 }
 
 export interface CommunityPage {
@@ -101,14 +135,18 @@ export interface NodePage<T> {
 export function useNodeDocument<T>(
   baseUrl: string | null,
   path: string | null,
-  options: { readonly refetchInterval?: number; readonly retry?: number } = {},
+  options: { readonly refetchInterval?: number; readonly retry?: number; readonly viewer?: boolean } = {},
 ) {
+  const { viewer, ...rest } = options;
   return useQuery<CachedValue<T>>({
-    queryKey: ['node', baseUrl, 'document', path],
+    queryKey: ['node', baseUrl, 'document', path, viewer ?? false],
     queryFn: () =>
-      new OfflineApi(`${baseUrl!.replace(/\/+$/, '')}/`).get<T>(path!),
+      new OfflineApi(`${baseUrl!.replace(/\/+$/, '')}/`).get<T>(
+        path!,
+        viewer ? forumViewerHeaders() : undefined,
+      ),
     enabled: baseUrl !== null && path !== null,
-    ...options,
+    ...rest,
   });
 }
 
@@ -118,9 +156,37 @@ export function useNodeFeed(baseUrl: string | null, sort: string) {
     queryFn: () =>
       new OfflineApi(`${baseUrl!.replace(/\/+$/, '')}/`).get<FeedPage>(
         `/v1/feed?sort=${encodeURIComponent(sort)}&limit=25`,
+        forumViewerHeaders(),
       ),
     enabled: baseUrl !== null,
     refetchInterval: 15_000,
+  });
+}
+
+/**
+ * Root cause #7 — the previous feed hook fetched a single fixed `limit=25` page and discarded
+ * the backend's `nextCursor` entirely. This one keeps fetching pages via `FlatList`'s
+ * `onEndReached`, which is what `InfiniteList` (design-system) expects.
+ */
+export function useInfiniteFeed(
+  baseUrl: string | null,
+  params: { readonly sort: string; readonly community?: string; readonly timeframe?: string },
+) {
+  return useInfiniteQuery<CachedValue<FeedPage>>({
+    queryKey: ['node', baseUrl, 'feed-pages', params.sort, params.community ?? '', params.timeframe ?? ''],
+    queryFn: ({ pageParam }) => {
+      const search = new URLSearchParams({ sort: params.sort, limit: '20' });
+      if (params.community) search.set('community', params.community);
+      if (params.timeframe) search.set('timeframe', params.timeframe);
+      if (typeof pageParam === 'string' && pageParam) search.set('cursor', pageParam);
+      return new OfflineApi(`${baseUrl!.replace(/\/+$/, '')}/`).get<FeedPage>(
+        `/v1/feed?${search.toString()}`,
+        forumViewerHeaders(),
+      );
+    },
+    enabled: baseUrl !== null,
+    initialPageParam: '',
+    getNextPageParam: (last) => last.value.nextCursor ?? undefined,
   });
 }
 
@@ -130,17 +196,23 @@ export function useNodePost(baseUrl: string | null, contentId: string | null) {
     queryFn: () =>
       new OfflineApi(`${baseUrl!.replace(/\/+$/, '')}/`).get<FeedPost>(
         `/v1/posts/${encodeURIComponent(contentId!)}`,
+        forumViewerHeaders(),
       ),
     enabled: baseUrl !== null && contentId !== null,
   });
 }
 
-export function useNodeComments(baseUrl: string | null, contentId: string | null) {
+export function useNodeComments(
+  baseUrl: string | null,
+  contentId: string | null,
+  sort: 'top' | 'new' | 'old' = 'top',
+) {
   return useQuery<CachedValue<CommentPage>>({
-    queryKey: ['node', baseUrl, 'post', contentId, 'comments'],
+    queryKey: ['node', baseUrl, 'post', contentId, 'comments', sort],
     queryFn: () =>
       new OfflineApi(`${baseUrl!.replace(/\/+$/, '')}/`).get<CommentPage>(
-        `/v1/posts/${encodeURIComponent(contentId!)}/comments?sort=top&limit=100`,
+        `/v1/posts/${encodeURIComponent(contentId!)}/comments?sort=${sort}&limit=200`,
+        forumViewerHeaders(),
       ),
     enabled: baseUrl !== null && contentId !== null,
   });
