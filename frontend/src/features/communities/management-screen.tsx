@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ModVerb, ReportStatus, TargetKind, Verdict } from '@jagoo/sdk/proto';
@@ -60,7 +60,60 @@ interface CommunityDocument {
 const PERMISSION_PRESETS = [
   { label: 'Member', value: 3n, detail: 'Read and publish posts' },
   { label: 'Content mod', value: 1979n, detail: 'Moderate posts, comments, and reports' },
-  { label: 'Community admin', value: 2047n, detail: 'Manage members, roles, content, and reports' },
+  {
+    label: 'Community admin',
+    value: 16383n,
+    detail: 'Every currently defined community permission',
+  },
+] as const;
+
+const PERMISSIONS = [
+  { name: 'Read community', detail: 'View community content', bit: 1n << 0n },
+  { name: 'Create posts', detail: 'Publish posts and comments', bit: 1n << 1n },
+  { name: 'Update community', detail: 'Edit metadata, rules, and lifecycle', bit: 1n << 2n },
+  { name: 'Ban or mute members', detail: 'Apply restrictions', bit: 1n << 3n },
+  { name: 'Unban or unmute members', detail: 'Remove restrictions', bit: 1n << 4n },
+  { name: 'Kick members', detail: 'Remove membership without a ban', bit: 1n << 5n },
+  { name: 'Manage roles', detail: 'Define, assign, and revoke roles', bit: 1n << 6n },
+  { name: 'Moderate posts', detail: 'Approve, remove, lock, pin, or flag posts', bit: 1n << 7n },
+  { name: 'Moderate comments', detail: 'Moderate and collapse comments', bit: 1n << 8n },
+  { name: 'Read moderation log', detail: 'Inspect the public action chain', bit: 1n << 9n },
+  { name: 'Review reports', detail: 'Resolve or dismiss reports', bit: 1n << 10n },
+  { name: 'Publish trusted labels', detail: 'Attach advisory labels', bit: 1n << 11n },
+  { name: 'Manage federation', detail: 'Control community federation policy', bit: 1n << 12n },
+  { name: 'Emit broadcasts', detail: 'Publish community-scoped broadcasts', bit: 1n << 13n },
+] as const;
+
+const POST_ACTIONS = [
+  ['Approve', ModVerb.MOD_VERB_APPROVE],
+  ['Remove', ModVerb.MOD_VERB_REMOVE],
+  ['Restore', ModVerb.MOD_VERB_RESTORE],
+  ['Lock', ModVerb.MOD_VERB_LOCK],
+  ['Unlock', ModVerb.MOD_VERB_UNLOCK],
+  ['Pin', ModVerb.MOD_VERB_PIN],
+  ['Unpin', ModVerb.MOD_VERB_UNPIN],
+  ['Flag', ModVerb.MOD_VERB_FLAG],
+  ['Unflag', ModVerb.MOD_VERB_UNFLAG],
+] as const;
+
+const COMMENT_ACTIONS = [
+  ['Approve', ModVerb.MOD_VERB_APPROVE],
+  ['Remove', ModVerb.MOD_VERB_REMOVE],
+  ['Restore', ModVerb.MOD_VERB_RESTORE],
+  ['Lock', ModVerb.MOD_VERB_LOCK],
+  ['Unlock', ModVerb.MOD_VERB_UNLOCK],
+  ['Flag', ModVerb.MOD_VERB_FLAG],
+  ['Unflag', ModVerb.MOD_VERB_UNFLAG],
+  ['Collapse thread', ModVerb.MOD_VERB_COLLAPSE],
+  ['Expand thread', ModVerb.MOD_VERB_UNCOLLAPSE],
+] as const;
+
+const MEMBER_ACTIONS = [
+  ['Ban', ModVerb.MOD_VERB_BAN],
+  ['Unban', ModVerb.MOD_VERB_UNBAN],
+  ['Mute', ModVerb.MOD_VERB_MUTE],
+  ['Unmute', ModVerb.MOD_VERB_UNMUTE],
+  ['Kick', ModVerb.MOD_VERB_KICK],
 ] as const;
 
 function bytesFromHex(value: string): Uint8Array {
@@ -325,6 +378,20 @@ function ModerationComposer({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [labelMode, setLabelMode] = useState(false);
+  const [durationHours, setDurationHours] = useState('');
+  const actions =
+    kind === TargetKind.TARGET_KIND_IDENTITY
+      ? MEMBER_ACTIONS
+      : kind === TargetKind.TARGET_KIND_COMMENT
+        ? COMMENT_ACTIONS
+        : POST_ACTIONS;
+  const supportsExpiry =
+    verb === ModVerb.MOD_VERB_BAN || verb === ModVerb.MOD_VERB_MUTE;
+
+  useEffect(() => {
+    if (!actions.some(([, action]) => action === verb)) setVerb(actions[0][1]);
+  }, [actions, verb]);
+
   const publish = async () => {
     setBusy(true);
     setNotice('');
@@ -345,6 +412,14 @@ function ModerationComposer({
           audit,
         );
       } else {
+        const parsedDuration = Number(durationHours);
+        if (
+          supportsExpiry &&
+          durationHours.trim() &&
+          (!Number.isFinite(parsedDuration) || parsedDuration <= 0)
+        ) {
+          throw new Error('Restriction duration must be a positive number of hours.');
+        }
         await publishForumModeration(
           homeNode.baseUrl,
           communityId,
@@ -353,7 +428,10 @@ function ModerationComposer({
             target_kind: kind,
             verb,
             reason: reason.trim(),
-            expires_at_ms: 0n,
+            expires_at_ms:
+              supportsExpiry && durationHours.trim()
+                ? BigInt(Date.now() + Math.round(parsedDuration * 60 * 60 * 1000))
+                : 0n,
           },
           audit,
         );
@@ -395,15 +473,18 @@ function ModerationComposer({
           <ChoiceRow
             colors={colors}
             label="Action"
-            options={[
-              ['Remove', ModVerb.MOD_VERB_REMOVE],
-              ['Lock', ModVerb.MOD_VERB_LOCK],
-              ['Pin', ModVerb.MOD_VERB_PIN],
-              ['Ban', ModVerb.MOD_VERB_BAN],
-            ]}
+            options={actions}
             onChange={setVerb}
             value={verb}
           />
+          {supportsExpiry ? (
+            <Field
+              colors={colors}
+              label="Restriction duration in hours (blank means permanent)"
+              onChange={setDurationHours}
+              value={durationHours}
+            />
+          ) : null}
         </>
       ) : null}
       <Field colors={colors} label="Target ID" onChange={setTarget} value={target} />
@@ -495,7 +576,7 @@ function RoleEditor({
     <>
       <SectionCard
         colors={colors}
-        detail="Permission presets prevent accidental over-granting"
+        detail="Start from a preset, then grant or remove individual frozen permission bits"
         title="Define a role"
       >
         <Field colors={colors} label="Role name" onChange={setName} value={name} />
@@ -507,8 +588,31 @@ function RoleEditor({
           value={mask}
         />
         <Text style={[typography.caption, { color: colors.text2 }]}>
-          {PERMISSION_PRESETS.find((item) => item.value === mask)?.detail}
+          {PERMISSION_PRESETS.find((item) => item.value === mask)?.detail ??
+            `${PERMISSIONS.filter((permission) => (mask & permission.bit) !== 0n).length} permissions selected`}
         </Text>
+        <View style={[styles.permissionList, { borderColor: colors.border }]}>
+          {PERMISSIONS.map((permission) => (
+            <View key={permission.name} style={styles.permissionRow}>
+              <View style={styles.flex}>
+                <Text style={[typography.label, { color: colors.text }]}>{permission.name}</Text>
+                <Text style={[typography.caption, { color: colors.text2 }]}>
+                  {permission.detail}
+                </Text>
+              </View>
+              <Switch
+                accessibilityLabel={permission.name}
+                onValueChange={(enabled) =>
+                  setMask((current) =>
+                    enabled ? current | permission.bit : current & ~permission.bit,
+                  )
+                }
+                trackColor={{ true: colors.ember }}
+                value={(mask & permission.bit) !== 0n}
+              />
+            </View>
+          ))}
+        </View>
         <ToggleRow
           colors={colors}
           label="Default for new members"
@@ -903,6 +1007,16 @@ const styles = StyleSheet.create({
   memberRow: {
     minHeight: 58,
     borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  permissionList: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  permissionRow: {
+    minHeight: 60,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,

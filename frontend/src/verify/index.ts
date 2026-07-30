@@ -24,7 +24,7 @@ import {
   type CanonicalEnvelope,
   type OfflineReceipt,
 } from '@jagoo/sdk/core';
-import { ed25519 } from '@jagoo/sdk/crypto';
+import { cryptoBackend, ed25519 } from '@jagoo/sdk/crypto';
 
 /**
  * Recompute an envelope's content ID locally.
@@ -80,6 +80,56 @@ export interface VerificationResult {
 const fromBase64 = (value: string): Uint8Array =>
   Uint8Array.from(globalThis.atob(value), (character) => character.charCodeAt(0));
 
+const VERIFICATION_TTL_MS = 5 * 60 * 1000;
+const MAX_VERIFIED_CONTENT = 4096;
+const MAX_AUTHOR_KEYS = 512;
+const text = new TextEncoder();
+
+interface VerificationCacheEntry {
+  readonly fingerprint: string;
+  readonly expiresAtMs: number;
+  readonly result: VerificationResult;
+}
+
+interface AuthorKeyCacheEntry {
+  readonly key: Uint8Array;
+  readonly expiresAtMs: number;
+}
+
+const verificationCache = new Map<string, VerificationCacheEntry>();
+const authorKeyCache = new Map<string, AuthorKeyCacheEntry>();
+
+function boundedPut<K, V>(cache: Map<K, V>, key: K, value: V, limit: number): void {
+  cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > limit) {
+    const oldest = cache.keys().next().value as K | undefined;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
+
+function fingerprint(value: ProvenanceJson): string {
+  const digest = cryptoBackend().sha256(text.encode(JSON.stringify(value)));
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function authorKeyFor(encoded: string, nowMs: number): Uint8Array {
+  const cached = authorKeyCache.get(encoded);
+  if (cached && cached.expiresAtMs > nowMs) {
+    boundedPut(authorKeyCache, encoded, cached, MAX_AUTHOR_KEYS);
+    return cached.key;
+  }
+  const key = base32Decode(encoded.replace(/^jbk1/, ''));
+  boundedPut(
+    authorKeyCache,
+    encoded,
+    { key, expiresAtMs: nowMs + VERIFICATION_TTL_MS },
+    MAX_AUTHOR_KEYS,
+  );
+  return key;
+}
+
 function parseReceipt(
   value: NonNullable<ProvenanceJson['receipt']>,
   contentId: string,
@@ -133,9 +183,22 @@ export function sealStateFor(value: ProvenanceJson | null | undefined): SealStat
 
 /** Verifies the complete provenance block with no network access (T1.36/T1.37). */
 export function verifyProvenance(value: ProvenanceJson): VerificationResult {
+  const nowMs = Date.now();
+  const proofFingerprint = fingerprint(value);
+  const cached = verificationCache.get(value.contentId);
+  if (
+    cached &&
+    cached.expiresAtMs > nowMs &&
+    cached.fingerprint === proofFingerprint
+  ) {
+    boundedPut(verificationCache, value.contentId, cached, MAX_VERIFIED_CONTENT);
+    return cached.result;
+  }
+
+  let result: VerificationResult;
   try {
     const canonical = fromBase64(value.canonicalBytes);
-    const authorKey = base32Decode(value.authorKey.replace(/^jbk1/, ''));
+    const authorKey = authorKeyFor(value.authorKey, nowMs);
     const contentIdValid = contentIdFromCanonical(canonical) === value.contentId;
     const authorSignature =
       value.keyAlg === 'ED25519' &&
@@ -145,18 +208,35 @@ export function verifyProvenance(value: ProvenanceJson): VerificationResult {
       receipt !== null &&
       serverId(receipt.serverKey) === receipt.serverId &&
       verifyReceipt(receipt);
-    return {
+    result = {
       contentId: contentIdValid,
       authorSignature,
       publicationReceipt,
       verified: contentIdValid && authorSignature && publicationReceipt,
     };
   } catch {
-    return {
+    result = {
       contentId: false,
       authorSignature: false,
       publicationReceipt: false,
       verified: false,
     };
   }
+  boundedPut(
+    verificationCache,
+    value.contentId,
+    {
+      fingerprint: proofFingerprint,
+      expiresAtMs: nowMs + VERIFICATION_TTL_MS,
+      result,
+    },
+    MAX_VERIFIED_CONTENT,
+  );
+  return result;
+}
+
+/** Test and panic-wipe hook; production callers normally let the fixed TTL expire entries. */
+export function clearVerificationCache(): void {
+  verificationCache.clear();
+  authorKeyCache.clear();
 }

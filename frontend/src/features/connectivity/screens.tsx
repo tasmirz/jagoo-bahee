@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Pressable,
   StyleSheet,
   Text,
@@ -40,6 +39,7 @@ import {
   Screen,
   Seal,
   StatusBanner,
+  WorkProgress,
   type ReachState,
 } from '../../design-system';
 
@@ -797,7 +797,7 @@ export function ProofVaultScreen({
           </View>
         </View>
         {loading ? (
-          <ActivityIndicator color={colors.ember} style={styles.loader} />
+          <WorkProgress colors={colors} label="Loading saved proofs" />
         ) : records.length === 0 ? (
           <EmptyState
             body="Publish a post or identity certificate. Its signed acknowledgement will appear here automatically."
@@ -1051,7 +1051,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  loader: { marginTop: spacing.xxl },
   proofCard: {
     marginHorizontal: spacing.md,
     marginBottom: spacing.sm,

@@ -15,7 +15,7 @@
  * default view. Nothing here deletes a row.
  */
 
-import { ModAction } from '@jagoo/sdk/proto';
+import { ModAction, TargetKind } from '@jagoo/sdk/proto';
 import type { Tx } from '../../../core/domain/domain-handler.js';
 import {
   allowed,
@@ -59,6 +59,8 @@ const MEMBER_VERBS = new Set<number>([
   ModVerb.UNMUTE,
   ModVerb.KICK,
 ]);
+const POST_ONLY_VERBS = new Set<number>([ModVerb.PIN, ModVerb.UNPIN]);
+const COMMENT_ONLY_VERBS = new Set<number>([ModVerb.COLLAPSE, ModVerb.UNCOLLAPSE]);
 
 export class ModActionHandler implements DomainHandler<ModAction> {
   readonly domain = 'jb:mod:action:v1';
@@ -86,8 +88,16 @@ export class ModActionHandler implements DomainHandler<ModAction> {
       if (!/^[0-9a-f]{64}$/.test(body.target)) {
         return invalid('member actions target a hex public key', 'target');
       }
+      if (
+        body.target_kind !== TargetKind.TARGET_KIND_UNSPECIFIED &&
+        body.target_kind !== TargetKind.TARGET_KIND_IDENTITY
+      ) {
+        return invalid('member actions require an identity target_kind', 'target_kind');
+      }
     } else if (!body.target.startsWith('jb1')) {
       return invalid('content actions target a content ID', 'target');
+    } else if (body.target_kind === TargetKind.TARGET_KIND_IDENTITY) {
+      return invalid('content actions cannot use an identity target_kind', 'target_kind');
     }
 
     // A temporary restriction that expires before it starts is a mistake worth catching
@@ -100,9 +110,30 @@ export class ModActionHandler implements DomainHandler<ModAction> {
   }
 
   async authorize(body: ModAction, env: ParsedEnvelope): Promise<AuthDecision> {
-    const required = VERB_PERMISSION[body.verb as keyof typeof VERB_PERMISSION] as
+    let required = VERB_PERMISSION[body.verb as keyof typeof VERB_PERMISSION] as
       PermissionName | undefined;
     if (!required) return denied('verb has no permission mapping');
+
+    if (!MEMBER_VERBS.has(body.verb)) {
+      const actualKind = await this.contentTargetKind(body.target);
+      if (actualKind === null) return denied('moderation target is not known here');
+      if (
+        body.target_kind !== TargetKind.TARGET_KIND_UNSPECIFIED &&
+        body.target_kind !== actualKind
+      ) {
+        return denied('target_kind does not match the stored content');
+      }
+      if (POST_ONLY_VERBS.has(body.verb) && actualKind !== TargetKind.TARGET_KIND_POST) {
+        return denied('this moderation verb applies only to posts');
+      }
+      if (COMMENT_ONLY_VERBS.has(body.verb) && actualKind !== TargetKind.TARGET_KIND_COMMENT) {
+        return denied('this moderation verb applies only to comments');
+      }
+      required =
+        actualKind === TargetKind.TARGET_KIND_COMMENT
+          ? 'comment.moderate'
+          : 'post.moderate';
+    }
 
     const ctx = await loadAuthContext(
       this.projections,
@@ -164,6 +195,17 @@ export class ModActionHandler implements DomainHandler<ModAction> {
     return comment?.authorKey ?? null;
   }
 
+  private async contentTargetKind(target: string): Promise<TargetKind | null> {
+    const post = await this.projections
+      .collection<PostDoc>(POSTS_COLLECTION)
+      .findOne({ id: target });
+    if (post) return TargetKind.TARGET_KIND_POST;
+    const comment = await this.projections
+      .collection<CommentDoc>(COMMENTS_COLLECTION)
+      .findOne({ id: target });
+    return comment ? TargetKind.TARGET_KIND_COMMENT : null;
+  }
+
   /** FM-07 — one link per action, chained to the previous action in this community. */
   private async appendToChain(
     body: ModAction,
@@ -211,14 +253,20 @@ export class ModActionHandler implements DomainHandler<ModAction> {
 
   private async applyContentVerb(body: ModAction, tx: Tx): Promise<void> {
     const posts = this.projections.collection<PostDoc>(POSTS_COLLECTION);
-    const post = await posts.findOne({ id: body.target });
+    const post =
+      body.target_kind === TargetKind.TARGET_KIND_COMMENT
+        ? null
+        : await posts.findOne({ id: body.target });
     if (post) {
       await posts.put(body.target, { ...post, ...this.contentPatch(body, post.removed) }, tx);
       return;
     }
 
     const comments = this.projections.collection<CommentDoc>(COMMENTS_COLLECTION);
-    const comment = await comments.findOne({ id: body.target });
+    const comment =
+      body.target_kind === TargetKind.TARGET_KIND_POST
+        ? null
+        : await comments.findOne({ id: body.target });
     if (comment) {
       await comments.put(
         body.target,

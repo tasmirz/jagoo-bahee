@@ -72,6 +72,12 @@ export class RoleDefineHandler implements DomainHandler<RoleDefine> {
     if ((body.permission_mask & ~authorMask) !== 0n) {
       return denied('a role cannot grant permissions its author does not hold');
     }
+    const existing = await this.projections
+      .collection<RoleDoc>(ROLES_COLLECTION)
+      .findOne({ id: roleKey(body.community, body.name) });
+    if (existing && (BigInt(existing.permissionMask) & ~authorMask) !== 0n) {
+      return denied('cannot redefine a role granting more than you hold');
+    }
     return allowed;
   }
 
@@ -178,6 +184,13 @@ export class RoleRevokeHandler implements DomainHandler<RoleRevoke> {
     // The owner's standing cannot be revoked by a delegate.
     if (ctx.communityDoc.ownerKey === Buffer.from(body.subject_key).toString('hex')) {
       return denied("the community owner's roles cannot be revoked");
+    }
+    const role = await this.projections
+      .collection<RoleDoc>(ROLES_COLLECTION)
+      .findOne({ id: roleKey(body.community, body.role) });
+    if (!role) return denied('role is not defined in this community');
+    if ((BigInt(role.permissionMask) & ~resolvePermissions(ctx)) !== 0n) {
+      return denied('cannot revoke a role granting more than you hold');
     }
     return allowed;
   }

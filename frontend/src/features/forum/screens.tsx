@@ -10,6 +10,7 @@ import {
   forumSessionSummary,
   importForumIdentity,
   lockForumIdentity,
+  publishCommunity,
   registerForumIdentity,
   revokeForumKey,
   unlockForumIdentity,

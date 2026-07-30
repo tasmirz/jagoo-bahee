@@ -24,4 +24,13 @@ android {
       abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
     }
   }
+
+  // Chaquopy must be applied here for Python.java to be available to this Expo
+  // module at compile time. Its runtime, however, belongs to :app: only: if it
+  // is exported by both projects AGP packages libchaquopy_java.so twice.
+  packaging {
+    jniLibs {
+      excludes += ['**/libchaquopy_java.so']
+    }
+  }
 }

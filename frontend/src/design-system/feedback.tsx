@@ -61,6 +61,71 @@ export function SkeletonPostCard({ colors }: { readonly colors: AppPalette }) {
   );
 }
 
+/**
+ * System-wide work indicator. It communicates the current operation as text plus a linear
+ * track, avoiding indefinite spinning controls which hide both the task and its state.
+ */
+export function WorkProgress({
+  colors,
+  label,
+  progress,
+}: {
+  readonly colors: AppPalette;
+  readonly label: string;
+  readonly progress?: number;
+}) {
+  const pulse = useRef(new Animated.Value(0.35)).current;
+  useEffect(() => {
+    let animation: Animated.CompositeAnimation | null = null;
+    let cancelled = false;
+    if (progress === undefined) {
+      void AccessibilityInfo.isReduceMotionEnabled().then((reduced) => {
+        if (cancelled || reduced) return;
+        animation = Animated.loop(
+          Animated.sequence([
+            Animated.timing(pulse, { toValue: 1, duration: 650, useNativeDriver: true }),
+            Animated.timing(pulse, { toValue: 0.35, duration: 650, useNativeDriver: true }),
+          ]),
+        );
+        animation.start();
+      });
+    }
+    return () => {
+      cancelled = true;
+      animation?.stop();
+    };
+  }, [progress, pulse]);
+  const clamped = progress === undefined ? 0.55 : Math.max(0, Math.min(1, progress));
+  return (
+    <View
+      accessible
+      accessibilityLabel={label}
+      accessibilityLiveRegion="polite"
+      accessibilityRole="progressbar"
+      accessibilityValue={
+        progress === undefined
+          ? { text: label }
+          : { min: 0, max: 100, now: Math.round(clamped * 100), text: label }
+      }
+      style={styles.work}
+    >
+      <View style={[styles.workTrack, { backgroundColor: colors.surface2 }]}>
+        <Animated.View
+          style={[
+            styles.workFill,
+            {
+              backgroundColor: colors.ember,
+              opacity: progress === undefined ? pulse : 1,
+              width: `${Math.round(clamped * 100)}%`,
+            },
+          ]}
+        />
+      </View>
+      <Text style={[typography.caption, { color: colors.text2 }]}>{label}</Text>
+    </View>
+  );
+}
+
 export function ErrorState({
   colors,
   title,
@@ -215,6 +280,14 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   skeletonRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  work: { width: '100%', gap: spacing.xxs },
+  workTrack: {
+    width: '100%',
+    height: 4,
+    borderRadius: radius.pill,
+    overflow: 'hidden',
+  },
+  workFill: { height: '100%', borderRadius: radius.pill },
   toastHost: {
     position: 'absolute',
     left: spacing.md,

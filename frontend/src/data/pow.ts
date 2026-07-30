@@ -10,6 +10,17 @@ export interface PowChallengeJson {
 
 const fromBase64 = (value: string): Uint8Array =>
   Uint8Array.from(globalThis.atob(value), (character) => character.charCodeAt(0));
+
+const text = new TextEncoder();
+
+/**
+ * StatelessArgon2Pow defines its password as the lowercase hex representation of the
+ * challenge. Keep this conversion explicit: hashing the decoded challenge bytes produces
+ * a valid Argon2id value for a different password and is rejected by the node.
+ */
+export const powPassword = (challenge: Uint8Array): Uint8Array =>
+  text.encode(Array.from(challenge, (byte) => byte.toString(16).padStart(2, '0')).join(''));
+
 /** Produces the exact proof framing verified by StatelessArgon2Pow on the node. */
 export async function solvePow(
   challenge: PowChallengeJson,
@@ -39,7 +50,7 @@ export async function solvePow(
   const challengeBytes = fromBase64(challenge.challenge);
   console.log('[PoW] Solving Argon2id challenge...');
   const hash = cryptoBackend().argon2id(
-    challengeBytes,
+    powPassword(challengeBytes),
     authorKey,
     {
       // The dependency-free development node advertises deliberately tiny test values;

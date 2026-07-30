@@ -132,4 +132,62 @@ describe('independent audit log service', () => {
     expect(response.statusCode).toBe(400);
     expect(response.json().valid).toBe(false);
   });
+
+  it('stores verification issue reports in a separate append-only chain', async () => {
+    const app = createAuditLogServer({ dataFile: null });
+    apps.push(app);
+    const report = {
+      version: 1,
+      reportId: 'a'.repeat(64),
+      identifier: 'jb1failed-proof',
+      issues: ['AUTHOR_SIGNATURE'],
+      observedAtMs: 1_700_000_000_500,
+      evidence: { contentId: 'jb1failed-proof', signature: 'tampered' },
+    };
+    const stored = await app.inject({
+      method: 'POST',
+      url: '/v1/audit-reports',
+      payload: report,
+    });
+    expect(stored.statusCode, stored.body).toBe(201);
+    expect(stored.json()).toMatchObject({
+      accepted: true,
+      reportId: report.reportId,
+      identifier: report.identifier,
+      duplicate: false,
+    });
+
+    const duplicate = await app.inject({
+      method: 'POST',
+      url: '/v1/audit-reports',
+      payload: report,
+    });
+    expect(duplicate.statusCode).toBe(200);
+    expect(duplicate.json().duplicate).toBe(true);
+
+    const retrieved = await app.inject({
+      method: 'GET',
+      url: `/v1/audit-reports/${report.identifier}`,
+    });
+    expect(retrieved.statusCode).toBe(200);
+    expect(retrieved.json().items[0].recordHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('rejects malformed verification issue reports', async () => {
+    const app = createAuditLogServer({ dataFile: null });
+    apps.push(app);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/audit-reports',
+      payload: {
+        version: 1,
+        reportId: 'not-a-hash',
+        identifier: '',
+        issues: ['UNKNOWN'],
+        observedAtMs: -1,
+        evidence: null,
+      },
+    });
+    expect(response.statusCode).toBe(400);
+  });
 });
