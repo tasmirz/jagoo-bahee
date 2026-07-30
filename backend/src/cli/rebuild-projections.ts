@@ -1,3 +1,6 @@
+// Same MONGO_URL / NODE_SIGNING_SEED the node itself boots from — an operator who has
+// configured `backend/.env` must not have to re-export them to rebuild projections.
+import '../composition/load-env.js';
 import { MongoClient } from 'mongodb';
 import { DomainRegistry } from '../core/domain/domain-registry.js';
 import { ProjectionRebuilder } from '../core/app/projection-rebuilder.js';

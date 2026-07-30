@@ -1,6 +1,5 @@
-import { useRouter } from 'expo-router';
 import { useApp } from '../../src/application/app-provider';
-import { SignalHomeScreen } from '../../src/features/signal';
+import { RnsSignalScreen } from '../../src/features/signal';
 import { AppScene } from '../../src/design-system';
 
 /** Signal is a primary destination, not an item hidden behind the Forum inbox. */

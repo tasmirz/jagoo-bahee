@@ -66,6 +66,7 @@ import {
   SignalDeliveryReceipt,
   SignalGroupCreate,
   SignalGroupUpdate,
+  SignalDirectoryProfile,
 } from '@jagoo/sdk/proto';
 import type { DiscoveredService } from '../data/node-config';
 import { networkRequest } from '../data/request';
@@ -83,6 +84,7 @@ import { clearOutboxPlane, submitSignedEnvelope } from '../offline/outbox';
 const ROOT_KEY = 'jb.signal.root.v1';
 const CHANNEL_MAP_KEY = 'jb.signal.channels.v1';
 const text = new TextEncoder();
+const RNS_BINDING_PREFIX = text.encode('jb:signal:lxmf-binding:v1\0');
 const storeOptions: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
 };
@@ -387,6 +389,33 @@ export class SecureSignalSigner implements SignalSigner {
     } finally {
       keys.secretKey.x25519.fill(0);
       keys.secretKey.mlKem768.fill(0);
+    }
+  }
+
+  /**
+   * Reticulum identities are X25519 || Ed25519 private material.  This tree never shares
+   * the legacy custom-message or prekey keys, so attaching an LXMF address cannot link
+   * those two protocols cryptographically.
+   */
+  async rnsTransportIdentity(): Promise<{
+    readonly privateKey: Uint8Array;
+    readonly publicKey: Uint8Array;
+  }> {
+    const root = await this.rootSeed();
+    try {
+      const x25519 = deriveSignalKey(root, SIGNAL_PATH.RNS_TRANSPORT, 0);
+      const ed25519Seed = deriveSignalKey(root, SIGNAL_PATH.RNS_TRANSPORT, 1);
+      try {
+        return {
+          privateKey: concat(x25519, ed25519Seed),
+          publicKey: concat(cryptoBackend().x25519PublicKey(x25519), ed25519.derivePublicKey(ed25519Seed)),
+        };
+      } finally {
+        x25519.fill(0);
+        ed25519Seed.fill(0);
+      }
+    } finally {
+      root.fill(0);
     }
   }
 
@@ -703,6 +732,65 @@ export async function publishSignalEnvelope(
   if (!activeSigner) throw new Error('Unlock your Signal identity first');
   const sealed = await activeSigner.seal(input.context, input);
   return submit(baseUrl, sealed.wireBytes, auditServices, activeAccessToken ?? undefined);
+}
+
+export async function signalRnsTransportIdentity(): Promise<{
+  readonly privateKey: Uint8Array;
+  readonly publicKey: Uint8Array;
+}> {
+  if (!activeSigner) throw new Error('Unlock your Signal identity first');
+  return activeSigner.rnsTransportIdentity();
+}
+
+export interface SignalDirectoryProfileInput {
+  readonly displayName: string;
+  readonly bio?: string;
+  readonly claims?: readonly { readonly kind: number; readonly value: string; readonly proof?: string; readonly assertedAtMs?: bigint }[];
+  readonly languages?: readonly string[];
+  readonly discoverable: boolean;
+  readonly revision: bigint;
+  readonly lxmfDestinationHash: Uint8Array;
+}
+
+/** Publish the searchable Signal-only profile and bind it to the local LXMF destination. */
+export async function publishSignalDirectoryProfile(
+  baseUrl: string,
+  input: SignalDirectoryProfileInput,
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<string> {
+  if (!activeSigner) throw new Error('Unlock your Signal identity first');
+  const transport = await activeSigner.rnsTransportIdentity();
+  try {
+    const binding = concat(RNS_BINDING_PREFIX, transport.publicKey, input.lxmfDestinationHash);
+    const body = SignalDirectoryProfile.encode(
+      SignalDirectoryProfile.fromPartial({
+        display_name: input.displayName,
+        bio: input.bio ?? '',
+        claims: input.claims?.map((claim) => ({
+          kind: claim.kind,
+          value: claim.value,
+          proof: claim.proof ?? '',
+          asserted_at_ms: claim.assertedAtMs ?? 0n,
+        })) ?? [],
+        rns_public_key: transport.publicKey,
+        lxmf_destination_hash: input.lxmfDestinationHash,
+        transport_binding_sig: await activeSigner.sign({ kind: 'device' }, binding),
+        languages: [...(input.languages ?? [])],
+        discoverable: input.discoverable,
+        revision: input.revision,
+      }),
+    ).finish();
+    return (
+      await publishSignalEnvelope(
+        baseUrl,
+        { context: { kind: 'device' }, domain: 'jb:signal:profile:v1', body },
+        auditServices,
+      )
+    ).contentId;
+  } finally {
+    transport.privateKey.fill(0);
+    transport.publicKey.fill(0);
+  }
 }
 
 export async function publishSignalPrekeys(

@@ -1,4 +1,8 @@
 import 'reflect-metadata';
+// Must precede every import that may read process.env: the composition root selects the
+// Mongo adapters or the in-memory doubles off MONGO_URL. Side-effect import, not a call,
+// because ES module evaluation order is specified and statement interleaving is not.
+import './composition/load-env';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';

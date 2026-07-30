@@ -4,12 +4,18 @@ import {
   networkRequest,
   type ClientTransport,
 } from './request';
+import {
+  resolveServiceAddress,
+  type ResolvedService,
+  type ServiceKind,
+} from './service-address';
+import { loadServiceOverrides, type ServiceOverrides } from './service-overrides';
 
 const HOME_NODE_KEY = 'jb.home-node.v1';
 
 export interface DiscoveredService {
   readonly id: string;
-  readonly kind: 'audit-log' | 'mcaptcha' | 'federation';
+  readonly kind: ServiceKind;
   readonly address: string;
   readonly host: string;
   readonly port: number;
@@ -28,6 +34,12 @@ export interface NodeDiscovery {
   readonly services: {
     readonly auditLogs: readonly DiscoveredService[];
     readonly mcaptcha: readonly DiscoveredService[];
+    /**
+     * Absent from nodes older than service advertisement, hence optional rather than defaulted at
+     * the type level — a client that assumed it was always present would crash against the very
+     * nodes most likely to be running during a shutdown.
+     */
+    readonly blobs?: readonly DiscoveredService[];
   };
   readonly endpoints: {
     readonly federations: string;
@@ -145,4 +157,51 @@ export async function loadHomeNode(): Promise<HomeNode | null> {
 
 export async function forgetHomeNode(): Promise<void> {
   await AsyncStorage.removeItem(HOME_NODE_KEY);
+}
+
+export interface ServiceEndpoint extends ResolvedService {
+  readonly kind: ServiceKind;
+  readonly id: string;
+  /** What the node claimed, kept so settings can show the user what it is overriding. */
+  readonly advertisedAddress: string;
+  readonly available: boolean;
+}
+
+function endpointsFor(
+  node: HomeNode,
+  kind: ServiceKind,
+  services: readonly DiscoveredService[] | undefined,
+  overrides: ServiceOverrides,
+): readonly ServiceEndpoint[] {
+  return (services ?? []).map((service) => ({
+    ...resolveServiceAddress(node.baseUrl, service, overrides[kind]),
+    kind,
+    id: service.id,
+    advertisedAddress: service.address,
+    available: service.available,
+  }));
+}
+
+/**
+ * Every auxiliary service, resolved to an address this device can dial.
+ *
+ * Callers must use this rather than reading `discovery.services.*.address` directly: the raw
+ * advertisement is what the NODE sees, and on any deployment where those differ — a tunnel, a
+ * phone off the LAN — using it produces a connection error that names the wrong cause.
+ */
+export function resolveServices(
+  node: HomeNode,
+  overrides: ServiceOverrides = {},
+): Record<'auditLogs' | 'mcaptcha' | 'blobs', readonly ServiceEndpoint[]> {
+  return {
+    auditLogs: endpointsFor(node, 'audit-log', node.discovery.services.auditLogs, overrides),
+    mcaptcha: endpointsFor(node, 'mcaptcha', node.discovery.services.mcaptcha, overrides),
+    blobs: endpointsFor(node, 'blob', node.discovery.services.blobs, overrides),
+  };
+}
+
+export async function resolveServicesWithOverrides(
+  node: HomeNode,
+): Promise<Record<'auditLogs' | 'mcaptcha' | 'blobs', readonly ServiceEndpoint[]>> {
+  return resolveServices(node, await loadServiceOverrides());
 }

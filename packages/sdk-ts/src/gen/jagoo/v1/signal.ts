@@ -715,6 +715,23 @@ export interface IdentityClaim {
 }
 
 /**
+ * Public, opt-in discovery record for the identified Signal plane. This is deliberately
+ * separate from Forum profiles: a person may be searchable for Signal/LXMF contact without
+ * creating any link to their pseudonymous Forum activity.
+ */
+export interface SignalDirectoryProfile {
+  display_name: string;
+  bio: string;
+  claims: IdentityClaim[];
+  rns_public_key: Uint8Array;
+  lxmf_destination_hash: Uint8Array;
+  transport_binding_sig: Uint8Array;
+  languages: string[];
+  discoverable: boolean;
+  revision: bigint;
+}
+
+/**
  * CV-02: no single authority may confer verification. Instance attestation is one
  * signal among several and MUST be overridable by the user.
  */
@@ -1585,6 +1602,225 @@ export const IdentityClaim: MessageFns<IdentityClaim> = {
     message.asserted_at_ms = (object.asserted_at_ms !== undefined && object.asserted_at_ms !== null)
       ? BigInt(object.asserted_at_ms)
       : 0n;
+    return message;
+  },
+};
+
+function createBaseSignalDirectoryProfile(): SignalDirectoryProfile {
+  return {
+    display_name: "",
+    bio: "",
+    claims: [],
+    rns_public_key: new Uint8Array(0),
+    lxmf_destination_hash: new Uint8Array(0),
+    transport_binding_sig: new Uint8Array(0),
+    languages: [],
+    discoverable: false,
+    revision: 0n,
+  };
+}
+
+export const SignalDirectoryProfile: MessageFns<SignalDirectoryProfile> = {
+  encode(message: SignalDirectoryProfile, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.display_name !== "") {
+      writer.uint32(10).string(message.display_name);
+    }
+    if (message.bio !== "") {
+      writer.uint32(18).string(message.bio);
+    }
+    for (const v of message.claims) {
+      IdentityClaim.encode(v!, writer.uint32(26).fork()).join();
+    }
+    if (message.rns_public_key.length !== 0) {
+      writer.uint32(34).bytes(message.rns_public_key);
+    }
+    if (message.lxmf_destination_hash.length !== 0) {
+      writer.uint32(42).bytes(message.lxmf_destination_hash);
+    }
+    if (message.transport_binding_sig.length !== 0) {
+      writer.uint32(50).bytes(message.transport_binding_sig);
+    }
+    for (const v of message.languages) {
+      writer.uint32(58).string(v!);
+    }
+    if (message.discoverable !== false) {
+      writer.uint32(64).bool(message.discoverable);
+    }
+    if (message.revision !== 0n) {
+      if (BigInt.asUintN(64, message.revision) !== message.revision) {
+        throw new globalThis.Error("value provided for field message.revision of type uint64 too large");
+      }
+      writer.uint32(72).uint64(message.revision);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SignalDirectoryProfile {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSignalDirectoryProfile();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.display_name = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.bio = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.claims.push(IdentityClaim.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.rns_public_key = reader.bytes();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.lxmf_destination_hash = reader.bytes();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.transport_binding_sig = reader.bytes();
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.languages.push(reader.string());
+          continue;
+        }
+        case 8: {
+          if (tag !== 64) {
+            break;
+          }
+
+          message.discoverable = reader.bool();
+          continue;
+        }
+        case 9: {
+          if (tag !== 72) {
+            break;
+          }
+
+          message.revision = reader.uint64() as bigint;
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SignalDirectoryProfile {
+    return {
+      display_name: isSet(object.displayName)
+        ? globalThis.String(object.displayName)
+        : isSet(object.display_name)
+        ? globalThis.String(object.display_name)
+        : "",
+      bio: isSet(object.bio) ? globalThis.String(object.bio) : "",
+      claims: globalThis.Array.isArray(object?.claims) ? object.claims.map((e: any) => IdentityClaim.fromJSON(e)) : [],
+      rns_public_key: isSet(object.rnsPublicKey)
+        ? bytesFromBase64(object.rnsPublicKey)
+        : isSet(object.rns_public_key)
+        ? bytesFromBase64(object.rns_public_key)
+        : new Uint8Array(0),
+      lxmf_destination_hash: isSet(object.lxmfDestinationHash)
+        ? bytesFromBase64(object.lxmfDestinationHash)
+        : isSet(object.lxmf_destination_hash)
+        ? bytesFromBase64(object.lxmf_destination_hash)
+        : new Uint8Array(0),
+      transport_binding_sig: isSet(object.transportBindingSig)
+        ? bytesFromBase64(object.transportBindingSig)
+        : isSet(object.transport_binding_sig)
+        ? bytesFromBase64(object.transport_binding_sig)
+        : new Uint8Array(0),
+      languages: globalThis.Array.isArray(object?.languages)
+        ? object.languages.map((e: any) => globalThis.String(e))
+        : [],
+      discoverable: isSet(object.discoverable) ? globalThis.Boolean(object.discoverable) : false,
+      revision: isSet(object.revision) ? BigInt(object.revision) : 0n,
+    };
+  },
+
+  toJSON(message: SignalDirectoryProfile): unknown {
+    const obj: any = {};
+    if (message.display_name !== "") {
+      obj.displayName = message.display_name;
+    }
+    if (message.bio !== "") {
+      obj.bio = message.bio;
+    }
+    if (message.claims?.length) {
+      obj.claims = message.claims.map((e) => IdentityClaim.toJSON(e));
+    }
+    if (message.rns_public_key.length !== 0) {
+      obj.rnsPublicKey = base64FromBytes(message.rns_public_key);
+    }
+    if (message.lxmf_destination_hash.length !== 0) {
+      obj.lxmfDestinationHash = base64FromBytes(message.lxmf_destination_hash);
+    }
+    if (message.transport_binding_sig.length !== 0) {
+      obj.transportBindingSig = base64FromBytes(message.transport_binding_sig);
+    }
+    if (message.languages?.length) {
+      obj.languages = message.languages;
+    }
+    if (message.discoverable !== false) {
+      obj.discoverable = message.discoverable;
+    }
+    if (message.revision !== 0n) {
+      obj.revision = message.revision.toString();
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SignalDirectoryProfile>, I>>(base?: I): SignalDirectoryProfile {
+    return SignalDirectoryProfile.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SignalDirectoryProfile>, I>>(object: I): SignalDirectoryProfile {
+    const message = createBaseSignalDirectoryProfile();
+    message.display_name = object.display_name ?? "";
+    message.bio = object.bio ?? "";
+    message.claims = object.claims?.map((e) => IdentityClaim.fromPartial(e)) || [];
+    message.rns_public_key = object.rns_public_key ?? new Uint8Array(0);
+    message.lxmf_destination_hash = object.lxmf_destination_hash ?? new Uint8Array(0);
+    message.transport_binding_sig = object.transport_binding_sig ?? new Uint8Array(0);
+    message.languages = object.languages?.map((e) => e) || [];
+    message.discoverable = object.discoverable ?? false;
+    message.revision = (object.revision !== undefined && object.revision !== null) ? BigInt(object.revision) : 0n;
     return message;
   },
 };

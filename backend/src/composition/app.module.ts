@@ -105,7 +105,13 @@ import { InMemoryOperatorConfig } from '../adapters/outbound/in-memory/in-memory
 import { RedisOperatorConfig } from '../adapters/outbound/redis/redis-operator-config.js';
 import { forumHandlers } from '../features/forum/index.js';
 import { signalHandlers } from '../features/signal/index.js';
-import { MONGO_RUNTIME, REDIS_RUNTIME, S3_RUNTIME, type MongoRuntime } from './runtime.js';
+import {
+  MONGO_RUNTIME,
+  REDIS_RUNTIME,
+  S3_RUNTIME,
+  S3_SIGNING_RUNTIME,
+  type MongoRuntime,
+} from './runtime.js';
 import { ServiceDirectory } from '../core/ports/service-directory.port.js';
 import { ConfiguredServiceDirectory } from '../adapters/outbound/configured-service-directory.js';
 import { serverId as serverIdOf } from '@jagoo/sdk/core';
@@ -356,15 +362,52 @@ class ReticulumLifecycle implements OnModuleInit, OnApplicationShutdown {
         });
       },
     },
+    /**
+     * A second S3 client that differs from S3_RUNTIME in exactly one field: the endpoint.
+     *
+     * It exists because a presigned URL is only valid for the host it was signed for (SigV4 signs
+     * `host`). Without this, a node whose store is `http://minio:9000` hands every client a URL it
+     * cannot reach and cannot repair — rewriting the host client-side yields SignatureDoesNotMatch.
+     *
+     * Null whenever S3_PUBLIC_ENDPOINT is unset or equal to S3_ENDPOINT, in which case the store
+     * signs with the ordinary client and behaviour is exactly as before.
+     */
+    {
+      provide: S3_SIGNING_RUNTIME,
+      useFactory: (client: S3Client | null): S3Client | null => {
+        const publicEndpoint = process.env.S3_PUBLIC_ENDPOINT?.trim();
+        if (!client || !publicEndpoint || publicEndpoint === process.env.S3_ENDPOINT?.trim()) {
+          return null;
+        }
+        const accessKeyId = process.env.S3_ACCESS_KEY;
+        const secretAccessKey = process.env.S3_SECRET_KEY;
+        return new S3Client({
+          endpoint: publicEndpoint,
+          region: process.env.S3_REGION ?? 'us-east-1',
+          forcePathStyle: true,
+          credentials:
+            accessKeyId && secretAccessKey
+              ? { accessKeyId, secretAccessKey }
+              : { accessKeyId: 'jagoo', secretAccessKey: 'jagoo-dev-only' },
+        });
+      },
+      inject: [S3_RUNTIME],
+    },
     {
       provide: BlobStore,
-      useFactory: (client: S3Client | null, clock: Clock) =>
+      useFactory: (client: S3Client | null, clock: Clock, signing: S3Client | null) =>
         process.env.BLOB_FILESYSTEM_ROOT
           ? new FilesystemBlobStore(process.env.BLOB_FILESYSTEM_ROOT, clock)
           : client
-            ? new S3BlobStore(client, process.env.S3_BUCKET ?? 'jagoo', clock)
+            ? new S3BlobStore(
+                client,
+                process.env.S3_BUCKET ?? 'jagoo',
+                clock,
+                undefined,
+                signing ?? client,
+              )
             : new InMemoryBlobStore(),
-      inject: [S3_RUNTIME, Clock],
+      inject: [S3_RUNTIME, Clock, S3_SIGNING_RUNTIME],
     },
     {
       provide: CreditLedger,

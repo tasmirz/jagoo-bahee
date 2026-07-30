@@ -13,6 +13,7 @@
       "expo-secure-store",
       "expo-notifications",
       "expo-camera",
+
       [
         "expo-image-picker",
         {
@@ -20,6 +21,9 @@
           "cameraPermission": "Jagoo Bahee needs access to your camera to attach a photo to a post."
         }
       ],
+
+      "./plugins/with-jagoo-rns",
+
       "@config-plugins/react-native-webrtc",
       [
         "expo-build-properties",

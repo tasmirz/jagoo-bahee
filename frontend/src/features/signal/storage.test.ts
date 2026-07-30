@@ -8,6 +8,7 @@ import {
   subscriptionAllows,
   type LocalSignalSubscription,
 } from './storage';
+import { admitRnsBroadcast } from './rns-broadcast';
 
 const subscription: LocalSignalSubscription = {
   channel: 'jbc1relief',
@@ -100,5 +101,15 @@ describe('Signal local subscription policy', () => {
     await expect(loadCachedSignalInbox()).resolves.toEqual(sessions);
     await clearSignalLocalData();
     await expect(loadCachedSignalInbox()).resolves.toEqual([]);
+  });
+
+  it('admits a relayed mesh broadcast only when this device has a matching local follow', async () => {
+    const packet = {
+      id: 'mesh-1', channel: 'jbc1relief', severity: 3, category: 1, area: null,
+      verification: 'known' as const, createdAtMs: 1, headline: 'Water point open', detail: 'School field',
+    };
+    await expect(admitRnsBroadcast(packet, 2)).resolves.toBe(false);
+    await saveSignalSubscription(subscription);
+    await expect(admitRnsBroadcast(packet, 2)).resolves.toBe(true);
   });
 });

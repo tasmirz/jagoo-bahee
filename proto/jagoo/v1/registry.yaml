@@ -510,6 +510,20 @@ domains:
     federate: false
     permission: authenticated
 
+  # Signal-only, opt-in online discovery. The profile binds an independent RNS/LXMF
+  # destination to the Signal device key; it never carries a Forum identifier.
+  - domain: 'jb:signal:profile:v1'
+    plane: SIGNAL
+    body: jagoo.v1.SignalDirectoryProfile
+    priority: BULK
+    idempotent: false
+    scope_kind: NONE
+    key_algs: [ED25519]
+    max_bytes: 4096
+    credit_cost: 1
+    requires: []
+    permission: authenticated
+
   # ── Broadcast ────────────────────────────────────────────────────────────────────
   # SIG-26 / P4-G12: <= 512 bytes INCLUDING signature and anti-abuse fields.
   - domain: 'jb:broadcast:emit:v1'

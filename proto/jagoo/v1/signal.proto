@@ -85,6 +85,21 @@ enum ClaimKind {
   CLAIM_KIND_PRINTED = 7;
 }
 
+// Public, opt-in discovery record for the identified Signal plane. This is deliberately
+// separate from Forum profiles: a person may be searchable for Signal/LXMF contact without
+// creating any link to their pseudonymous Forum activity.
+message SignalDirectoryProfile {
+  string display_name = 1;
+  string bio = 2;
+  repeated IdentityClaim claims = 3;
+  bytes rns_public_key = 4;
+  bytes lxmf_destination_hash = 5;
+  bytes transport_binding_sig = 6;
+  repeated string languages = 7;
+  bool discoverable = 8;
+  uint64 revision = 9;
+}
+
 // CV-02: no single authority may confer verification. Instance attestation is one
 // signal among several and MUST be overridable by the user.
 message ChannelVouch {
