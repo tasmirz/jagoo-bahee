@@ -388,7 +388,8 @@ export function RnsSignalScreen({
  */
 const styles = StyleSheet.create({
   page: { flex: 1 },
-  body: { gap: spacing.sm, padding: spacing.md },
+  // Gutter-free by contract — `Page` owns the screen's inline inset.
+  body: { gap: spacing.md },
   cardStack: { gap: spacing.xs },
   contactRow: { minHeight: 64, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   flex: { flex: 1, minWidth: 0 },

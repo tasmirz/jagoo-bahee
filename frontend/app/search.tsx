@@ -5,13 +5,14 @@ import { AppScene } from '../src/design-system';
 
 export default function SearchRoute() {
   const router = useRouter();
-  const { colors, homeNode } = useApp();
+  const { colors, homeNode, themeMode } = useApp();
   if (!homeNode) return null;
   return (
     <AppScene colors={colors}>
       <SearchScreen
         baseUrl={homeNode.baseUrl}
         colors={colors}
+        mode={themeMode}
         onBack={() => router.back()}
         onOpenPost={(contentId) =>
           router.push({ pathname: '/post/[contentId]', params: { contentId } })

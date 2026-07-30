@@ -193,8 +193,8 @@ export function PostCard({
 }
 
 const styles = StyleSheet.create({
+  // Gutter-free by contract — the page or list content container owns the inline inset.
   card: {
-    marginHorizontal: spacing.md,
     marginBottom: spacing.sm,
     padding: spacing.md,
     borderWidth: 1,

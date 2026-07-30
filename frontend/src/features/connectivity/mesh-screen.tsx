@@ -8,13 +8,14 @@ import QRCode from 'react-native-qrcode-svg';
 import { Priority } from '@jagoo/sdk';
 import type { AppPalette, ReachState, ThemeMode } from '../../design-system';
 import {
-  PageHeader,
   Button,
   EmptyState,
+  Page,
+  PageHeader,
   Pill,
-  Screen,
   SectionHeader,
   StatusBanner,
+  radius,
   spacing,
   type as typography,
 } from '../../design-system';
@@ -283,8 +284,9 @@ export function MeshScreen({
   };
 
   return (
-    <Screen colors={colors}>
+    <View style={styles.page}>
       <PageHeader colors={colors} mode={mode} reach={reach} title="Offline relay" onBack={onBack} />
+      <Page colors={colors}>
       <View style={styles.hero}>
         <Text style={[typography.overline, { color: colors.signal }]}>No server path required</Text>
         <Text style={[typography.h1, { color: colors.text }]}>Carry signed work across the gap.</Text>
@@ -408,14 +410,20 @@ export function MeshScreen({
           title="The outbox is clear"
         />
       ) : null}
-      <Button colors={colors} label="Refresh outbox" onPress={() => void refresh()} variant="ghost" />
-    </Screen>
+      <Button colors={colors} icon="refresh-outline" label="Refresh outbox" onPress={() => void refresh()} variant="ghost" />
+      </Page>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  cameraFrame: { height: 280, overflow: 'hidden' },
-  hero: { gap: spacing.sm, paddingVertical: spacing.md },
+  /** `PageHeader` is sticky and owns the top inset, so the page below it simply fills. */
+  page: { flex: 1 },
+  cameraFrame: { height: 280, overflow: 'hidden', borderRadius: radius.lg },
+  // Gutter-free by contract — `Page` owns the screen's inline inset. Before that, this screen
+  // had no horizontal inset of its own at all and leaned entirely on `StatusBanner`'s, so its
+  // hero, its pills and its buttons all sat flush against the edge of the phone.
+  hero: { gap: spacing.xs },
   pairingBlock: { alignItems: 'center', gap: spacing.sm },
   qr: { alignItems: 'center', padding: spacing.md },
   row: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },

@@ -16,7 +16,7 @@ import {
 } from '../../signer';
 import type { AppPalette, ThemeMode } from '../../design-system';
 import { radius, spacing, type as typography } from '../../design-system';
-import { Button, EmptyState, PageHeader, Screen, StatusBanner } from '../../design-system';
+import { Button, EmptyState, Page, PageHeader, StatusBanner } from '../../design-system';
 
 type Section = 'queue' | 'actions' | 'roles' | 'settings';
 
@@ -160,7 +160,7 @@ export function CommunityManagementScreen({
   );
   const audit = homeNode.discovery.services.auditLogs;
   return (
-    <Screen colors={colors}>
+    <View style={styles.page}>
       <PageHeader
         colors={colors}
         mode={mode}
@@ -168,7 +168,7 @@ export function CommunityManagementScreen({
         subtitle={`Signed actions for ${community.data?.value.title ?? communityId}`}
         title="Community controls"
       />
-      <View style={styles.column}>
+      <Page colors={colors}>
         <StatusBanner
           body="The node enforces your current role. Every accepted action is signed and appears in the public moderation log."
           colors={colors}
@@ -250,8 +250,8 @@ export function CommunityManagementScreen({
             onRefresh={() => void community.refetch()}
           />
         ) : null}
-      </View>
-    </Screen>
+      </Page>
+    </View>
   );
 }
 
@@ -958,13 +958,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
-  column: {
-    width: '100%',
-    maxWidth: 760,
-    alignSelf: 'center',
-    padding: spacing.md,
-    gap: spacing.md,
-  },
+  /** `PageHeader` is sticky and owns the top inset, so the page below it simply fills. */
+  page: { flex: 1 },
   tabs: { flexDirection: 'row', gap: spacing.xs },
   tab: {
     flex: 1,

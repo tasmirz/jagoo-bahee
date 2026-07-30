@@ -16,7 +16,15 @@ import { useProvenanceSeal } from '../../verify/use-provenance-seal';
 import { VoteButtons } from '../posts/vote-buttons';
 import { countDescendants, type CommentTreeNode } from './comment-tree';
 
-const MAX_VISUAL_DEPTH = 8;
+/**
+ * Indent stops here, the thread does not.
+ *
+ * At the old 8 × 16px a deep reply lost 128px of a 320pt phone before its own left rail and the
+ * page gutter, which left Bangla body text wrapping two or three words to the line. The rail
+ * still communicates nesting past this depth; the indent just stops paying for it.
+ */
+const MAX_VISUAL_DEPTH = 6;
+const DEPTH_INDENT = 12;
 
 function relativeTime(ms: number): string {
   const minutes = Math.floor((Date.now() - ms) / 60_000);
@@ -93,7 +101,7 @@ export function CommentNode({
   };
 
   return (
-    <View style={[styles.wrap, { marginLeft: visualDepth * 16, borderLeftColor: colors.border }]}>
+    <View style={[styles.wrap, { marginLeft: visualDepth * DEPTH_INDENT, borderLeftColor: colors.border }]}>
       <View style={styles.headRow}>
         <Pressable
           accessibilityRole="button"

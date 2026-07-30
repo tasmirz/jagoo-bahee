@@ -318,8 +318,8 @@ export function ToastHost({ colors, children }: PropsWithChildren<{ readonly col
 }
 
 const styles = StyleSheet.create({
+  // Gutter-free by contract — the page or list content container owns the inline inset.
   skeletonCard: {
-    marginHorizontal: spacing.md,
     marginBottom: spacing.sm,
     padding: spacing.md,
     borderWidth: 1,

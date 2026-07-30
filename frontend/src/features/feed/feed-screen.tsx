@@ -12,6 +12,7 @@ import {
   SkeletonPostCard,
   StatusBanner,
   spacing,
+  useGutter,
   type ReachState,
   type ThemeMode,
   type AppPalette,
@@ -62,6 +63,7 @@ export function FeedScreen({
   readonly onOpenNotifications: () => void;
   readonly onOpenInbox: () => void;
 }) {
+  const gutter = useGutter();
   const [sort, setSort] = useState<FeedSort>('hot');
   const [joinNotice, setJoinNotice] = useState(false);
   const [voteError, setVoteError] = useState('');
@@ -85,9 +87,15 @@ export function FeedScreen({
           { icon: 'notifications-outline', label: 'Notifications', onPress: onOpenNotifications, badge: unread > 0 },
         ]}
       />
-      <Page colors={colors} scroll={false}>
+      {/*
+        `gutter={false}`: the `InfiniteList` below owns the scroll container and has to reach
+        the screen edge, so it applies the same `useGutter()` inset to its content instead.
+        Everything above it is inside one padded header block so the chips, the banners and the
+        cards all line up on the same two edges.
+      */}
+      <Page colors={colors} scroll={false} gutter={false} gap={0}>
         <ContentColumn fill>
-          <View style={styles.feedControls}>
+          <View style={[styles.feedControls, { paddingHorizontal: gutter }]}>
             <ChipGroup>
               {SORTS.map((option) => (
                 <Pill
@@ -99,49 +107,51 @@ export function FeedScreen({
                 />
               ))}
             </ChipGroup>
+            {reach !== 'connected' ? (
+              <StatusBanner
+                colors={colors}
+                icon={reach === 'blackout' ? 'cloud-offline-outline' : 'swap-vertical-outline'}
+                title={reach === 'blackout' ? 'Reading from this device' : 'Federation is slow'}
+                body={
+                  reach === 'blackout'
+                    ? 'New posts queue safely and send when any path opens.'
+                    : 'Posting and reading still work. Live updates may arrive late.'
+                }
+                tone={reach === 'blackout' ? 'danger' : 'warning'}
+              />
+            ) : null}
+            {voteError ? (
+              <StatusBanner
+                colors={colors}
+                icon="alert-circle-outline"
+                title="Signed action was not accepted"
+                body={voteError}
+                tone="warning"
+                action="Dismiss"
+                onAction={() => setVoteError('')}
+              />
+            ) : null}
+            {joinNotice ? (
+              <StatusBanner
+                colors={colors}
+                icon="people-outline"
+                title="Join this community to vote"
+                body="Voting requires membership. Open the community and tap Join, then try again."
+                tone="neutral"
+                action="Dismiss"
+                onAction={() => setJoinNotice(false)}
+              />
+            ) : null}
           </View>
-          {reach !== 'connected' ? (
-            <StatusBanner
-              colors={colors}
-              icon={reach === 'blackout' ? 'cloud-offline-outline' : 'swap-vertical-outline'}
-              title={reach === 'blackout' ? 'Reading from this device' : 'Federation is slow'}
-              body={
-                reach === 'blackout'
-                  ? 'New posts queue safely and send when any path opens.'
-                  : 'Posting and reading still work. Live updates may arrive late.'
-              }
-              tone={reach === 'blackout' ? 'danger' : 'warning'}
-            />
-          ) : null}
-          {voteError ? (
-            <StatusBanner
-              colors={colors}
-              icon="alert-circle-outline"
-              title="Signed action was not accepted"
-              body={voteError}
-              tone="warning"
-              action="Dismiss"
-              onAction={() => setVoteError('')}
-            />
-          ) : null}
-          {joinNotice ? (
-            <StatusBanner
-              colors={colors}
-              icon="people-outline"
-              title="Join this community to vote"
-              body="Voting requires membership. Open the community and tap Join, then try again."
-              tone="neutral"
-              action="Dismiss"
-              onAction={() => setJoinNotice(false)}
-            />
-          ) : null}
           {feed.isError && posts.length === 0 ? (
-            <ErrorState
-              colors={colors}
-              title="Node is unavailable"
-              body="No saved feed is available yet. Start the local node or check the configured address."
-              onRetry={() => void feed.refetch()}
-            />
+            <View style={{ paddingHorizontal: gutter }}>
+              <ErrorState
+                colors={colors}
+                title="Node is unavailable"
+                body="No saved feed is available yet. Start the local node or check the configured address."
+                onRetry={() => void feed.refetch()}
+              />
+            </View>
           ) : (
             <InfiniteList
               data={posts}
@@ -190,9 +200,10 @@ export function FeedScreen({
 }
 
 const styles = StyleSheet.create({
+  /** Horizontal inset comes from `useGutter()` at the call site so it tracks the breakpoint. */
   feedControls: {
-    paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
-    paddingBottom: spacing.xs,
+    paddingBottom: spacing.sm,
+    gap: spacing.sm,
   },
 });

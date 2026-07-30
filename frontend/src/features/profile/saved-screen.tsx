@@ -75,7 +75,7 @@ export function SavedScreen({
         ) : rows.length === 0 && !saved.isLoading ? (
           <EmptyState colors={colors} icon="bookmark-outline" title="Nothing saved yet" body="Save a post or comment to find it here later." />
         ) : (
-          <View>
+          <View style={styles.stack}>
             {postQueries.map((query, index) => {
               const row = postRows[index]!;
               if (query.isLoading) return <Skeleton key={row.id} colors={colors} height={120} />;
@@ -127,6 +127,8 @@ export function SavedScreen({
 }
 
 const styles = StyleSheet.create({
-  commentSection: { paddingHorizontal: spacing.md, paddingTop: spacing.md, gap: spacing.xs },
+  // Gutter-free by contract — `Page` owns the screen's inline inset.
+  stack: { gap: spacing.sm },
+  commentSection: { paddingTop: spacing.md, gap: spacing.xs },
   commentRow: { minHeight: 44, justifyContent: 'center' },
 });

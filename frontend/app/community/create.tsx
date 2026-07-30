@@ -5,7 +5,19 @@ import { AppScene } from '../../src/design-system';
 
 export default function CommunityCreateRoute() {
   const router = useRouter();
-  const { colors, homeNode } = useApp();
+  const { colors, homeNode, themeMode } = useApp();
   if (!homeNode) return null;
-  return <AppScene colors={colors}><CommunityCreateScreen colors={colors} homeNode={homeNode} onBack={() => router.back()} onCreated={(communityId) => router.replace({ pathname: '/community/[communityId]', params: { communityId } })} /></AppScene>;
+  return (
+    <AppScene colors={colors}>
+      <CommunityCreateScreen
+        colors={colors}
+        mode={themeMode}
+        homeNode={homeNode}
+        onBack={() => router.back()}
+        onCreated={(communityId) =>
+          router.replace({ pathname: '/community/[communityId]', params: { communityId } })
+        }
+      />
+    </AppScene>
+  );
 }

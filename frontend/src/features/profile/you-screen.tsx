@@ -193,18 +193,18 @@ export function YouScreen({
 
 const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
-  hero: { padding: spacing.lg, alignItems: 'center', gap: spacing.xs },
+  // Gutter-free by contract — `Page` owns the screen's inline inset.
+  hero: { paddingVertical: spacing.lg, alignItems: 'center', gap: spacing.xs },
   avatar: { width: 72, height: 72, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.xs },
   row: {
     minHeight: 68,
-    marginHorizontal: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
   },
   iconWrap: { width: 36, height: 36, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
-  confirm: { marginHorizontal: spacing.md, gap: spacing.sm },
+  confirm: { gap: spacing.sm },
   confirmActions: { flexDirection: 'row', gap: spacing.sm },
   confirmButton: {
     flex: 1,

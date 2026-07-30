@@ -7,7 +7,7 @@ export default function NewIdentityRoute() {
   const router = useRouter();
   const { colors, connectHomeNode } = useApp();
   return (
-    <AppScene colors={colors}>
+    <AppScene colors={colors} edges={['top', 'left', 'right']}>
       <WelcomeFlow
         colors={colors}
         onComplete={async (address, options) => {

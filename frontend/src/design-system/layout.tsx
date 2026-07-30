@@ -20,7 +20,16 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, type Router } from 'expo-router';
 import type { AppPalette, ThemeMode } from './tokens';
-import { maxFontScale, radius, size, spacing, type as typography, useResponsive } from './tokens';
+import {
+  maxFontScale,
+  radius,
+  size,
+  spacing,
+  type as typography,
+  useGutter,
+  useResponsive,
+  useSemanticSpacing,
+} from './tokens';
 import { ReachPill, type ReachState } from './trust';
 
 /**
@@ -243,27 +252,53 @@ export function PageHeader({
  * scroll body that automatically reserves space for whatever sits below it (tab bar or none).
  * Replaces the `AppScene` + `Screen` + inline `AppHeader` combination that let the header
  * scroll away with the content (root cause #3).
+ *
+ * It also owns the two things every screen was previously improvising per child:
+ *
+ * - **the horizontal gutter** (`useGutter`, responsive per breakpoint), so a heading, a banner
+ *   and a card on the same screen line up on both edges instead of three different insets;
+ * - **the vertical rhythm** (`gap`), so stacked children are never flush against each other.
+ *
+ * Children must therefore be gutter-free. A screen that owns its own scroll container — a
+ * `FlatList` that has to scroll edge to edge — passes `gutter={false}` and applies `useGutter()`
+ * to that list's `contentContainerStyle` instead, which is the same number from the same hook.
  */
 export function Page({
   colors,
   children,
   scroll = true,
+  gutter = true,
+  gap,
   edges = ['top', 'left', 'right'],
 }: PropsWithChildren<{
   readonly colors: AppPalette;
   readonly scroll?: boolean;
+  /** Set `false` only when a child owns the scroll container and must reach the screen edge. */
+  readonly gutter?: boolean;
+  /** Vertical rhythm between direct children. Defaults to the breakpoint's group gap. */
+  readonly gap?: number;
   readonly edges?: readonly ('top' | 'left' | 'right' | 'bottom')[];
 }>) {
   const insets = useSafeAreaInsets();
   const { bottom } = useContentInsets();
-  const paddingTop = edges.includes('top') ? 0 : undefined; // header owns top inset itself
-  const paddingLeft = edges.includes('left') ? insets.left : 0;
-  const paddingRight = edges.includes('right') ? insets.right : 0;
+  const { groupGap } = useSemanticSpacing();
+  const { contentMax } = useResponsive();
+  const inline = useGutter();
+  const paddingLeft = (edges.includes('left') ? insets.left : 0) + (gutter ? inline : 0);
+  const paddingRight = (edges.includes('right') ? insets.right : 0) + (gutter ? inline : 0);
   const paddingBottom = edges.includes('bottom') ? bottom : 0;
+  const column: ViewStyle = {
+    width: '100%',
+    maxWidth: contentMax,
+    alignSelf: 'center',
+    paddingLeft,
+    paddingRight,
+    gap: gap ?? groupGap,
+  };
   if (!scroll) {
     return (
-      <View style={[styles.flex, { backgroundColor: colors.bg, paddingLeft, paddingRight, paddingTop }]}>
-        {children}
+      <View style={[styles.flex, { backgroundColor: colors.bg }]}>
+        <View style={[styles.flex, column]}>{children}</View>
       </View>
     );
   }
@@ -273,10 +308,12 @@ export function Page({
       keyboardDismissMode="on-drag"
       keyboardShouldPersistTaps="handled"
       style={{ backgroundColor: colors.bg }}
-      contentContainerStyle={[styles.scrollContent, { paddingLeft, paddingRight, paddingBottom }]}
+      contentContainerStyle={[styles.scrollContent, { paddingBottom }]}
       showsVerticalScrollIndicator={false}
     >
-      {children}
+      <View style={[column, styles.scrollContent, { paddingTop: gutter ? spacing.md : 0 }]}>
+        {children}
+      </View>
     </ScrollView>
   );
 }
@@ -402,13 +439,17 @@ const styles = StyleSheet.create({
   headerActions: { flexDirection: 'row', alignItems: 'center' },
   columnWide: { width: '100%', alignSelf: 'center' },
   section: { gap: spacing.sm },
+  /**
+   * No horizontal inset: `Page` owns the gutter (see its doc comment). A section header that
+   * pads itself sits 16px further in than the card below it on a phone, and further still on a
+   * tablet where the page gutter is 24 or 32.
+   */
   sectionHeader: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.sm,
+    paddingTop: spacing.xs,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: spacing.sm,
   },
   card: {
     padding: spacing.md,

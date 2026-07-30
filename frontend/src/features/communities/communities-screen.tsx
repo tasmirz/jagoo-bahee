@@ -12,6 +12,7 @@ import {
   maxFontScale,
   radius,
   spacing,
+  useGutter,
   type as typography,
   type AppPalette,
   type ReachState,
@@ -47,6 +48,7 @@ export function CommunitiesScreen({
   readonly onOpenCreate: () => void;
   readonly onOpenCommunity: (communityId: string) => void;
 }) {
+  const gutter = useGutter();
   const [tab, setTab] = useState<'discover' | 'joined'>('discover');
   const [query, setQuery] = useState('');
   const debounced = useDebouncedValue(query, 250);
@@ -67,8 +69,9 @@ export function CommunitiesScreen({
         onReach={onOpenNetwork}
         actions={[{ icon: 'add-circle-outline', label: 'Create a community', onPress: onOpenCreate }]}
       />
-      <Page colors={colors} scroll={false}>
-        <View style={styles.controls}>
+      {/* The list owns the scroll container, so it applies the gutter — see `Page`'s contract. */}
+      <Page colors={colors} scroll={false} gutter={false} gap={0}>
+        <View style={[styles.controls, { paddingHorizontal: gutter }]}>
           <SegmentedControl
             colors={colors}
             value={tab}
@@ -81,7 +84,9 @@ export function CommunitiesScreen({
           <TextField colors={colors} value={query} onChangeText={setQuery} placeholder="Search communities" />
         </View>
         {discover.isError ? (
-          <ErrorState colors={colors} title="Communities unavailable" body="No saved list is available yet." onRetry={() => void discover.refetch()} />
+          <View style={{ paddingHorizontal: gutter }}>
+            <ErrorState colors={colors} title="Communities unavailable" body="No saved list is available yet." onRetry={() => void discover.refetch()} />
+          </View>
         ) : (
           <InfiniteList
             colors={colors}
@@ -130,10 +135,10 @@ export function CommunitiesScreen({
 
 const styles = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 },
-  controls: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, gap: spacing.sm },
+  /** Horizontal inset comes from `useGutter()` at the call site so it tracks the breakpoint. */
+  controls: { paddingTop: spacing.sm, paddingBottom: spacing.xs, gap: spacing.sm },
   row: {
     minHeight: 68,
-    paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',

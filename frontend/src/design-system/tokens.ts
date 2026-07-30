@@ -81,6 +81,21 @@ export function useSemanticSpacing(): SemanticSpacing {
   return { screenInline: bp === 'expanded' ? 32 : 24, sectionGap: 44, groupGap: 22, controlGap: 12 };
 }
 
+/**
+ * The one edge-to-content inset for a screen, in one place.
+ *
+ * Before this existed, every screen hardcoded `spacing.md` on some of its children and nothing
+ * on the rest, and shared components (`StatusBanner`, `SectionHeader`, `PostCard`) each carried
+ * their own `marginHorizontal` on the assumption that their page had none. Mixing the two is
+ * what put Signal's buttons, banners and headings flush against the screen edge while the cards
+ * beside them were inset. `Page` now owns the gutter and every child is gutter-free; a screen
+ * that manages its own scroll container (a `FlatList`) reads the same number from here so the
+ * two paths cannot drift.
+ */
+export function useGutter(): number {
+  return useSemanticSpacing().screenInline;
+}
+
 export const elevation = {
   none: {},
   floating: {
