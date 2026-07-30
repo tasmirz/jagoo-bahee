@@ -3,7 +3,7 @@ import { AccessibilityInfo, Animated, Pressable, StyleSheet, Text, View } from '
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { AppPalette } from './tokens';
 import { maxFontScale, radius, spacing, type as typography } from './tokens';
-import { EmptyState } from './components';
+import { Button, EmptyState } from './components';
 
 /** A shimmering placeholder block — used to build skeleton screens without a new dependency. */
 export function Skeleton({
@@ -122,6 +122,53 @@ export function WorkProgress({
         />
       </View>
       <Text style={[typography.caption, { color: colors.text2 }]}>{label}</Text>
+    </View>
+  );
+}
+
+/**
+ * The spinner for a running action, which becomes a decision once it is late.
+ *
+ * A spinner that never changes is a lie told slowly: on the links this app is built for, a
+ * request that has run for twenty seconds may simply never return, and the person holding
+ * the phone is the only one who can decide whether that is worth waiting out. So past the
+ * threshold the progress bar stops being decoration and offers the two answers that exist.
+ *
+ * Both actions are full-width and ≥ 44 pt: this appears during crisis flows, on a phone that
+ * may be held one-handed, by someone who is not calm.
+ */
+export function ActionProgress({
+  colors,
+  label,
+  late,
+  elapsedMs,
+  onKeepWaiting,
+  onCancel,
+}: {
+  readonly colors: AppPalette;
+  readonly label: string;
+  readonly late: boolean;
+  readonly elapsedMs: number;
+  readonly onKeepWaiting: () => void;
+  readonly onCancel: () => void;
+}) {
+  if (!late) return <WorkProgress colors={colors} label={label} />;
+  const seconds = Math.max(1, Math.round(elapsedMs / 1000));
+  return (
+    <View
+      accessible
+      accessibilityLiveRegion="assertive"
+      style={[styles.late, { backgroundColor: colors.surface, borderColor: colors.constrained }]}
+    >
+      <Text style={[typography.label, { color: colors.text }]}>Still working — {seconds}s</Text>
+      <Text style={[typography.body, { color: colors.text2 }]}>
+        {label} is taking longer than usual. The connection may be slow, or the server may not
+        answer at all.
+      </Text>
+      <View style={styles.lateActions}>
+        <Button colors={colors} label="Keep waiting" onPress={onKeepWaiting} variant="secondary" />
+        <Button colors={colors} label="Cancel" onPress={onCancel} variant="destructive" />
+      </View>
     </View>
   );
 }
@@ -288,6 +335,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   workFill: { height: '100%', borderRadius: radius.pill },
+  late: {
+    width: '100%',
+    gap: spacing.xs,
+    padding: spacing.sm,
+    borderWidth: 1,
+    borderRadius: radius.md,
+  },
+  lateActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   toastHost: {
     position: 'absolute',
     left: spacing.md,

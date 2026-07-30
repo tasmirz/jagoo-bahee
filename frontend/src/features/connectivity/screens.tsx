@@ -28,14 +28,13 @@ import {
   type ServiceOverrides,
 } from '../../data/service-overrides';
 import type { IdentityProfile } from '../../data/identity-profiles';
-import type { AppPalette } from '../../design-system';
+import type { AppPalette, ThemeMode } from '../../design-system';
 import { radius, spacing, type as typography } from '../../design-system';
 import {
   Button,
   Divider,
   EmptyState,
-  IconButton,
-  ReachPill,
+  PageHeader,
   Screen,
   Seal,
   StatusBanner,
@@ -466,6 +465,7 @@ export function NetworkScreen({
   onAddIdentity,
   onChangeServer,
   onMesh,
+  mode,
   onSwitchIdentity,
 }: {
   readonly activeProfileId: string | null;
@@ -474,6 +474,8 @@ export function NetworkScreen({
   readonly identityProfiles: readonly IdentityProfile[];
   readonly reach: ReachState;
   readonly locale?: Locale;
+  /** Required by the shared `PageHeader`, whose frosted surface follows the theme. */
+  readonly mode: ThemeMode;
   readonly onBack: () => void;
   readonly onAddIdentity: () => void;
   readonly onChangeServer: () => void;
@@ -509,13 +511,7 @@ export function NetworkScreen({
   const legacyServices = federations.data?.value.items ?? [];
   return (
     <Screen colors={colors}>
-      <View style={[styles.detailHeader, { borderBottomColor: colors.border }]}>
-        <IconButton colors={colors} icon="arrow-back" label="Back" onPress={onBack} />
-        <Text accessibilityRole="header" style={[typography.h2, { color: colors.text }]}>
-          Network & services
-        </Text>
-        <ReachPill colors={colors} state={reach} />
-      </View>
+      <PageHeader colors={colors} mode={mode} onBack={onBack} reach={reach} title="Network & services" />
       <View style={styles.contentColumn}>
         <Button
           colors={colors}
@@ -731,10 +727,13 @@ export function NetworkScreen({
 export function ProofVaultScreen({
   colors,
   homeNode,
+  mode,
   onBack,
 }: {
   readonly colors: AppPalette;
   readonly homeNode: HomeNode;
+  /** Required by the shared `PageHeader`, whose frosted surface follows the theme. */
+  readonly mode: ThemeMode;
   readonly onBack: () => void;
 }) {
   const [records, setRecords] = useState<readonly StoredAuditCertificate[]>([]);
@@ -776,13 +775,7 @@ export function ProofVaultScreen({
 
   return (
     <Screen colors={colors}>
-      <View style={[styles.detailHeader, { borderBottomColor: colors.border }]}>
-        <IconButton colors={colors} icon="arrow-back" label="Back" onPress={onBack} />
-        <Text accessibilityRole="header" style={[typography.h2, { color: colors.text }]}>
-          Proofs & acknowledgements
-        </Text>
-        <View style={{ width: 44 }} />
-      </View>
+      <PageHeader colors={colors} mode={mode} onBack={onBack} title="Proofs & acknowledgements" />
       <View style={styles.contentColumn}>
         <View style={styles.proofIntro}>
           <View style={[styles.proofSeal, { backgroundColor: colors.verified }]}>

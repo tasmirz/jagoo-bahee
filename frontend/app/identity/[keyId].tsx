@@ -6,12 +6,13 @@ import { AppScene } from '../../src/design-system';
 export default function PublicIdentityRoute() {
   const router = useRouter();
   const { keyId } = useLocalSearchParams<{ readonly keyId: string }>();
-  const { colors, homeNode } = useApp();
+  const { colors, homeNode, themeMode } = useApp();
   if (!homeNode || !keyId) return null;
   return (
     <AppScene colors={colors}>
       <PublicIdentityScreen
         colors={colors}
+        mode={themeMode}
         homeNode={homeNode}
         keyId={keyId}
         onBack={() => router.back()}

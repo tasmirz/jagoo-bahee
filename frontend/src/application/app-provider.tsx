@@ -312,6 +312,54 @@ function AppStateProvider({ children }: PropsWithChildren) {
     setSession(await forumSessionSummary());
   }, []);
 
+  /**
+   * Re-attempt sign-in whenever the vault is open but the token is not.
+   *
+   * The launch restore gets ONE attempt, and on a phone it usually runs before the radio has
+   * settled — so `signInForumIdentity` fails, `authenticated` stays false, and nothing ever
+   * tried again. The visible symptom was not an error: authenticated reads simply degrade to
+   * their anonymous shape, so a community the person owns renders a "Join" button and an
+   * image upload throws "Register and authenticate this Forum identity first". Neither says
+   * the word "signed out", which is why this read as three unrelated bugs.
+   *
+   * Runs on every foreground and whenever connectivity returns, because those are exactly the
+   * moments the earlier failure might now succeed. Cheap and idempotent: it returns
+   * immediately once a token exists.
+   */
+  useEffect(() => {
+    if (!homeNode) return;
+    let active = true;
+
+    const attempt = async () => {
+      const current = await forumSessionSummary();
+      if (!current.unlocked || current.authenticated || current.signedOut) return;
+      try {
+        await restoreForumSession(homeNode.baseUrl, homeNode.discovery.services.auditLogs);
+      } catch {
+        // Still unreachable. The vault stays open and reads come from cache.
+      }
+      if (!active) return;
+      const next = await forumSessionSummary();
+      setSession(next);
+      // The viewer changed, so the anonymous entries cached before this are now stale. Their
+      // keys already carry the viewer, but existing screens hold the old key's data.
+      if (next.authenticated) await queryClient.invalidateQueries();
+    };
+
+    void attempt();
+    const onForeground = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void attempt();
+    });
+    const onNetwork = NetInfo.addEventListener((state) => {
+      if (state.isConnected) void attempt();
+    });
+    return () => {
+      active = false;
+      onForeground.remove();
+      onNetwork();
+    };
+  }, [homeNode]);
+
   const signOut = useCallback(async () => {
     await signOutForumIdentity();
     queryClient.clear();

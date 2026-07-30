@@ -19,7 +19,7 @@ import {
 import type { AppPalette, ThemeMode } from '../../design-system';
 import { radius, spacing, type as typography } from '../../design-system';
 import {
-  AppHeader,
+  PageHeader,
   Button,
   Divider,
   EmptyState,
@@ -37,7 +37,8 @@ import { FeatureWorkspace, MessagingWorkspace } from '../capabilities/workspace'
 
 interface CommonProps {
   readonly colors: AppPalette;
-  readonly mode?: ThemeMode;
+  /** Required by the shared `PageHeader`, whose frosted surface follows the theme. */
+  readonly mode: ThemeMode;
   readonly reach: ReachState;
   readonly onOpenNetwork?: () => void;
 }
@@ -255,7 +256,7 @@ export function InboxScreen({
 }) {
   return (
     <Screen colors={colors}>
-      <AppHeader colors={colors} mode={mode} reach={reach} onBack={onBack} onReach={onOpenNetwork} title="Inbox" />
+      <PageHeader colors={colors} mode={mode} reach={reach} onBack={onBack} onReach={onOpenNetwork} title="Inbox" />
       <ContentColumn>
         <StatusBanner
           action="Open Signal"
@@ -896,6 +897,7 @@ const styles = StyleSheet.create({
 
 export function CommunityCreateScreen({
   colors,
+  mode,
   reach,
   homeNode,
   onOpenNetwork,
@@ -963,7 +965,7 @@ export function CommunityCreateScreen({
 
   return (
     <Screen colors={colors}>
-      <AppHeader colors={colors} reach={reach} onReach={onOpenNetwork} title="New Community" />
+      <PageHeader colors={colors} mode={mode} reach={reach} onReach={onOpenNetwork} title="New Community" />
       <ContentColumn>
         {publishResult ? (
           <View style={{ marginBottom: spacing.lg }}>

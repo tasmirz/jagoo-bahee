@@ -134,23 +134,63 @@ seed:
 check: lint typecheck test proto-check vectors
 
 # Build and install the custom Android development client (required for native modules).
-# React Native 0.76 pins NDK 26.1.10909125. A partial SDK download can leave the directory
-# present without source.properties; repair that package before Gradle evaluates the project.
-# Build/install Android and repair the pinned NDK automatically when needed.
+#
+# React Native 0.76 pins NDK 26.1.10909125, and a partial SDK download can leave that
+# directory present but without `source.properties`, which Gradle then fails on obscurely.
+# So this recipe repairs the NDK before Gradle evaluates the project.
+#
+# ── The NDK marker is checked FIRST, and sdkmanager only if a repair is needed ──────
+# `sdkmanager` lives in `cmdline-tools`, which Android Studio does NOT install by default —
+# a perfectly working Studio SDK has a complete NDK and no `cmdline-tools` directory at all.
+# Demanding sdkmanager up front therefore blocked the build for the exact setup that needed
+# no repair, and the error named a missing tool instead of the thing it was checking for.
+# Nothing here needs sdkmanager unless there is something to fix.
 [windows]
 android:
-    @$androidSdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } elseif ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }; $sdkManager = Join-Path $androidSdk 'cmdline-tools\latest\bin\sdkmanager.bat'; $ndkMarker = Join-Path $androidSdk 'ndk\26.1.10909125\source.properties'; if (-not (Test-Path -LiteralPath $sdkManager)) { throw "Android sdkmanager was not found at $sdkManager. Install Android command-line tools or set ANDROID_HOME." }; if (-not (Test-Path -LiteralPath $ndkMarker)) { Write-Host 'Repairing incomplete Android NDK 26.1.10909125...'; & $sdkManager --uninstall 'ndk;26.1.10909125' 2>$null; & $sdkManager --install 'platform-tools' 'ndk;26.1.10909125'; if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $ndkMarker)) { throw 'Android NDK repair did not complete.' } }; Write-Host "Android SDK ready: $androidSdk"
+    @$androidSdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } elseif ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }; $ndkMarker = Join-Path $androidSdk 'ndk\26.1.10909125\source.properties'; if (-not (Test-Path -LiteralPath $ndkMarker)) { $sdkManager = Join-Path $androidSdk 'cmdline-tools\latest\bin\sdkmanager.bat'; if (-not (Test-Path -LiteralPath $sdkManager)) { throw "Android NDK 26.1.10909125 is missing or incomplete at $androidSdk, and sdkmanager was not found at $sdkManager to repair it. Install it from Android Studio (SDK Manager -> SDK Tools -> NDK 26.1.10909125), or install the command-line tools and re-run." }; Write-Host 'Repairing incomplete Android NDK 26.1.10909125...'; & $sdkManager --uninstall 'ndk;26.1.10909125' 2>$null; & $sdkManager --install 'platform-tools' 'ndk;26.1.10909125'; if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $ndkMarker)) { throw 'Android NDK repair did not complete.' } }; Write-Host "Android SDK ready: $androidSdk"
     pnpm --filter @jagoo/frontend exec expo run:android
 
 [linux]
 android:
-    @android_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"; sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"; marker="$android_sdk/ndk/26.1.10909125/source.properties"; if [ ! -x "$sdkmanager" ]; then echo "Android sdkmanager was not found at $sdkmanager. Install Android command-line tools or set ANDROID_HOME." >&2; exit 1; fi; if [ ! -f "$marker" ]; then echo "Repairing incomplete Android NDK 26.1.10909125..."; "$sdkmanager" --uninstall "ndk;26.1.10909125" >/dev/null 2>&1 || true; "$sdkmanager" --install "platform-tools" "ndk;26.1.10909125"; test -f "$marker"; fi; echo "Android SDK ready: $android_sdk"
+    @android_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"; just _android-ndk "$android_sdk"
     pnpm --filter @jagoo/frontend exec expo run:android
 
+# `/usr/libexec/java_home -v 17` picks JDK 17 regardless of what `java` on PATH happens to be.
+# Gradle 8.10.2 + AGP 8.x reject newer JDKs with `Error resolving plugin
+# [id: 'com.facebook.react.settings'] > 25.0.1` — an error that names the plugin and shows the
+# Java version as a bare number, so it reads as a plugin problem rather than a toolchain one.
+# Selecting the JDK here means the recipe does not depend on the shell that invoked it.
 [macos]
 android:
-    @android_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"; sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"; marker="$android_sdk/ndk/26.1.10909125/source.properties"; if [ ! -x "$sdkmanager" ]; then echo "Android sdkmanager was not found at $sdkmanager. Install Android command-line tools or set ANDROID_HOME." >&2; exit 1; fi; if [ ! -f "$marker" ]; then echo "Repairing incomplete Android NDK 26.1.10909125..."; "$sdkmanager" --uninstall "ndk;26.1.10909125" >/dev/null 2>&1 || true; "$sdkmanager" --install "platform-tools" "ndk;26.1.10909125"; test -f "$marker"; fi; echo "Android SDK ready: $android_sdk"
-    pnpm --filter @jagoo/frontend exec expo run:android
+    @android_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"; just _android-ndk "$android_sdk"
+    @android_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"; \
+    java17="$(/usr/libexec/java_home -v 17 2>/dev/null || true)"; \
+    if [ -z "$java17" ]; then \
+        echo "A Java 17 JDK is required and was not found. Gradle 8.10.2 and AGP 8.x do not support newer JDKs." >&2; \
+        echo "Install one (Android Studio bundles it, or 'brew install --cask temurin@17') and re-run." >&2; \
+        exit 1; \
+    fi; \
+    echo "Using JDK 17: $java17"; \
+    JAVA_HOME="$java17" ANDROID_HOME="$android_sdk" pnpm --filter @jagoo/frontend exec expo run:android
+
+# Shared NDK guard for the two POSIX `android` recipes. Private: `just --list` stays a list of
+# things a person would actually run.
+[unix]
+_android-ndk android_sdk:
+    @marker="{{android_sdk}}/ndk/26.1.10909125/source.properties"; \
+    if [ ! -f "$marker" ]; then \
+        sdkmanager="{{android_sdk}}/cmdline-tools/latest/bin/sdkmanager"; \
+        if [ ! -x "$sdkmanager" ]; then \
+            echo "Android NDK 26.1.10909125 is missing or incomplete at {{android_sdk}}, and sdkmanager was not found at $sdkmanager to repair it." >&2; \
+            echo "Install it from Android Studio (SDK Manager -> SDK Tools -> tick 'Show Package Details' -> NDK 26.1.10909125), or install the command-line tools and re-run." >&2; \
+            exit 1; \
+        fi; \
+        echo "Repairing incomplete Android NDK 26.1.10909125..."; \
+        "$sdkmanager" --uninstall "ndk;26.1.10909125" >/dev/null 2>&1 || true; \
+        "$sdkmanager" --install "platform-tools" "ndk;26.1.10909125"; \
+        test -f "$marker"; \
+    fi; \
+    echo "Android SDK ready: {{android_sdk}}"
 
 # Native iOS builds are a macOS/Xcode capability. Other platforms keep a discoverable,
 # successful recipe that explains the constraint rather than failing with "pod: command not found".

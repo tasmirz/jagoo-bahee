@@ -493,6 +493,14 @@ export class SecureForumSigner implements ForumSigner {
 
 let activeSigner: SecureForumSigner | null = null;
 let activeAccessToken: string | null = null;
+/**
+ * The identity the current access token belongs to, or null when signed out.
+ *
+ * Exists so a React Query key can name its viewer WITHOUT the token leaving this module. A
+ * cache keyed only by URL cannot tell an anonymous response from an authenticated one, and
+ * the anonymous one arrives first on every cold start — see `forumViewerId`.
+ */
+let activeViewerId: string | null = null;
 let activeCredential: Credential | null = null;
 
 export function selectForumIdentityVault(vaultId: string): void {
@@ -631,6 +639,24 @@ export function forumViewerHeaders(): { readonly Authorization: string } | undef
   return activeAccessToken ? { Authorization: `Bearer ${activeAccessToken}` } : undefined;
 }
 
+/**
+ * Who the viewer reads below will be answered AS. Safe to put in a cache key: it is a public
+ * identity ID, never the bearer token.
+ *
+ * ── Why a cache key has to carry this ───────────────────────────────────────────────
+ * `/v1/communities/:id` returns `joined` only for an authenticated caller, and the same URL
+ * anonymously returns the row WITHOUT it. On a cold start the launch restore is still in
+ * flight when the first screens mount, so the anonymous answer is what lands in the cache —
+ * and since the URL did not change, nothing ever refetched it. The result was a community
+ * the person had created showing a "Join" button on every relaunch.
+ *
+ * Keying on the viewer makes the two answers different cache entries, so authenticating is a
+ * key change and refetches by construction rather than by remembering to invalidate.
+ */
+export function forumViewerId(): string | null {
+  return activeViewerId;
+}
+
 export async function createForumIdentity(
   lockPassphrase?: string,
   recoveryPassphrase = '',
@@ -642,6 +668,7 @@ export async function createForumIdentity(
   activeSigner?.lock();
   activeSigner = await SecureForumSigner.create(vaultPassphrase, recoveryPhrase, recoveryPassphrase);
   activeAccessToken = null;
+  activeViewerId = null;
   activeCredential = null;
   await SecureStore.deleteItemAsync(vaultKey(FORUM_CREDENTIAL_KEY), storeOptions);
   await AsyncStorage.removeItem(vaultKey(FORUM_SIGNED_OUT_KEY));
@@ -665,6 +692,7 @@ export async function importForumIdentity(
     recoveryPassphrase,
   );
   activeAccessToken = null;
+  activeViewerId = null;
   activeCredential = null;
   await SecureStore.deleteItemAsync(vaultKey(FORUM_CREDENTIAL_KEY), storeOptions);
   await AsyncStorage.removeItem(vaultKey(FORUM_SIGNED_OUT_KEY));
@@ -679,6 +707,7 @@ export async function unlockForumIdentity(
   activeSigner?.lock();
   activeSigner = await SecureForumSigner.unlock(vaultPassphrase, recoveryPassphrase);
   activeAccessToken = null;
+  activeViewerId = null;
   const storedCredential = await SecureStore.getItemAsync(
     vaultKey(FORUM_CREDENTIAL_KEY),
     storeOptions,
@@ -713,6 +742,7 @@ export function lockForumIdentity(): void {
   activeSigner?.lock();
   activeSigner = null;
   activeAccessToken = null;
+  activeViewerId = null;
   activeCredential = null;
 }
 
@@ -758,6 +788,7 @@ export async function authenticateForumIdentity(baseUrl: string): Promise<string
     }),
   });
   activeAccessToken = session.accessToken;
+  activeViewerId = identity.id;
   await AsyncStorage.removeItem(vaultKey(FORUM_SIGNED_OUT_KEY));
   return identity.id;
 }

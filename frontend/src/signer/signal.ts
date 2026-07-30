@@ -110,6 +110,24 @@ interface VaultPayload {
   readonly salt: string;
   readonly nonce: string;
   readonly ciphertext: string;
+  /**
+   * Detects a wrong recovery salt on unlock.
+   *
+   * The BIP-39 recovery passphrase is deliberately NOT stored — a 25th word you keep on the
+   * device is not a 25th word. But that creates the classic footgun: every salt is "valid",
+   * so mistyping one silently derives a different identity instead of failing, and the user
+   * discovers it when nobody can reach them. This is an HKDF output over the derived seed
+   * under its own info label, so it proves the salt without revealing anything about it.
+   *
+   * Optional: vaults created before this field existed unlock without the check.
+   */
+  readonly seedCheck?: string;
+}
+
+const SEED_CHECK_INFO = text.encode('jb:signal:vault-seed-check:v1');
+
+function seedCheckOf(rootSeed: Uint8Array): string {
+  return base64(cryptoBackend().hkdfSha256(rootSeed, undefined, SEED_CHECK_INFO, 32));
 }
 
 async function requestJson<T>(baseUrl: string, path: string, init?: RequestInit): Promise<T> {
@@ -139,7 +157,12 @@ export class SecureSignalSigner implements SignalSigner {
     mnemonic = generateRootMnemonic(),
     recoveryPassphrase = '',
   ): Promise<SecureSignalSigner> {
-    if (lockPassphrase.length < 8) throw new Error('app passphrase must be at least 8 characters');
+    // Empty is allowed; short is not. Someone standing up an emergency identity under
+    // pressure should not be blocked by a passphrase field, but a four-character one buys
+    // nothing while looking like protection — the honest options are none or a real one.
+    if (lockPassphrase.length > 0 && lockPassphrase.length < 8) {
+      throw new Error('app passphrase must be at least 8 characters, or left empty');
+    }
     if (!isValidMnemonic(mnemonic)) throw new Error('invalid Signal recovery phrase');
     const salt = await Crypto.getRandomBytesAsync(16);
     const nonce = await Crypto.getRandomBytesAsync(24);
@@ -155,6 +178,7 @@ export class SecureSignalSigner implements SignalSigner {
       text.encode(mnemonic.normalize('NFKD')),
       new Uint8Array(),
     );
+    const rootSeed = mnemonicToSeed(mnemonic, recoveryPassphrase);
     await SecureStore.setItemAsync(
       ROOT_KEY,
       JSON.stringify({
@@ -162,14 +186,12 @@ export class SecureSignalSigner implements SignalSigner {
         salt: base64(salt),
         nonce: base64(nonce),
         ciphertext: base64(ciphertext),
+        seedCheck: seedCheckOf(rootSeed),
       } satisfies VaultPayload),
       storeOptions,
     );
     await SecureStore.setItemAsync(CHANNEL_MAP_KEY, '{}', storeOptions);
-    return new SecureSignalSigner(
-      wrappingKey,
-      mnemonicToSeed(mnemonic, recoveryPassphrase),
-    );
+    return new SecureSignalSigner(wrappingKey, rootSeed);
   }
 
   static async unlock(
@@ -205,10 +227,20 @@ export class SecureSignalSigner implements SignalSigner {
       wrappingKey.fill(0);
       throw new Error('app passphrase is incorrect');
     }
-    return new SecureSignalSigner(
-      wrappingKey,
-      mnemonicToSeed(mnemonic, recoveryPassphrase),
-    );
+
+    const rootSeed = mnemonicToSeed(mnemonic, recoveryPassphrase);
+    // Without this, a mistyped recovery salt produces a perfectly valid DIFFERENT identity
+    // and the user finds out when nobody can reach them.
+    if (payload.seedCheck && payload.seedCheck !== seedCheckOf(rootSeed)) {
+      wrappingKey.fill(0);
+      rootSeed.fill(0);
+      throw new Error(
+        recoveryPassphrase
+          ? 'recovery salt is incorrect for this vault'
+          : 'this vault was created with a recovery salt — enter it to unlock',
+      );
+    }
+    return new SecureSignalSigner(wrappingKey, rootSeed);
   }
 
   static async exists(): Promise<boolean> {
@@ -612,12 +644,21 @@ export async function signalSessionSummary(): Promise<SignalSessionSummary> {
   };
 }
 
+/**
+ * The optional BIP-39 recovery salt — the "25th word".
+ *
+ * It is mixed into seed derivation and never stored, so the same 24 words with and without
+ * it are two unrelated identities. That is the point: a coerced disclosure of the phrase
+ * alone does not yield the identity. It also means losing it is unrecoverable, which is why
+ * every entry point takes it explicitly rather than defaulting silently.
+ */
 export async function createSignalIdentity(
   lockPassphrase: string,
+  recoverySalt = '',
 ): Promise<{ readonly recoveryPhrase: string; readonly identityId: string }> {
   const recoveryPhrase = generateRootMnemonic();
   activeSigner?.lock();
-  activeSigner = await SecureSignalSigner.create(lockPassphrase, recoveryPhrase);
+  activeSigner = await SecureSignalSigner.create(lockPassphrase, recoveryPhrase, recoverySalt);
   activeAccessToken = null;
   return {
     recoveryPhrase,
@@ -628,20 +669,25 @@ export async function createSignalIdentity(
 export async function importSignalIdentity(
   recoveryPhrase: string,
   lockPassphrase: string,
+  recoverySalt = '',
 ): Promise<string> {
   if (!isValidMnemonic(recoveryPhrase.trim())) throw new Error('Enter a valid 24-word phrase');
   activeSigner?.lock();
   activeSigner = await SecureSignalSigner.create(
     lockPassphrase,
     recoveryPhrase.trim().replace(/\s+/g, ' '),
+    recoverySalt,
   );
   activeAccessToken = null;
   return (await activeSigner.identity({ kind: 'device' })).id;
 }
 
-export async function unlockSignalIdentity(lockPassphrase: string): Promise<string> {
+export async function unlockSignalIdentity(
+  lockPassphrase: string,
+  recoverySalt = '',
+): Promise<string> {
   activeSigner?.lock();
-  activeSigner = await SecureSignalSigner.unlock(lockPassphrase);
+  activeSigner = await SecureSignalSigner.unlock(lockPassphrase, recoverySalt);
   activeAccessToken = null;
   return (await activeSigner.identity({ kind: 'device' })).id;
 }

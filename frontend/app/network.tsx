@@ -6,6 +6,7 @@ import { AppScene } from '../src/design-system';
 export default function NetworkRoute() {
   const router = useRouter();
   const {
+    themeMode,
     activeProfileId,
     colors,
     disconnectHomeNode,
@@ -19,6 +20,7 @@ export default function NetworkRoute() {
     <AppScene colors={colors}>
       <NetworkScreen
         colors={colors}
+        mode={themeMode}
         homeNode={homeNode}
         activeProfileId={activeProfileId}
         identityProfiles={identityProfiles}

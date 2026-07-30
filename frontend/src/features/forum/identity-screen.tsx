@@ -3,9 +3,9 @@ import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { useNodeDocument } from '../../data/node';
 import type { HomeNode } from '../../data/node-config';
 import { blockForumIdentity, followForumIdentity } from '../../signer';
-import type { AppPalette } from '../../design-system';
+import type { AppPalette, ThemeMode } from '../../design-system';
 import { radius, spacing, type as typography } from '../../design-system';
-import { Button, EmptyState, IconButton, Screen, StatusBanner } from '../../design-system';
+import { Button, EmptyState, PageHeader, Screen, StatusBanner } from '../../design-system';
 
 interface PublicIdentity {
   readonly id: string;
@@ -25,11 +25,14 @@ export function PublicIdentityScreen({
   colors,
   homeNode,
   keyId,
+  mode,
   onBack,
 }: {
   readonly colors: AppPalette;
   readonly homeNode: HomeNode;
   readonly keyId: string;
+  /** Required by the shared `PageHeader`, whose frosted surface follows the theme. */
+  readonly mode: ThemeMode;
   readonly onBack: () => void;
 }) {
   const identity = useNodeDocument<PublicIdentity>(
@@ -75,12 +78,7 @@ export function PublicIdentityScreen({
   };
   return (
     <Screen colors={colors}>
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <IconButton colors={colors} icon="arrow-back" label="Back" onPress={onBack} />
-        <Text accessibilityRole="header" style={[typography.h2, { color: colors.text }]}>
-          Public identity
-        </Text>
-      </View>
+      <PageHeader colors={colors} mode={mode} title="Public identity" onBack={onBack} />
       <View style={styles.column}>
         {profile ? (
           <>

@@ -38,6 +38,74 @@ describe('proof of work', () => {
     expect(hex(proof.slice(41))).toBe(hex(expectedDigest));
   });
 
+  /**
+   * The regression: a device clock ahead of the node made a freshly issued challenge look
+   * expired, deterministically, so the user could not comment at all and no retry helped.
+   */
+  it('solves a fresh challenge even when the device clock runs far ahead of the node', async () => {
+    const challengeBytes = new Uint8Array(32).fill(1);
+    const authorKey = new Uint8Array(32).fill(5);
+    const serverNowMs = Date.now() - 45 * 60 * 1000; // device is 45 minutes fast
+
+    await expect(
+      solvePow(
+        {
+          challenge: globalThis.btoa(String.fromCharCode(...challengeBytes)),
+          boundTo: globalThis.btoa(String.fromCharCode(...authorKey)),
+          memoryKiB: 1024,
+          iterations: 2,
+          parallelism: 1,
+          expiresAtMs: serverNowMs + 5 * 60 * 1000,
+          serverNowMs,
+        },
+        authorKey,
+      ),
+    ).resolves.toHaveLength(73);
+  });
+
+  it('refuses a challenge it has actually held past its lifetime', async () => {
+    const challengeBytes = new Uint8Array(32).fill(1);
+    const authorKey = new Uint8Array(32).fill(5);
+    const serverNowMs = 1_800_000_000_000;
+
+    await expect(
+      solvePow(
+        {
+          challenge: globalThis.btoa(String.fromCharCode(...challengeBytes)),
+          boundTo: globalThis.btoa(String.fromCharCode(...authorKey)),
+          memoryKiB: 1024,
+          iterations: 2,
+          parallelism: 1,
+          expiresAtMs: serverNowMs + 5 * 60 * 1000,
+          serverNowMs,
+        },
+        authorKey,
+        Date.now() - 6 * 60 * 1000,
+      ),
+    ).rejects.toThrow('expired before it could be solved');
+  });
+
+  it('leaves expiry to the node when the challenge carries no issuance instant', async () => {
+    const challengeBytes = new Uint8Array(32).fill(1);
+    const authorKey = new Uint8Array(32).fill(5);
+
+    // No `serverNowMs`: the client cannot tell skew from staleness, and guessing wrong
+    // blocks a user who is not late. The node re-checks expiry when it verifies.
+    await expect(
+      solvePow(
+        {
+          challenge: globalThis.btoa(String.fromCharCode(...challengeBytes)),
+          boundTo: globalThis.btoa(String.fromCharCode(...authorKey)),
+          memoryKiB: 1024,
+          iterations: 2,
+          parallelism: 1,
+          expiresAtMs: 1_000,
+        },
+        authorKey,
+      ),
+    ).resolves.toHaveLength(73);
+  });
+
   it('rejects a challenge bound to another registration key', async () => {
     const authorKey = new Uint8Array(32).fill(5);
     await expect(

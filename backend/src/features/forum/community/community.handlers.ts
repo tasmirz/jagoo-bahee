@@ -41,6 +41,15 @@ import {
   type CommunitySettingsDoc,
   type CommunityThemeDoc,
 } from './community.projection.js';
+import {
+  COMMUNITY_AUDIT_COLLECTION,
+  COMMUNITY_AUDIT_HEADS_COLLECTION,
+  communityAuditChainHash,
+  type CommunityAuditAction,
+  type CommunityAuditDoc,
+  type CommunityAuditHeadDoc,
+  type CommunityFieldChange,
+} from './community-audit.projection.js';
 
 const MAX_TITLE = 100;
 const MAX_DESCRIPTION = 500;
@@ -70,6 +79,66 @@ function themeFrom(patch: CommunityCreate): CommunityThemeDoc {
     background: t.background,
     foreground: t.foreground,
   };
+}
+
+/**
+ * Append one governance event to the community's audit chain.
+ *
+ * Every writer for a community contends on the same head row, so Mongo detects concurrent
+ * writers and retries one transaction rather than letting two sequence-N entries fork the
+ * chain — the same contention pattern the mod log uses, for the same reason.
+ */
+async function appendCommunityAudit(
+  projections: ProjectionStore,
+  input: {
+    readonly community: string;
+    readonly contentId: string;
+    readonly actorKey: string;
+    readonly action: CommunityAuditAction;
+    readonly changes: readonly CommunityFieldChange[];
+    readonly createdAtMs: number;
+  },
+  tx: Tx,
+): Promise<void> {
+  const events = projections.collection<CommunityAuditDoc>(COMMUNITY_AUDIT_COLLECTION);
+  const heads = projections.collection<CommunityAuditHeadDoc>(COMMUNITY_AUDIT_HEADS_COLLECTION);
+  const previous = await heads.findOne({ id: input.community });
+  const previousHash = previous?.chainHash ?? '';
+  const sequence = (previous?.sequence ?? -1) + 1;
+
+  const doc: CommunityAuditDoc = {
+    id: input.contentId,
+    community: input.community,
+    actorKey: input.actorKey,
+    action: input.action,
+    changes: input.changes,
+    createdAtMs: input.createdAtMs,
+    previousHash,
+    chainHash: communityAuditChainHash({ ...input, previousHash }),
+    sequence,
+  };
+  await events.put(doc.id, doc, tx);
+  await heads.put(input.community, { id: input.community, sequence, chainHash: doc.chainHash }, tx);
+}
+
+/** A missing key renders as '' so a seeded baseline reads as "set to X", not "undefined → X". */
+const asText = (value: unknown): string => (value === undefined ? '' : String(value));
+
+/** Field-level diff of two flat objects, prefixed so `settings.isPrivate` reads unambiguously. */
+function diffFields<T extends object>(
+  before: Partial<T>,
+  after: T,
+  prefix = '',
+): readonly CommunityFieldChange[] {
+  const previous = before as Record<string, unknown>;
+  const next = after as Record<string, unknown>;
+  return Object.keys(next)
+    .filter((key) => asText(previous[key]) !== asText(next[key]))
+    .map((key) => ({
+      field: `${prefix}${key}`,
+      before: asText(previous[key]),
+      after: asText(next[key]),
+    }));
 }
 
 function validateMetadata(
@@ -172,6 +241,27 @@ export class CommunityCreateHandler implements DomainHandler<CommunityCreate> {
     await this.projections.collection<CommunityDoc>(COMMUNITIES_COLLECTION).put(id, doc, tx);
     console.log('[CommunityCreateHandler] Community document saved:', id);
 
+    // Seed the governance chain at sequence 0 with the settings the community was born
+    // with. Without a baseline the first update's `before` values would be the earliest
+    // recorded state, and "it was always like that" is exactly the claim an audit trail
+    // exists to test.
+    await appendCommunityAudit(
+      this.projections,
+      {
+        community: id,
+        contentId: env.contentId,
+        actorKey: owner,
+        action: 'create',
+        changes: [
+          ...diffFields({}, { title: doc.title, description: doc.description, rulesMarkdown: doc.rulesMarkdown, isPrivate: doc.isPrivate, isNsfw: doc.isNsfw }),
+          ...diffFields({}, doc.settings, 'settings.'),
+          ...diffFields({}, doc.theme, 'theme.'),
+        ],
+        createdAtMs,
+      },
+      tx,
+    );
+
     // The creator is a member and a moderator from the first moment, so a community is
     // never left with nobody able to moderate it.
     const membership: MembershipDoc = {
@@ -235,18 +325,39 @@ export class CommunityUpdateHandler implements DomainHandler<CommunityUpdate> {
 
     // The name is immutable: it is half of the community's identity (COM-19), and letting
     // it change would silently repoint every federated reference.
-    await communities.put(
-      body.target,
+    const next: CommunityDoc = {
+      ...existing,
+      title: patch.title || existing.title,
+      description: patch.description || existing.description,
+      rulesMarkdown: patch.rules_markdown || existing.rulesMarkdown,
+      theme: patch.theme ? themeFrom(patch) : existing.theme,
+      settings: patch.settings ? settingsFrom(patch) : existing.settings,
+      isPrivate: patch.is_private,
+      isNsfw: patch.is_nsfw,
+      updatedAtMs: Number(env.createdAtMs),
+    };
+
+    await communities.put(body.target, next, tx);
+
+    // Diffed against what was actually stored, not against the patch: a patch field that
+    // repeats the current value is not a change, and logging it as one would bury the
+    // governance edits that matter under noise.
+    await appendCommunityAudit(
+      this.projections,
       {
-        ...existing,
-        title: patch.title || existing.title,
-        description: patch.description || existing.description,
-        rulesMarkdown: patch.rules_markdown || existing.rulesMarkdown,
-        theme: patch.theme ? themeFrom(patch) : existing.theme,
-        settings: patch.settings ? settingsFrom(patch) : existing.settings,
-        isPrivate: patch.is_private,
-        isNsfw: patch.is_nsfw,
-        updatedAtMs: Number(env.createdAtMs),
+        community: body.target,
+        contentId: env.contentId,
+        actorKey: hexKey(env.authorKey),
+        action: 'update',
+        changes: [
+          ...diffFields(
+            { title: existing.title, description: existing.description, rulesMarkdown: existing.rulesMarkdown, isPrivate: existing.isPrivate, isNsfw: existing.isNsfw },
+            { title: next.title, description: next.description, rulesMarkdown: next.rulesMarkdown, isPrivate: next.isPrivate, isNsfw: next.isNsfw },
+          ),
+          ...diffFields(existing.settings, next.settings, 'settings.'),
+          ...diffFields(existing.theme, next.theme, 'theme.'),
+        ],
+        createdAtMs: Number(env.createdAtMs),
       },
       tx,
     );
@@ -295,6 +406,20 @@ export class CommunityArchiveHandler implements DomainHandler<CommunityArchive> 
     await communities.put(
       body.target,
       { ...existing, archived: body.archived, updatedAtMs: Number(env.createdAtMs) },
+      tx,
+    );
+    // Archiving is the closest thing to deletion that exists here, so it is exactly the act
+    // that must leave a trace (COM-06, VIS-06).
+    await appendCommunityAudit(
+      this.projections,
+      {
+        community: body.target,
+        contentId: env.contentId,
+        actorKey: hexKey(env.authorKey),
+        action: 'archive',
+        changes: diffFields({ archived: existing.archived }, { archived: body.archived }),
+        createdAtMs: Number(env.createdAtMs),
+      },
       tx,
     );
   }

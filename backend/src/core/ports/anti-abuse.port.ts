@@ -28,6 +28,15 @@ export interface PowChallenge {
   readonly challenge: Uint8Array;
   readonly difficulty: number;
   readonly expiresAtMs: number;
+  /**
+   * The issuing node's clock at issuance.
+   *
+   * `expiresAtMs` is meaningless to a client on its own: it is an absolute instant on the
+   * SERVER's clock, and a device whose clock runs ahead will read a freshly minted challenge
+   * as already expired. Publishing the issuance instant lets the client measure the
+   * challenge's remaining life as a DURATION on one clock instead of comparing two.
+   */
+  readonly issuedAtMs?: number;
   readonly algorithm?: 'argon2id';
   readonly memoryKiB?: number;
   readonly iterations?: number;

@@ -1,8 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 import type { AppPalette, ReachState, ThemeMode } from '../../design-system';
-import { AppHeader, Button, Screen, SectionHeader, StatusBanner, WorkProgress } from '../../design-system';
-import { radius, spacing, type as typography } from '../../design-system';
+import {
+  Button,
+  Card,
+  Page,
+  PageHeader,
+  Row,
+  SectionHeader,
+  StatusBanner,
+  TextAreaField,
+  TextField,
+  WorkProgress,
+} from '../../design-system';
+import { spacing, type as typography } from '../../design-system';
 import { publishSignalDirectoryProfile, signalSessionSummary } from '../../signer/signal';
 import {
   deleteSignalContact,
@@ -47,7 +58,7 @@ export function RnsSignalScreen({
 }: {
   readonly colors: AppPalette;
   readonly reach: ReachState;
-  readonly mode?: ThemeMode;
+  readonly mode: ThemeMode;
   readonly onBack?: () => void;
   readonly indexUrl?: string;
 }) {
@@ -218,8 +229,9 @@ export function RnsSignalScreen({
 
   const state = status?.state ?? 'stopped';
   return (
-    <Screen colors={colors}>
-      <AppHeader colors={colors} mode={mode} onBack={onBack} reach={reach} title="Signal mesh" />
+    <View style={styles.page}>
+      <PageHeader colors={colors} mode={mode} onBack={onBack} reach={reach} title="Signal mesh" />
+      <Page colors={colors}>
       <View style={styles.body}>
         {busy ? <WorkProgress colors={colors} label={workLabel || 'Working…'} /> : null}
         <StatusBanner
@@ -234,54 +246,48 @@ export function RnsSignalScreen({
           }
         />
         <SectionHeader colors={colors} title="Transport" />
-        <TextInput
-          accessibilityLabel="Signal index URL"
+        <TextField
           autoCapitalize="none"
           autoCorrect={false}
-          value={indexUrl}
+          colors={colors}
+          hint="TCP relay works online; Wi-Fi AutoInterface works nearby. BLE/RNode is enabled in Android builds when a radio is paired."
+          label="Signal index URL"
           onChangeText={setIndexUrl}
           placeholder="https://signal-index.example"
-          placeholderTextColor={colors.text3}
-          style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface }]}
+          value={indexUrl}
         />
-        <Text style={[typography.caption, { color: colors.text2 }]}>TCP relay works online; Wi-Fi AutoInterface works nearby. BLE/RNode is enabled in Android builds when a radio is paired.</Text>
-        <View style={styles.actions}>
+        <Row gap={spacing.xs} wrap>
           <Button colors={colors} system="signal" label="Start RNS" loading={busy && workLabel.includes('Wi-Fi')} onPress={start} disabled={busy} icon="radio-outline" />
           <Button colors={colors} system="signal" variant="secondary" label="Start BLE RNode" loading={busy && workLabel.includes('Bluetooth')} onPress={() => start(true)} disabled={busy} icon="bluetooth-outline" />
           <Button colors={colors} variant="secondary" label="Stop" onPress={() => void run('Stopping RNS…', stopSignalRns)} disabled={busy || state === 'stopped'} />
-        </View>
+        </Row>
         <SectionHeader colors={colors} title="Public Signal profile" />
-        <Text style={[typography.caption, { color: colors.text2 }]}>
-          Your username is paired with a server codename derived from this separate Signal identity.
-        </Text>
-        <TextInput
-          accessibilityLabel="Signal username"
-          value={profileName}
-          onChangeText={setProfileName}
+        <TextField
+          colors={colors}
+          hint="Your username is paired with a server codename derived from this separate Signal identity."
+          label="Signal username"
           maxLength={80}
+          onChangeText={setProfileName}
           placeholder="Username"
-          placeholderTextColor={colors.text3}
-          style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface }]}
+          value={profileName}
         />
-        <TextInput
-          accessibilityLabel="Signal profile bio"
-          value={profileBio}
-          onChangeText={setProfileBio}
+        <TextAreaField
+          colors={colors}
+          label="Signal profile bio"
           maxLength={500}
+          onChangeText={setProfileBio}
           placeholder="How people should recognize you"
-          placeholderTextColor={colors.text3}
-          style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface }]}
+          value={profileBio}
         />
         <Button colors={colors} system="signal" label="Publish username" loading={busy && workLabel.includes('profile')} onPress={publishProfile} disabled={busy || !profileName.trim()} icon="person-add-outline" />
         {profileNotice ? <StatusBanner colors={colors} icon="checkmark-circle-outline" title="Searchable profile published" body={profileNotice} tone="verified" /> : null}
         <SectionHeader colors={colors} title="Discover people" action="Search" onAction={find} />
-        <TextInput
-          accessibilityLabel="Search Signal directory"
-          value={query}
+        <TextField
+          colors={colors}
+          label="Search Signal directory"
           onChangeText={setQuery}
           placeholder="Name or contact claim"
-          placeholderTextColor={colors.text3}
-          style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface }]}
+          value={query}
         />
         {directoryNotice ? (
           <StatusBanner
@@ -295,7 +301,7 @@ export function RnsSignalScreen({
         {directory.map((profile) => {
           const contact = contacts.find((row) => row.identityId === profile.id);
           return (
-            <View key={profile.id} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Card colors={colors} key={profile.id} style={styles.cardStack}>
               <Text style={[typography.label, { color: colors.text }]}>{profile.displayName}</Text>
               <Text selectable style={[typography.mono, { color: colors.signal }]}>{profile.codename || profile.id}</Text>
               {profile.bio ? <Text style={[typography.body, { color: colors.text2 }]}>{profile.bio}</Text> : null}
@@ -304,7 +310,7 @@ export function RnsSignalScreen({
                   ✓ Saved on this device — reachable without the index
                 </Text>
               ) : null}
-              <View style={styles.actions}>
+              <Row gap={spacing.xs} wrap>
                 <Button
                   colors={colors}
                   system="signal"
@@ -315,8 +321,8 @@ export function RnsSignalScreen({
                 />
                 <Button colors={colors} system="signal" variant="secondary" label={contact?.followed ? 'Unfollow' : 'Follow'} onPress={() => follow(profile)} />
                 <Button colors={colors} system="signal" variant="ghost" label="Message" onPress={() => setSelected(contact ?? profile)} />
-              </View>
-            </View>
+              </Row>
+            </Card>
           );
         })}
         <SectionHeader colors={colors} title={`Saved contacts (${contacts.length})`} />
@@ -352,36 +358,38 @@ export function RnsSignalScreen({
           </View>
         ))}
         {selected ? <Text style={[typography.caption, { color: colors.signal }]}>Sending securely to {selected.displayName}</Text> : null}
-        <TextInput
-          accessibilityLabel="LXMF message"
-          multiline
-          value={message}
+        <TextAreaField
+          colors={colors}
+          label="LXMF message"
           onChangeText={setMessage}
           placeholder="Choose a contact, then write an LXMF message"
-          placeholderTextColor={colors.text3}
-          style={[styles.input, styles.message, { color: colors.text, borderColor: colors.border, backgroundColor: colors.surface }]}
+          value={message}
         />
         <Button colors={colors} system="signal" label="Send LXMF" onPress={send} disabled={busy || !selected} icon="send-outline" />
         <SectionHeader colors={colors} title="Received LXMF" action="Refresh" onAction={receive} />
         {inbox.length === 0 ? <Text style={[typography.caption, { color: colors.text2 }]}>No new direct messages on this device.</Text> : null}
         {inbox.map((item) => (
-          <View key={item.id} style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Card colors={colors} key={item.id} style={styles.cardStack}>
             <Text style={[typography.label, { color: colors.text }]}>{item.title || item.sourceHash.slice(0, 12)}</Text>
             <Text style={[typography.body, { color: colors.text2 }]}>{item.content}</Text>
-          </View>
+          </Card>
         ))}
         <Text style={[typography.caption, { color: colors.text2 }]}>Follows, saved contacts, and broadcast delivery rules stay only on this device. A mesh packet is stored or alerted only after it matches a local follow.</Text>
       </View>
-    </Screen>
+      </Page>
+    </View>
   );
 }
 
+/**
+ * Only layout lives here now. Inputs come from `design-system/forms`, containers from
+ * `Card`/`Row` — a local `input` or `card` style is how this screen drifted away from every
+ * other screen in the app in the first place.
+ */
 const styles = StyleSheet.create({
+  page: { flex: 1 },
   body: { gap: spacing.sm, padding: spacing.md },
-  input: { ...typography.body, borderWidth: 1, borderRadius: radius.md, minHeight: 48, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
-  message: { minHeight: 92, textAlignVertical: 'top' },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  card: { borderWidth: 1, borderRadius: radius.md, gap: spacing.xs, padding: spacing.sm },
+  cardStack: { gap: spacing.xs },
   contactRow: { minHeight: 64, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   flex: { flex: 1, minWidth: 0 },
 });

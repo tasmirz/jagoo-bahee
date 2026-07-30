@@ -81,10 +81,35 @@ const ALL_SCOPES: readonly ReachabilityScope[] = [
 ];
 
 /** The AR-12 default: one uplink, every scope, no binding, no probing. */
+/**
+ * Scopes a node may claim with no evidence at all.
+ *
+ * ── Why LAN is absent, and why that is a correctness fix, not a downgrade ───────────
+ * `currentScope()` reports the NARROWEST live scope, and the default probe config has no
+ * targets for any scope. "Unmeasurable is not unreachable" then marks every declared scope
+ * live — so a stock node declaring LAN reported LAN, and the client rendered "Same network —
+ * Only this local network. Nothing you post leaves this building yet."
+ *
+ * For a node reachable over the internet that sentence is false, and it is false in the
+ * direction that matters: it tells someone their post is contained when it is being
+ * published. In this system that is not a cosmetic mislabel.
+ *
+ * The asymmetry is deliberate. A wide scope claimed without evidence over-promises reach, and
+ * the transport layer discovers the truth on the next send. A NARROW scope claimed without
+ * evidence under-promises reach to the person deciding whether it is safe to post, and
+ * nothing corrects it. So the wide scopes stay assumable and LAN has to be earned — by an
+ * operator declaring it in `UPLINKS`, or by a LAN probe target that actually answers.
+ */
+const ASSUMABLE_SCOPES: readonly ReachabilityScope[] = [
+  ReachabilityScope.ISP_LOCAL,
+  ReachabilityScope.NATIONAL,
+  ReachabilityScope.GLOBAL,
+];
+
 export const IMPLICIT_UPLINK: UplinkConfig = {
   id: 'default',
   sourceIp: '',
-  declaredScopes: ALL_SCOPES,
+  declaredScopes: ASSUMABLE_SCOPES,
   priority: 0,
 };
 

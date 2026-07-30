@@ -9,12 +9,13 @@ export default function CommunityManagementRoute() {
     readonly communityId: string;
     readonly section?: 'queue' | 'actions' | 'roles' | 'settings';
   }>();
-  const { colors, homeNode } = useApp();
+  const { colors, homeNode, themeMode } = useApp();
   if (!homeNode || !communityId) return null;
   return (
     <AppScene colors={colors}>
       <CommunityManagementScreen
         colors={colors}
+        mode={themeMode}
         communityId={communityId}
         homeNode={homeNode}
         initialSection={section}

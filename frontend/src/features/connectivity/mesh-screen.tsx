@@ -8,7 +8,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { Priority } from '@jagoo/sdk';
 import type { AppPalette, ReachState, ThemeMode } from '../../design-system';
 import {
-  AppHeader,
+  PageHeader,
   Button,
   EmptyState,
   Pill,
@@ -79,7 +79,8 @@ export function MeshScreen({
   onBack,
 }: {
   readonly colors: AppPalette;
-  readonly mode?: ThemeMode;
+  /** Required by the shared `PageHeader`, whose frosted surface follows the theme. */
+  readonly mode: ThemeMode;
   readonly reach: ReachState;
   readonly onBack: () => void;
 }) {
@@ -283,7 +284,7 @@ export function MeshScreen({
 
   return (
     <Screen colors={colors}>
-      <AppHeader colors={colors} mode={mode} reach={reach} title="Offline relay" onBack={onBack} />
+      <PageHeader colors={colors} mode={mode} reach={reach} title="Offline relay" onBack={onBack} />
       <View style={styles.hero}>
         <Text style={[typography.overline, { color: colors.signal }]}>No server path required</Text>
         <Text style={[typography.h1, { color: colors.text }]}>Carry signed work across the gap.</Text>

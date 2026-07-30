@@ -1,20 +1,29 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { DeliveryState, VouchLevel } from '@jagoo/sdk/proto';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
-import { Clipboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Clipboard, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { AppPalette, ReachState, ThemeMode } from '../../design-system';
 import {
-  AppHeader,
+  ActionProgress,
   Button,
+  Card,
+  Disclosure,
   EmptyState,
+  Fingerprint,
+  Page,
+  PageHeader,
+  PasswordField,
   Pill,
-  Screen,
+  Row,
   SectionHeader,
   Skeleton,
   StatusBanner,
+  TextAreaField,
+  TextField,
 } from '../../design-system';
 import { radius, spacing, type as typography } from '../../design-system';
+import { useAsyncAction } from '../../hooks/use-async-action';
 import { useNodeDocument, type NodePage } from '../../data/node';
 import type { HomeNode } from '../../data/node-config';
 import {
@@ -67,7 +76,8 @@ import {
 
 interface SignalScreenProps {
   readonly colors: AppPalette;
-  readonly mode?: ThemeMode;
+  /** Required: `PageHeader` renders a frosted surface that must match the active theme. */
+  readonly mode: ThemeMode;
   readonly homeNode: HomeNode;
   readonly reach: ReachState;
   readonly onNetwork: () => void;
@@ -150,6 +160,18 @@ const defaultSubscription = (channel: string): LocalSignalSubscription => ({
   mutedUntilMs: 0,
 });
 
+/**
+ * Adapter onto the shared form fields.
+ *
+ * This file used to render its own `TextInput` with local border, radius and label styles, so
+ * every Signal input looked subtly unlike the same input on a Forum screen — different label
+ * weight, different focus treatment, no character counter, and a password field with no
+ * reveal control. `design-system/forms` already solves all of that once.
+ *
+ * Kept as a thin adapter rather than rewriting all 34 call sites: the mapping from
+ * `multiline`/`secureTextEntry` to the right shared component is exactly what an adapter is
+ * for, and doing it here means no call site can pick the wrong one.
+ */
 function Field({
   colors,
   label,
@@ -159,6 +181,7 @@ function Field({
   multiline,
   secureTextEntry,
   keyboardType,
+  hint,
 }: {
   readonly colors: AppPalette;
   readonly label: string;
@@ -168,27 +191,44 @@ function Field({
   readonly multiline?: boolean;
   readonly secureTextEntry?: boolean;
   readonly keyboardType?: 'default' | 'number-pad';
+  readonly hint?: string;
 }) {
-  return (
-    <View style={styles.field}>
-      <Text style={[typography.caption, { color: colors.text2 }]}>{label}</Text>
-      <TextInput
-        accessibilityLabel={label}
-        keyboardType={keyboardType}
-        multiline={multiline}
+  if (secureTextEntry) {
+    // PasswordField adds the show/hide control the local input never had — typing a long
+    // passphrase blind on a phone keyboard is how people get locked out of their own vault.
+    return (
+      <PasswordField
+        colors={colors}
+        hint={hint}
+        label={label}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={colors.text3}
-        secureTextEntry={secureTextEntry}
-        style={[
-          typography.body,
-          styles.input,
-          multiline ? styles.multiline : null,
-          { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text },
-        ]}
         value={value}
       />
-    </View>
+    );
+  }
+  if (multiline) {
+    return (
+      <TextAreaField
+        colors={colors}
+        hint={hint}
+        label={label}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        value={value}
+      />
+    );
+  }
+  return (
+    <TextField
+      colors={colors}
+      hint={hint}
+      keyboardType={keyboardType}
+      label={label}
+      onChangeText={onChangeText}
+      placeholder={placeholder}
+      value={value}
+    />
   );
 }
 
@@ -257,10 +297,7 @@ function AlertCard({
         ? colors.constrained
         : colors.signal;
   return (
-    <View
-      accessibilityLabel={`${setting.label}: ${broadcast.headline}`}
-      style={[styles.alert, { backgroundColor: colors.surface, borderColor: accent }]}
-    >
+    <Card colors={colors} style={{ ...styles.alert, borderColor: accent }}>
       <View style={styles.alertHeading}>
         <View style={styles.alertTitle}>
           <Ionicons name={setting.icon} size={22} color={accent} />
@@ -293,7 +330,7 @@ function AlertCard({
           tone="danger"
         />
       ) : null}
-      <View style={styles.row}>
+      <Row gap={spacing.sm} wrap>
         <Button colors={colors} label="View channel" onPress={onChannel} variant="ghost" system="signal" />
         {broadcast.severity === 4 && !acknowledged ? (
           <Button
@@ -304,8 +341,8 @@ function AlertCard({
             system="signal"
           />
         ) : null}
-      </View>
-    </View>
+      </Row>
+    </Card>
   );
 }
 
@@ -364,8 +401,9 @@ export function SignalHomeScreen({
   };
 
   return (
-    <Screen colors={colors}>
-      <AppHeader colors={colors} mode={mode} reach={reach} title="Signal" onReach={onNetwork} />
+    <View style={styles.page}>
+      <PageHeader colors={colors} mode={mode} reach={reach} title="Signal" onReach={onNetwork} />
+      <Page colors={colors}>
       <View style={styles.hero}>
         <View style={[styles.signalMark, { backgroundColor: colors.signal }]} />
         <View style={styles.flex}>
@@ -376,11 +414,11 @@ export function SignalHomeScreen({
         </View>
       </View>
       <SignalActions colors={colors} onChannels={onChannels} onCheckIn={onCheckIn} onMap={onMap} />
-      <View style={styles.homeActionRow}>
+      <Row gap={spacing.sm} wrap>
         <Button colors={colors} label="Signal identity" onPress={onIdentity} variant="secondary" system="signal" />
         <Button colors={colors} label="Private messages" onPress={onMessages} variant="secondary" system="signal" />
         <Button colors={colors} label="LXMF mesh" onPress={onMesh} variant="secondary" system="signal" icon="radio-outline" />
-      </View>
+      </Row>
       {subscriptions.length === 0 ? (
         <StatusBanner
           action="Choose channels"
@@ -428,7 +466,8 @@ export function SignalHomeScreen({
           />
         ))
       )}
-    </Screen>
+      </Page>
+    </View>
   );
 }
 
@@ -452,8 +491,9 @@ export function SignalChannelsScreen({
   );
   const rows = query.data?.value.items ?? [];
   return (
-    <Screen colors={colors}>
-      <AppHeader colors={colors} mode={mode} reach={reach} title="Channels" onBack={onBack} onReach={onNetwork} />
+    <View style={styles.page}>
+      <PageHeader colors={colors} mode={mode} reach={reach} title="Channels" onBack={onBack} onReach={onNetwork} />
+      <Page colors={colors}>
       <Field colors={colors} label="Find a broadcaster" onChangeText={setQueryText} value={queryText} />
       <Button colors={colors} label="Create or publish" onPress={onStudio} system="signal" />
       {rows.map((channel) => (
@@ -470,10 +510,10 @@ export function SignalChannelsScreen({
             <Ionicons name="radio-outline" color={colors.signal} size={22} />
           </View>
           <View style={styles.flex}>
-            <View style={styles.rowCompact}>
+            <Row gap={spacing.xs} wrap>
               <Text style={[typography.h2, { color: colors.text }]}>{channel.name}</Text>
               <Pill colors={colors} label={channel.verification} />
-            </View>
+            </Row>
             <Text numberOfLines={2} style={[typography.body, { color: colors.text2 }]}>
               {channel.description}
             </Text>
@@ -494,7 +534,8 @@ export function SignalChannelsScreen({
           title="No channel found"
         />
       ) : null}
-    </Screen>
+      </Page>
+    </View>
   );
 }
 
@@ -582,8 +623,9 @@ export function SignalChannelScreen({
   };
 
   return (
-    <Screen colors={colors}>
-      <AppHeader colors={colors} mode={mode} reach={reach} title={channel?.name ?? 'Channel'} onBack={onBack} onReach={onNetwork} />
+    <View style={styles.page}>
+      <PageHeader colors={colors} mode={mode} reach={reach} title={channel?.name ?? 'Channel'} onBack={onBack} onReach={onNetwork} />
+      <Page colors={colors}>
       {channel ? (
         <>
           <View style={styles.hero}>
@@ -595,10 +637,10 @@ export function SignalChannelScreen({
               <Text style={[typography.body, { color: colors.text2 }]}>{channel.description}</Text>
             </View>
           </View>
-          <View style={styles.rowCompact}>
+          <Row gap={spacing.xs} wrap>
             <Pill colors={colors} label={personallyVerified ? 'personally verified' : channel.verification} />
             <Pill colors={colors} label={channel.language.toUpperCase()} />
-          </View>
+          </Row>
           {channel.confusableWith.length > 0 ? (
             <StatusBanner
               body="Another channel has a visually similar name. Compare the fingerprint in person."
@@ -638,9 +680,7 @@ export function SignalChannelScreen({
             variant="secondary"
           />
           <SectionHeader colors={colors} title="In-person verification" />
-          <Text style={[typography.mono, styles.fingerprint, { color: colors.text2 }]}>
-            {channel.currentSigningKey.match(/.{1,4}/g)?.join(' ')}
-          </Text>
+          <Fingerprint colors={colors} full={channel.currentSigningKey} value={channel.currentSigningKey.match(/.{1,4}/g)?.join(' ') ?? channel.currentSigningKey} />
           <Field
             colors={colors}
             label="Scanned QR fingerprint (base64)"
@@ -651,7 +691,7 @@ export function SignalChannelScreen({
           <Button colors={colors} label="Verify locally" onPress={() => void verify()} variant="secondary" system="signal" />
           <SectionHeader colors={colors} title="Trust & lifecycle" action={lifecycleOpen ? 'Close' : 'Manage'} onAction={() => setLifecycleOpen((value) => !value)} />
           {lifecycleOpen ? (
-            <View style={styles.lifecycle}>
+            <Card colors={colors} style={styles.lifecycle}>
               <Text style={[typography.label, { color: colors.text }]}>Owned channel details</Text>
               <Field colors={colors} label="Channel name" onChangeText={setChannelName} placeholder={channel.name} value={channelName} />
               <Field colors={colors} label="Description" multiline onChangeText={setChannelDescription} placeholder={channel.description} value={channelDescription} />
@@ -749,7 +789,7 @@ export function SignalChannelScreen({
                 system="signal"
                 variant="destructive"
               />
-            </View>
+            </Card>
           ) : null}
           {notice ? (
             <StatusBanner
@@ -781,7 +821,8 @@ export function SignalChannelScreen({
           title="Channel unavailable"
         />
       )}
-    </Screen>
+      </Page>
+    </View>
   );
 }
 
@@ -845,9 +886,10 @@ export function SignalCrisisScreen(props: SignalScreenProps) {
   };
 
   return (
-    <Screen colors={colors}>
-      <AppHeader colors={colors} mode={themeMode} reach={reach} title="Crisis desk" onBack={onBack} onReach={onNetwork} />
-      <View style={styles.rowCompact}>
+    <View style={styles.page}>
+      <PageHeader colors={colors} mode={themeMode} reach={reach} title="Crisis desk" onBack={onBack} onReach={onNetwork} />
+      <Page colors={colors}>
+      <Row gap={spacing.xs} wrap>
         {(['checkin', 'missing', 'resource'] as const).map((value) => (
           <Pill
             colors={colors}
@@ -857,11 +899,11 @@ export function SignalCrisisScreen(props: SignalScreenProps) {
             selected={mode === value}
           />
         ))}
-      </View>
+      </Row>
       {mode === 'checkin' ? (
         <>
           <Text style={[typography.h1, { color: colors.text }]}>How are you?</Text>
-          <View style={styles.rowCompact}>
+          <Row gap={spacing.xs} wrap>
             {[
               [1, 'Safe'],
               [2, 'Need help'],
@@ -877,7 +919,7 @@ export function SignalCrisisScreen(props: SignalScreenProps) {
                 selected={status === value}
               />
             ))}
-          </View>
+          </Row>
           <Field colors={colors} label="Short note (80 characters)" onChangeText={setNote} value={note} />
           <StatusBanner
             body="Check-ins cost zero credits and require no anti-abuse credential."
@@ -896,7 +938,7 @@ export function SignalCrisisScreen(props: SignalScreenProps) {
         </>
       ) : (
         <>
-          <View style={styles.rowCompact}>
+          <Row gap={spacing.xs} wrap>
             {[1, 2, 3, 4, 5, 6, 7, 8].map((value) => (
               <Pill
                 colors={colors}
@@ -906,8 +948,8 @@ export function SignalCrisisScreen(props: SignalScreenProps) {
                 selected={resourceKind === value}
               />
             ))}
-          </View>
-          <View style={styles.rowCompact}>
+          </Row>
+          <Row gap={spacing.xs} wrap>
             {[1, 2, 3, 4, 5].map((value) => (
               <Pill
                 colors={colors}
@@ -917,7 +959,7 @@ export function SignalCrisisScreen(props: SignalScreenProps) {
                 selected={resourceState === value}
               />
             ))}
-          </View>
+          </Row>
           <Field colors={colors} label="Area or landmark" onChangeText={setPlace} value={place} />
           <Field colors={colors} label="What did you observe?" multiline onChangeText={setDetail} value={detail} />
         </>
@@ -938,7 +980,8 @@ export function SignalCrisisScreen(props: SignalScreenProps) {
           tone={notice.startsWith('Signed') ? 'verified' : 'danger'}
         />
       ) : null}
-    </Screen>
+      </Page>
+    </View>
   );
 }
 
@@ -967,8 +1010,9 @@ export function SignalMapScreen({ colors, mode, homeNode, reach, onNetwork, onBa
   const maxLon = Math.max(...longitudes, 1);
 
   return (
-    <Screen colors={colors}>
-      <AppHeader colors={colors} mode={mode} reach={reach} title="Offline area map" onBack={onBack} onReach={onNetwork} />
+    <View style={styles.page}>
+      <PageHeader colors={colors} mode={mode} reach={reach} title="Offline area map" onBack={onBack} onReach={onNetwork} />
+      <Page colors={colors}>
       <Text style={[typography.body, { color: colors.text2 }]}>
         A lightweight coordinate plot cached with the reports. It does not load map tiles or reveal your viewport.
       </Text>
@@ -1014,7 +1058,245 @@ export function SignalMapScreen({ colors, mode, homeNode, reach, onNetwork, onBa
           </View>
         </View>
       ))}
-    </Screen>
+      </Page>
+    </View>
+  );
+}
+
+/**
+ * Which of three mutually exclusive things this screen is for right now.
+ *
+ * The old screen showed every control at once: "Create Signal identity" sat next to
+ * "Unlock", both enabled whenever the passphrase was long enough, whether or not a vault
+ * existed. A returning user could press Create; a new user could press Unlock; and the
+ * restore field appeared under a heading that contradicted the buttons above it. There is
+ * only ever one correct next step here, so the screen shows one.
+ */
+type VaultStage = 'setup' | 'locked' | 'unlocked';
+
+function vaultStage(summary: SignalSessionSummary): VaultStage {
+  if (!summary.configured) return 'setup';
+  return summary.unlocked ? 'unlocked' : 'locked';
+}
+
+/** The optional recovery salt, folded away until asked for — most people should not use one. */
+function RecoverySaltField({
+  colors,
+  value,
+  onChangeText,
+  hint,
+}: {
+  readonly colors: AppPalette;
+  readonly value: string;
+  readonly onChangeText: (next: string) => void;
+  readonly hint: string;
+}) {
+  return (
+    <Disclosure colors={colors} title="Recovery salt (optional)">
+      <Field
+        colors={colors}
+        hint={hint}
+        label="Recovery salt"
+        onChangeText={onChangeText}
+        placeholder="Leave empty unless you know you want one"
+        secureTextEntry
+        value={value}
+      />
+    </Disclosure>
+  );
+}
+
+function VaultSetup({
+  colors,
+  busy,
+  passphrase,
+  onPassphrase,
+  salt,
+  onSalt,
+  restorePhrase,
+  onRestorePhrase,
+  onCreate,
+  onRestore,
+}: {
+  readonly colors: AppPalette;
+  readonly busy: boolean;
+  readonly passphrase: string;
+  readonly onPassphrase: (next: string) => void;
+  readonly salt: string;
+  readonly onSalt: (next: string) => void;
+  readonly restorePhrase: string;
+  readonly onRestorePhrase: (next: string) => void;
+  readonly onCreate: () => void;
+  readonly onRestore: () => void;
+}) {
+  // Empty is allowed; short is not. Anything between 1 and 7 characters looks like
+  // protection and is not, so it is the one input the button refuses.
+  const passphraseUsable = passphrase.length === 0 || passphrase.length >= 8;
+  const wordCount = restorePhrase.trim() ? restorePhrase.trim().split(/\s+/).length : 0;
+
+  return (
+    <>
+      <SectionHeader colors={colors} title="Set up this device" />
+      <Field
+        colors={colors}
+        label="Vault passphrase (optional)"
+        onChangeText={onPassphrase}
+        placeholder="At least 8 characters, or leave empty"
+        secureTextEntry
+        value={passphrase}
+      />
+      <Text style={[typography.caption, { color: passphrase.length === 0 ? colors.constrained : colors.text2 }]}>
+        {passphrase.length === 0
+          ? '⚠ Without a passphrase, anyone who unlocks this phone can read your Signal messages. Your 24 words are still required to restore the identity elsewhere.'
+          : passphraseUsable
+            ? 'Needed every time you unlock. It is not recoverable — your 24 words are.'
+            : 'Use at least 8 characters, or clear the field to go without one.'}
+      </Text>
+
+      <RecoverySaltField
+        colors={colors}
+        value={salt}
+        onChangeText={onSalt}
+        hint="Mixed into your keys and never stored. The same 24 words with and without it are two different identities — if you lose the salt, the identity is gone."
+      />
+
+      <Button
+        colors={colors}
+        disabled={busy || !passphraseUsable}
+        icon="key-outline"
+        label="Create Signal identity"
+        onPress={onCreate}
+        system="signal"
+      />
+
+      <SectionHeader colors={colors} title="Or restore an existing one" />
+      <Field
+        colors={colors}
+        label="Signal recovery phrase"
+        multiline
+        onChangeText={onRestorePhrase}
+        placeholder="Paste the 24 words stored when this Signal identity was created"
+        value={restorePhrase}
+      />
+      <Text style={[typography.caption, { color: colors.text2 }]}>
+        {wordCount === 0 ? '24 words needed' : `${wordCount} of 24 words`}
+      </Text>
+      <Button
+        colors={colors}
+        disabled={busy || !passphraseUsable || wordCount !== 24}
+        label="Restore Signal identity"
+        onPress={onRestore}
+        system="signal"
+        variant="secondary"
+      />
+    </>
+  );
+}
+
+function VaultUnlock({
+  colors,
+  busy,
+  passphrase,
+  onPassphrase,
+  salt,
+  onSalt,
+  onUnlock,
+  onPanic,
+}: {
+  readonly colors: AppPalette;
+  readonly busy: boolean;
+  readonly passphrase: string;
+  readonly onPassphrase: (next: string) => void;
+  readonly salt: string;
+  readonly onSalt: (next: string) => void;
+  readonly onUnlock: () => void;
+  readonly onPanic: () => void;
+}) {
+  return (
+    <>
+      <SectionHeader colors={colors} title="Unlock this device" />
+      <Field
+        colors={colors}
+        label="Vault passphrase"
+        onChangeText={onPassphrase}
+        placeholder="Leave empty if you created it without one"
+        secureTextEntry
+        value={passphrase}
+      />
+      <RecoverySaltField
+        colors={colors}
+        value={salt}
+        onChangeText={onSalt}
+        hint="Only if you set one when this identity was created. A wrong salt is refused, not silently accepted."
+      />
+      <Button
+        colors={colors}
+        disabled={busy}
+        icon="lock-open-outline"
+        label="Unlock"
+        onPress={onUnlock}
+        system="signal"
+      />
+      <Button
+        colors={colors}
+        disabled={busy}
+        label="Panic wipe Signal only"
+        onPress={onPanic}
+        variant="destructive"
+      />
+    </>
+  );
+}
+
+function VaultActions({
+  colors,
+  busy,
+  authenticated,
+  revokeConfirm,
+  onRevokeConfirm,
+  onRegister,
+  onAuthenticate,
+  onPrekeys,
+  onRevoke,
+  onPanic,
+}: {
+  readonly colors: AppPalette;
+  readonly busy: boolean;
+  readonly authenticated: boolean;
+  readonly revokeConfirm: string;
+  readonly onRevokeConfirm: (next: string) => void;
+  readonly onRegister: () => void;
+  readonly onAuthenticate: () => void;
+  readonly onPrekeys: () => void;
+  readonly onRevoke: () => void;
+  readonly onPanic: () => void;
+}) {
+  return (
+    <>
+      <SectionHeader colors={colors} title="This identity on your server" />
+      <Button colors={colors} disabled={busy} icon="ribbon-outline" label="Register certificate" onPress={onRegister} system="signal" />
+      <Button colors={colors} disabled={busy} label={authenticated ? 'Re-authenticate' : 'Authenticate'} onPress={onAuthenticate} system="signal" variant="secondary" />
+      <Button colors={colors} disabled={busy} label="Publish offline prekeys" onPress={onPrekeys} system="signal" variant="secondary" />
+      <Text style={[typography.caption, { color: colors.text2 }]}>
+        Prekeys let someone start an encrypted conversation with you while your device is offline.
+      </Text>
+
+      <SectionHeader colors={colors} title="Danger zone" />
+      <Field
+        colors={colors}
+        label='Type "REVOKE" to publish a key revocation'
+        onChangeText={onRevokeConfirm}
+        value={revokeConfirm}
+      />
+      <Button
+        colors={colors}
+        disabled={busy || revokeConfirm !== 'REVOKE'}
+        label="Revoke Signal key"
+        onPress={onRevoke}
+        variant="destructive"
+      />
+      <Button colors={colors} disabled={busy} label="Panic wipe Signal only" onPress={onPanic} variant="destructive" />
+    </>
   );
 }
 
@@ -1025,35 +1307,46 @@ export function SignalIdentityScreen({ colors, mode, homeNode, reach, onNetwork,
     authenticated: false,
   });
   const [passphrase, setPassphrase] = useState('');
+  const [salt, setSalt] = useState('');
   const [recovery, setRecovery] = useState('');
   const [restorePhrase, setRestorePhrase] = useState('');
   const [revokeConfirm, setRevokeConfirm] = useState('');
-  const [notice, setNotice] = useState('');
+  const [done, setDone] = useState('');
   const [recoveryCopied, setRecoveryCopied] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const refresh = async () => setSummary(await signalSessionSummary());
+  const action = useAsyncAction();
+
+  const refresh = useCallback(async () => setSummary(await signalSessionSummary()), []);
   useEffect(() => {
     void refresh();
-  }, []);
-  const run = async (action: () => Promise<unknown>) => {
-    setBusy(true);
-    setNotice('');
-    try {
-      const result = await action();
-      if (typeof result === 'object' && result && 'recoveryPhrase' in result) {
-        setRecovery(String((result as { recoveryPhrase: string }).recoveryPhrase));
-      }
-      setNotice('Signal vault updated.');
-      await refresh();
-    } catch (error) {
-      setNotice((error as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
+  }, [refresh]);
+
+  const run = useCallback(
+    (label: string, operation: () => Promise<unknown>) =>
+      void (async () => {
+        setDone('');
+        const result = await action.run(label, async () => operation());
+        if (result && typeof result === 'object' && 'recoveryPhrase' in result) {
+          setRecovery(String((result as { recoveryPhrase: string }).recoveryPhrase));
+        }
+        // Null means cancelled — the runner already cleared its own state, and claiming
+        // success for something the user stopped would be a lie.
+        if (result !== null) {
+          setDone(`${label} — done.`);
+          setPassphrase('');
+          setSalt('');
+        }
+        await refresh();
+      })(),
+    [action, refresh],
+  );
+
+  const stage = vaultStage(summary);
+  const audits = homeNode.discovery.services.auditLogs;
+
   return (
-    <Screen colors={colors}>
-      <AppHeader colors={colors} mode={mode} reach={reach} title="Signal identity" onBack={onBack} onReach={onNetwork} />
+    <View style={styles.page}>
+      <PageHeader colors={colors} mode={mode} reach={reach} title="Signal identity" onBack={onBack} onReach={onNetwork} />
+      <Page colors={colors}>
       <StatusBanner
         body="This vault has a separate recovery phrase and storage root. It cannot derive or reveal your Forum identity."
         colors={colors}
@@ -1066,55 +1359,46 @@ export function SignalIdentityScreen({ colors, mode, homeNode, reach, onNetwork,
         <Pill colors={colors} label={summary.unlocked ? 'unlocked' : 'locked'} />
         <Pill colors={colors} label={summary.authenticated ? 'authenticated' : 'not authenticated'} />
       </View>
-      <Field
-        colors={colors}
-        label="Signal vault passphrase"
-        onChangeText={setPassphrase}
-        secureTextEntry
-        value={passphrase}
-      />
-      <View style={styles.row}>
-        <Button
+
+      {action.busy ? (
+        <ActionProgress
           colors={colors}
-          disabled={busy || passphrase.length < 8}
-          label="Create Signal identity"
-          onPress={() => void run(() => createSignalIdentity(passphrase))}
-          system="signal"
+          elapsedMs={action.elapsedMs}
+          label={action.label}
+          late={action.late}
+          onCancel={action.cancel}
+          onKeepWaiting={action.keepWaiting}
         />
-        <Button
-          colors={colors}
-          disabled={busy || passphrase.length < 8}
-          label="Unlock"
-          onPress={() => void run(() => unlockSignalIdentity(passphrase))}
-          variant="secondary"
-          system="signal"
-        />
-      </View>
-      {!summary.configured ? (
-        <>
-          <SectionHeader colors={colors} title="Returning Signal user" />
-          <Field
-            colors={colors}
-            label="Signal recovery phrase"
-            multiline
-            onChangeText={setRestorePhrase}
-            placeholder="Paste the 24 words stored when this Signal identity was created"
-            value={restorePhrase}
-          />
-          <Button
-            colors={colors}
-            disabled={
-              busy ||
-              passphrase.length < 8 ||
-              restorePhrase.trim().split(/\s+/).length !== 24
-            }
-            label="Restore Signal identity"
-            onPress={() => void run(() => importSignalIdentity(restorePhrase, passphrase))}
-            system="signal"
-            variant="secondary"
-          />
-        </>
       ) : null}
+
+      {stage === 'setup' ? (
+        <VaultSetup
+          busy={action.busy}
+          colors={colors}
+          onCreate={() => run('Creating your Signal identity', () => createSignalIdentity(passphrase, salt))}
+          onPassphrase={setPassphrase}
+          onRestore={() => run('Restoring your Signal identity', () => importSignalIdentity(restorePhrase, passphrase, salt))}
+          onRestorePhrase={setRestorePhrase}
+          onSalt={setSalt}
+          passphrase={passphrase}
+          restorePhrase={restorePhrase}
+          salt={salt}
+        />
+      ) : null}
+
+      {stage === 'locked' ? (
+        <VaultUnlock
+          busy={action.busy}
+          colors={colors}
+          onPanic={() => run('Wiping the Signal vault', panicSignal)}
+          onPassphrase={setPassphrase}
+          onSalt={setSalt}
+          onUnlock={() => run('Unlocking your Signal identity', () => unlockSignalIdentity(passphrase, salt))}
+          passphrase={passphrase}
+          salt={salt}
+        />
+      ) : null}
+
       {recovery ? (
         <Pressable
           accessibilityRole="button"
@@ -1141,85 +1425,30 @@ export function SignalIdentityScreen({ colors, mode, homeNode, reach, onNetwork,
           </Text>
         </Pressable>
       ) : null}
-      {summary.unlocked ? (
-        <>
-          <Button
-            colors={colors}
-            disabled={busy}
-            label="Register certificate"
-            onPress={() =>
-              void run(() =>
-                registerSignalIdentity(
-                  homeNode.baseUrl,
-                  homeNode.discovery.services.auditLogs,
-                ),
-              )
-            }
-            system="signal"
-          />
-          <Button
-            colors={colors}
-            disabled={busy}
-            label="Authenticate"
-            onPress={() => void run(() => authenticateSignalIdentity(homeNode.baseUrl))}
-            variant="secondary"
-            system="signal"
-          />
-          <Button
-            colors={colors}
-            disabled={busy}
-            label="Publish offline prekeys"
-            onPress={() =>
-              void run(() =>
-                publishSignalPrekeys(
-                  homeNode.baseUrl,
-                  homeNode.discovery.services.auditLogs,
-                ),
-              )
-            }
-            variant="secondary"
-            system="signal"
-          />
-          <Field
-            colors={colors}
-            label='Type "REVOKE" to publish a key revocation'
-            onChangeText={setRevokeConfirm}
-            value={revokeConfirm}
-          />
-          <Button
-            colors={colors}
-            disabled={busy || revokeConfirm !== 'REVOKE'}
-            label="Revoke Signal key"
-            onPress={() =>
-              void run(() =>
-                revokeSignalKey(
-                  homeNode.baseUrl,
-                  homeNode.discovery.services.auditLogs,
-                ),
-              )
-            }
-            system="signal"
-            variant="destructive"
-          />
-          <Button
-            colors={colors}
-            disabled={busy}
-            label="Panic wipe Signal only"
-            onPress={() => void run(panicSignal)}
-            variant="destructive"
-          />
-        </>
-      ) : null}
-      {notice ? (
-        <StatusBanner
-          body={notice}
+
+      {stage === 'unlocked' ? (
+        <VaultActions
+          authenticated={summary.authenticated}
+          busy={action.busy}
           colors={colors}
-          icon={notice === 'Signal vault updated.' ? 'shield-checkmark-outline' : 'warning-outline'}
-          title={notice === 'Signal vault updated.' ? 'Done' : 'Action failed'}
-          tone={notice === 'Signal vault updated.' ? 'verified' : 'danger'}
+          onAuthenticate={() => run('Authenticating with your server', () => authenticateSignalIdentity(homeNode.baseUrl))}
+          onPanic={() => run('Wiping the Signal vault', panicSignal)}
+          onPrekeys={() => run('Publishing offline prekeys', () => publishSignalPrekeys(homeNode.baseUrl, audits))}
+          onRegister={() => run('Registering your certificate', () => registerSignalIdentity(homeNode.baseUrl, audits))}
+          onRevoke={() => run('Publishing a key revocation', () => revokeSignalKey(homeNode.baseUrl, audits))}
+          onRevokeConfirm={setRevokeConfirm}
+          revokeConfirm={revokeConfirm}
         />
       ) : null}
-    </Screen>
+
+      {action.error ? (
+        <StatusBanner body={action.error} colors={colors} icon="warning-outline" title="Action failed" tone="danger" />
+      ) : null}
+      {done && !action.error ? (
+        <StatusBanner body={done} colors={colors} icon="shield-checkmark-outline" title="Done" tone="verified" />
+      ) : null}
+      </Page>
+    </View>
   );
 }
 
@@ -1342,8 +1571,9 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
     } finally { setBusy(false); }
   };
   return (
-    <Screen colors={colors}>
-      <AppHeader colors={colors} mode={themeMode} reach={reach} title="Private Signal" onBack={onBack} onReach={onNetwork} />
+    <View style={styles.page}>
+      <PageHeader colors={colors} mode={themeMode} reach={reach} title="Private Signal" onBack={onBack} onReach={onNetwork} />
+      <Page colors={colors}>
       <StatusBanner
         body="The node receives the recipient key and authenticated ciphertext only. Session initiation combines X25519 and ML-KEM-768."
         colors={colors}
@@ -1351,19 +1581,19 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
         title="End-to-end encrypted"
         tone="verified"
       />
-      <View style={styles.rowCompact}>
+      <Row gap={spacing.xs} wrap>
         <Pill colors={colors} label="Messages" onPress={() => setMode('sessions')} selected={mode === 'sessions'} />
         <Pill colors={colors} label="Groups" onPress={() => setMode('groups')} selected={mode === 'groups'} />
-      </View>
+      </Row>
       {mode === 'sessions' ? (
         <>
           <Text style={[typography.label, { color: colors.text }]}>Continue a conversation</Text>
-          <View style={styles.rowCompact}>
+          <Row gap={spacing.xs} wrap>
             <Pill colors={colors} label="New session" onPress={() => setActiveSession('')} selected={!activeSession} />
             {sessions.map((session) => (
               <Pill colors={colors} key={session.id} label={session.id.slice(0, 10)} onPress={() => setActiveSession(session.id)} selected={activeSession === session.id} />
             ))}
-          </View>
+          </Row>
           {!activeSession ? (
             <Field colors={colors} label="Recipient Signal key (hex)" onChangeText={setRecipient} placeholder="64 hexadecimal characters" value={recipient} />
           ) : null}
@@ -1394,12 +1624,12 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
             </Pressable>
           ))}
           {selectedGroup ? (
-            <View style={styles.lifecycle}>
+            <Card colors={colors} style={styles.lifecycle}>
               <StatusBanner body="Every membership change creates a fresh 32-byte sender key and wraps it separately for every remaining member." colors={colors} icon="key-outline" title="Rekey is mandatory" tone="verified" />
               <Field colors={colors} label="Add member keys" multiline onChangeText={setAddMembers} value={addMembers} />
               <Field colors={colors} label="Remove member keys" multiline onChangeText={setRemoveMembers} value={removeMembers} />
               <Button colors={colors} disabled={busy || (!addMembers.trim() && !removeMembers.trim())} label={busy ? 'Rekeying…' : 'Update members and rekey'} onPress={() => void updateGroup()} system="signal" />
-            </View>
+            </Card>
           ) : null}
         </>
       )}
@@ -1443,7 +1673,8 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
           ) : null}
         </View>
       )) : null}
-    </Screen>
+      </Page>
+    </View>
   );
 }
 
@@ -1499,13 +1730,14 @@ export function SignalStudioScreen({ colors, mode: themeMode, homeNode, reach, o
     }
   };
   return (
-    <Screen colors={colors}>
-      <AppHeader colors={colors} mode={themeMode} reach={reach} title="Signal studio" onBack={onBack} onReach={onNetwork} />
-      <View style={styles.rowCompact}>
+    <View style={styles.page}>
+      <PageHeader colors={colors} mode={themeMode} reach={reach} title="Signal studio" onBack={onBack} onReach={onNetwork} />
+      <Page colors={colors}>
+      <Row gap={spacing.xs} wrap>
         <Pill colors={colors} label="Declare channel" onPress={() => setMode('channel')} selected={mode === 'channel'} />
         <Pill colors={colors} label="Emit broadcast" onPress={() => setMode('broadcast')} selected={mode === 'broadcast'} />
         <Pill colors={colors} label="Retract" onPress={() => setMode('revoke')} selected={mode === 'revoke'} />
-      </View>
+      </Row>
       {mode === 'channel' ? (
         <>
           <Field colors={colors} label="Channel name" onChangeText={setName} value={name} />
@@ -1515,7 +1747,7 @@ export function SignalStudioScreen({ colors, mode: themeMode, homeNode, reach, o
         <>
           <Field colors={colors} label="Channel ID" onChangeText={setChannel} value={channel} />
           <Field colors={colors} keyboardType="number-pad" label="Sequence" onChangeText={setSequence} value={sequence} />
-          <View style={styles.rowCompact}>
+          <Row gap={spacing.xs} wrap>
             {[1, 2, 3, 4].map((value) => (
               <Pill
                 colors={colors}
@@ -1525,7 +1757,7 @@ export function SignalStudioScreen({ colors, mode: themeMode, homeNode, reach, o
                 selected={severityValue === value}
               />
             ))}
-          </View>
+          </Row>
           <Field colors={colors} label="Actionable headline" onChangeText={setHeadline} value={headline} />
           <Field colors={colors} label="Optional detail" multiline onChangeText={setDetail} value={detail} />
         </>
@@ -1553,11 +1785,14 @@ export function SignalStudioScreen({ colors, mode: themeMode, homeNode, reach, o
           tone={notice.includes('accepted') || notice.includes('declared') ? 'verified' : 'danger'}
         />
       ) : null}
-    </Screen>
+      </Page>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  /** `PageHeader` is sticky and owns the top inset, so the page below it simply fills. */
+  page: { flex: 1 },
   action: {
     alignItems: 'center',
     borderRadius: radius.md,
@@ -1571,14 +1806,12 @@ const styles = StyleSheet.create({
   },
   actionLabel: { textAlign: 'center' },
   actionRail: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.md },
-  alert: {
-    borderLeftWidth: 4,
-    borderRadius: radius.md,
-    gap: spacing.sm,
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.sm,
-    padding: spacing.md,
-  },
+  /**
+   * Card supplies surface, border, radius, padding and gap. Only the severity edge and the
+   * list spacing are local — repeating the rest is what made these cards sit differently
+   * from every other card in the app.
+   */
+  alert: { borderLeftWidth: 4, marginHorizontal: spacing.md, marginBottom: spacing.sm },
   alertHeading: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
   alertTitle: { alignItems: 'center', flexDirection: 'row', gap: spacing.xs },
   channelAvatar: {
@@ -1595,26 +1828,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 64,
   },
-  field: { gap: spacing.xs },
   fingerprint: { lineHeight: 24 },
   flex: { flex: 1 },
   hero: { alignItems: 'flex-start', flexDirection: 'row', gap: spacing.md, padding: spacing.md },
-  homeActionRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-  },
   loadingStack: { gap: spacing.sm, paddingHorizontal: spacing.md },
-  input: {
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    minHeight: 48,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
   listRow: {
     alignItems: 'center',
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -1622,7 +1839,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingVertical: spacing.md,
   },
-  lifecycle: { gap: spacing.sm, paddingVertical: spacing.sm },
+  lifecycle: { marginTop: spacing.xs },
   map: {
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
@@ -1640,9 +1857,6 @@ const styles = StyleSheet.create({
     width: 16,
   },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  multiline: { minHeight: 104, textAlignVertical: 'top' },
   recovery: { borderRadius: radius.md, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
-  row: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  rowCompact: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   signalMark: { borderRadius: radius.pill, height: 12, marginTop: spacing.xs, width: 12 },
 });

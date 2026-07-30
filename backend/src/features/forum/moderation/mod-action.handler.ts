@@ -30,6 +30,7 @@ import { Plane, type ParsedEnvelope } from '../../../core/domain/envelope.js';
 import type { ProjectionStore } from '../../../core/ports/storage.port.js';
 import { MembershipFlag, clearFlag, setFlag, type PermissionName } from '../shared/flags.js';
 import { can, hexKey, loadAuthContext } from '../shared/permissions.js';
+import { resolveTargetSummary } from '../shared/target-summary.js';
 import {
   MEMBERSHIPS_COLLECTION,
   membershipKey,
@@ -225,6 +226,14 @@ export class ModActionHandler implements DomainHandler<ModAction> {
     const previousHash = previous?.chainHash ?? '';
     const sequence = (previous?.sequence ?? -1) + 1;
 
+    // Captured BEFORE the verb is applied, so the log records what the moderator was looking
+    // at when they decided — not the state their own action produced.
+    const targetSummary = await resolveTargetSummary(
+      this.projections,
+      body.target,
+      MEMBER_VERBS.has(body.verb),
+    );
+
     const doc: ModEventDoc = {
       id: env.contentId,
       community,
@@ -233,6 +242,7 @@ export class ModActionHandler implements DomainHandler<ModAction> {
       verbName: ModVerbName[body.verb] ?? 'UNKNOWN',
       target: body.target,
       targetKind: body.target_kind,
+      targetSummary,
       reason: body.reason,
       expiresAtMs,
       createdAtMs,

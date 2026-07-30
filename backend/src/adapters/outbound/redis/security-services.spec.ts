@@ -74,4 +74,24 @@ describe('P1 identity and anti-abuse production primitives', () => {
     proof[proof.length - 1] = (proof[proof.length - 1] ?? 0) ^ 1;
     await expect(pow.verify(key, proof)).resolves.toBe(false);
   });
+
+  /**
+   * A challenge that publishes only `expiresAtMs` forces the client to compare a server
+   * instant against its own clock. A device running fast then rejects a valid challenge
+   * outright, and every retry fails identically — the user simply cannot publish.
+   */
+  it('publishes the issuing clock so a client can measure lifetime without trusting its own clock', async () => {
+    const clock = new FixedClock(1_700_000_000_000);
+    const pow = new StatelessArgon2Pow(new Uint8Array(32).fill(4), clock, {
+      memoryKiB: 1024,
+      iterations: 2,
+      parallelism: 1,
+      ttlMs: 60_000,
+    });
+
+    const challenge = await pow.issue(new Uint8Array(32).fill(5));
+
+    expect(challenge.issuedAtMs).toBe(1_700_000_000_000);
+    expect(challenge.expiresAtMs - (challenge.issuedAtMs ?? 0)).toBe(60_000);
+  });
 });

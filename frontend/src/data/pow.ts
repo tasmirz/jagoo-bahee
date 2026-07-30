@@ -6,7 +6,10 @@ export interface PowChallengeJson {
   readonly memoryKiB: number;
   readonly iterations: number;
   readonly parallelism: number;
+  /** Absolute instant on the ISSUING NODE's clock — never comparable to `Date.now()`. */
   readonly expiresAtMs: number;
+  /** The node's clock at issuance, when it publishes one. See `solvePow`. */
+  readonly serverNowMs?: number;
 }
 
 const fromBase64 = (value: string): Uint8Array =>
@@ -22,31 +25,38 @@ const text = new TextEncoder();
 export const powPassword = (challenge: Uint8Array): Uint8Array =>
   text.encode(Array.from(challenge, (byte) => byte.toString(16).padStart(2, '0')).join(''));
 
-/** Produces the exact proof framing verified by StatelessArgon2Pow on the node. */
+/**
+ * Produces the exact proof framing verified by StatelessArgon2Pow on the node.
+ *
+ * ── Why expiry is measured as a duration, not compared as an instant ────────────────
+ * `expiresAtMs` is an instant on the ISSUING NODE's clock. Comparing it to `Date.now()`
+ * compares two unsynchronised clocks: a device running more than the challenge's lifetime
+ * ahead of the node reads a challenge minted milliseconds ago as already expired, and every
+ * retry fails identically because the offset is constant. The symptom is a user who simply
+ * cannot publish, reporting an expiry timestamp — with a valid challenge in hand.
+ *
+ * So the client measures only what one clock can measure honestly: how long IT has held the
+ * challenge. `serverNowMs` supplies the node's clock at issuance, so remaining life is
+ * `(expiresAtMs − serverNowMs) − elapsedSinceReceipt`, and device skew cancels out.
+ *
+ * When the node publishes no `serverNowMs`, the client does not guess. The node re-checks
+ * expiry when it verifies the proof and is the only party that can do so correctly; refusing
+ * here on a comparison known to be invalid would block a user who is not actually late.
+ */
 export async function solvePow(
   challenge: PowChallengeJson,
   authorKey: Uint8Array,
+  /** When the challenge arrived, on the device clock. Defaults to now. */
+  receivedAtMs: number = Date.now(),
 ): Promise<Uint8Array> {
-  const nowMs = Date.now();
-  console.log('[PoW] Challenge received:', {
-    challenge: challenge.challenge,
-    expiresAtMs: challenge.expiresAtMs,
-    memoryKiB: challenge.memoryKiB,
-    iterations: challenge.iterations,
-    parallelism: challenge.parallelism,
-    nowMs,
-    remainingSeconds: challenge.expiresAtMs > 0 ? (challenge.expiresAtMs - nowMs) / 1000 : 'unlimited (0)',
-  });
-
-  if (challenge.expiresAtMs > 0 && challenge.expiresAtMs <= nowMs) {
-    console.error('[PoW] Challenge expired!', {
-      expiresAtMs: challenge.expiresAtMs,
-      nowMs,
-      expiredByMs: nowMs - challenge.expiresAtMs,
-    });
-    throw new Error(
-      `proof-of-work challenge expired (expiresAtMs=${challenge.expiresAtMs}, now=${nowMs})`,
-    );
+  if (challenge.expiresAtMs > 0 && challenge.serverNowMs !== undefined) {
+    const lifetimeMs = challenge.expiresAtMs - challenge.serverNowMs;
+    const heldMs = Math.max(0, Date.now() - receivedAtMs);
+    if (lifetimeMs <= heldMs) {
+      throw new Error(
+        `proof-of-work challenge expired before it could be solved (lifetime ${lifetimeMs} ms, held ${heldMs} ms)`,
+      );
+    }
   }
   const challengeBytes = fromBase64(challenge.challenge);
   const boundKey = fromBase64(challenge.boundTo);
@@ -67,7 +77,6 @@ export async function solvePow(
   ) {
     throw new Error('proof-of-work challenge parameters are invalid');
   }
-  console.log('[PoW] Solving Argon2id challenge...');
   const hash = cryptoBackend().argon2id(
     powPassword(challengeBytes),
     authorKey,
@@ -80,7 +89,6 @@ export async function solvePow(
       dkLen: 32,
     },
   );
-  console.log('[PoW] Argon2id solved successfully.');
   const proof = new Uint8Array(73);
   proof[0] = 1;
   new DataView(proof.buffer).setBigUint64(1, BigInt(challenge.expiresAtMs), false);

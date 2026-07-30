@@ -66,6 +66,15 @@ import {
   type ForumMessageDoc,
 } from '../../../features/forum/message/forum-message.handler.js';
 import { LABELS_COLLECTION, type LabelDoc } from '../../../features/forum/label/label.handler.js';
+import {
+  COMMUNITY_AUDIT_COLLECTION,
+  verifyCommunityAuditChain,
+  type CommunityAuditDoc,
+} from '../../../features/forum/community/community-audit.projection.js';
+import {
+  summariseImportedComment,
+  summariseImportedPost,
+} from '../../../features/forum/shared/target-summary.js';
 
 const MAX_SCAN = 100_000;
 const DEFAULT_LIMIT = 25;
@@ -581,6 +590,128 @@ export class ForumReadController {
       .sort((a, b) => a.sequence - b.sequence);
     const result = page(rows, limit, cursor);
     return { items: result.items, nextCursor: result.nextCursor, chain: verifyModChain(rows) };
+  }
+
+  /**
+   * The moderator worklist (MOD-08).
+   *
+   * ── This is a QUEUE, not a gate (MOD-01) ────────────────────────────────────────
+   * Nothing here withholds anything. Every post listed is already published, projected,
+   * receipted and federated — it appears in the feed, resolves by direct link, and its
+   * author sees it. `requirePostApproval` decides what a moderator is asked to look at, and
+   * nothing more. Making approval a precondition for publication would put a server between
+   * an author and their own signature, and withheld approval is indistinguishable from a
+   * network error, which is how silent censorship becomes structurally possible.
+   *
+   * Each row carries the same summary shape the mod log uses, so a moderator can decide from
+   * the list instead of opening every content ID by hand.
+   */
+  @Get('communities/:id/queue')
+  async modQueue(
+    @Param('id') id: string,
+    @Query('status') status = 'pending',
+    @Query('kind') kind = 'all',
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<Record<string, unknown>> {
+    const community = await this.projections
+      .collection<CommunityDoc>(COMMUNITIES_COLLECTION)
+      .findOne({ id });
+    if (!community) throw new HttpException({ detail: 'community not found' }, 404);
+
+    const wantPosts = kind === 'all' || kind === 'post';
+    const wantComments = kind === 'all' || kind === 'comment';
+
+    const communityPosts = await this.projections
+      .collection<PostDoc>(POSTS_COLLECTION)
+      .find({ community: id }, MAX_SCAN);
+    const posts = wantPosts ? communityPosts : [];
+    // A comment carries no community field — it belongs to a post, and the post does.
+    const postIds = new Set(communityPosts.map((post) => post.contentId));
+    const comments = wantComments
+      ? (await this.projections.collection<CommentDoc>(COMMENTS_COLLECTION).find({}, MAX_SCAN)).filter(
+          (comment) => postIds.has(comment.post),
+        )
+      : [];
+
+    const matches = (row: { approved: boolean; removed: boolean; flagged: boolean }): boolean => {
+      if (status === 'flagged') return row.flagged && !row.removed;
+      if (status === 'removed') return row.removed;
+      if (status === 'all') return true;
+      // pending — awaiting a first look. A removed item is a decided item, not a pending one.
+      return !row.approved && !row.removed;
+    };
+
+    const openReports = new Map<string, number>();
+    for (const report of await this.projections
+      .collection<ReportDoc>(REPORTS_COLLECTION)
+      .find({ community: id }, MAX_SCAN)) {
+      // Status 0/1 are pending/reviewed; resolved and dismissed are closed.
+      if (report.status <= 1) {
+        openReports.set(report.target, (openReports.get(report.target) ?? 0) + 1);
+      }
+    }
+
+    const rows = [
+      ...posts.filter(matches).map((post) => ({
+        summary: summariseImportedPost(post, ''),
+        community: id,
+        createdAtMs: post.createdAtMs,
+        id: post.contentId,
+        score: post.score,
+        openReports: openReports.get(post.contentId) ?? 0,
+      })),
+      ...comments.filter(matches).map((comment) => ({
+        summary: summariseImportedComment(comment, ''),
+        community: id,
+        createdAtMs: comment.createdAtMs,
+        id: comment.contentId,
+        score: comment.score,
+        openReports: openReports.get(comment.contentId) ?? 0,
+      })),
+    ];
+
+    // Reported items first, then oldest first: a queue ordered newest-first starves exactly
+    // the items that have been waiting longest.
+    const result = page(
+      rows,
+      limit,
+      cursor,
+      (a, b) => b.openReports - a.openReports || a.createdAtMs - b.createdAtMs || a.id.localeCompare(b.id),
+    );
+    return {
+      items: result.items,
+      nextCursor: result.nextCursor,
+      requirePostApproval: community.settings.requirePostApproval,
+    };
+  }
+
+  /**
+   * The community governance audit trail (COM-05, COM-06, VIS-06).
+   *
+   * Public for the same reason the mod log is: a settings change that suppresses every
+   * future post is a moderation act with more reach than removing one post, and it was
+   * previously leaving no trace at all.
+   */
+  @Get('communities/:id/audit')
+  async communityAudit(
+    @Param('id') id: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ): Promise<Record<string, unknown>> {
+    const rows = (
+      await this.projections
+        .collection<CommunityAuditDoc>(COMMUNITY_AUDIT_COLLECTION)
+        .find({ community: id }, MAX_SCAN)
+    )
+      .slice()
+      .sort((a, b) => a.sequence - b.sequence);
+    const result = page(rows, limit, cursor, (a, b) => b.sequence - a.sequence);
+    return {
+      items: result.items,
+      nextCursor: result.nextCursor,
+      chain: verifyCommunityAuditChain(rows),
+    };
   }
 
   @Get('communities/:id/reports')

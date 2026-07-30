@@ -58,6 +58,10 @@ export class AntiAbuseController {
       parallelism: challenge.parallelism ?? 1,
       boundTo: Buffer.from(challenge.boundTo ?? authorKey).toString('base64'),
       expiresAtMs: challenge.expiresAtMs,
+      // Both instants are on THIS node's clock. A client that only receives `expiresAtMs`
+      // has to compare it against its own clock, and a device running fast then reads a
+      // challenge minted a millisecond ago as expired.
+      ...(challenge.issuedAtMs === undefined ? {} : { serverNowMs: challenge.issuedAtMs }),
     };
   }
 

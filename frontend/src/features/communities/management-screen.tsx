@@ -14,9 +14,9 @@ import {
   revokeForumRole,
   updateForumCommunity,
 } from '../../signer';
-import type { AppPalette } from '../../design-system';
+import type { AppPalette, ThemeMode } from '../../design-system';
 import { radius, spacing, type as typography } from '../../design-system';
-import { Button, EmptyState, IconButton, Screen, StatusBanner } from '../../design-system';
+import { Button, EmptyState, PageHeader, Screen, StatusBanner } from '../../design-system';
 
 type Section = 'queue' | 'actions' | 'roles' | 'settings';
 
@@ -129,12 +129,15 @@ export function CommunityManagementScreen({
   homeNode,
   communityId,
   initialSection = 'queue',
+  mode,
   onBack,
 }: {
   readonly colors: AppPalette;
   readonly homeNode: HomeNode;
   readonly communityId: string;
   readonly initialSection?: Section;
+  /** Required by the shared `PageHeader`, whose frosted surface follows the theme. */
+  readonly mode: ThemeMode;
   readonly onBack: () => void;
 }) {
   const encoded = encodeURIComponent(communityId);
@@ -158,17 +161,13 @@ export function CommunityManagementScreen({
   const audit = homeNode.discovery.services.auditLogs;
   return (
     <Screen colors={colors}>
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <IconButton colors={colors} icon="arrow-back" label="Back" onPress={onBack} />
-        <View style={styles.flex}>
-          <Text accessibilityRole="header" style={[typography.h2, { color: colors.text }]}>
-            Community controls
-          </Text>
-          <Text numberOfLines={1} style={[typography.caption, { color: colors.text2 }]}>
-            Signed actions for {community.data?.value.title ?? communityId}
-          </Text>
-        </View>
-      </View>
+      <PageHeader
+        colors={colors}
+        mode={mode}
+        onBack={onBack}
+        subtitle={`Signed actions for ${community.data?.value.title ?? communityId}`}
+        title="Community controls"
+      />
       <View style={styles.column}>
         <StatusBanner
           body="The node enforces your current role. Every accepted action is signed and appears in the public moderation log."

@@ -65,9 +65,16 @@ export class TransportController {
   @Get('scope')
   scope(): Record<string, unknown> {
     const scope = this.uplinks.currentScope();
+    // Whether any scope this node reports was actually probed. A node with no probe targets
+    // is reporting what it was configured to assume, and a client telling someone "nothing
+    // you post leaves this building" should be able to say whether that was measured.
+    const measured = this.uplinks
+      .uplinks()
+      .some((uplink) => uplink.health.lastProbedAtMs !== null);
     return {
       scope: scope ?? 'UNREACHABLE',
       label: scope ? SCOPE_LABEL[scope] : 'No working path',
+      measured,
       // Aggregate only: how many uplinks are alive, never which or where.
       uplinksUp: this.uplinks.uplinks().filter((uplink) => uplink.health.state === UplinkState.UP)
         .length,

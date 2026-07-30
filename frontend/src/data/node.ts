@@ -3,7 +3,7 @@ import type { ReachState } from '../design-system';
 import { OfflineApi, type CachedValue } from './index';
 import type { DiscoveredService } from './node-config';
 import type { ProvenanceJson } from '../verify';
-import { forumViewerHeaders } from '../signer';
+import { forumViewerHeaders, forumViewerId } from '../signer';
 
 export interface FeedPost {
   readonly contentId: string;
@@ -139,7 +139,7 @@ export function useNodeDocument<T>(
 ) {
   const { viewer, ...rest } = options;
   return useQuery<CachedValue<T>>({
-    queryKey: ['node', baseUrl, 'document', path, viewer ?? false],
+    queryKey: ['node', baseUrl, 'document', path, viewer ? forumViewerId() : false],
     queryFn: () =>
       new OfflineApi(`${baseUrl!.replace(/\/+$/, '')}/`).get<T>(
         path!,
@@ -152,7 +152,7 @@ export function useNodeDocument<T>(
 
 export function useNodeFeed(baseUrl: string | null, sort: string) {
   return useQuery<CachedValue<FeedPage>>({
-    queryKey: ['node', baseUrl, 'feed', sort],
+    queryKey: ['node', baseUrl, 'feed', sort, forumViewerId()],
     queryFn: () =>
       new OfflineApi(`${baseUrl!.replace(/\/+$/, '')}/`).get<FeedPage>(
         `/v1/feed?sort=${encodeURIComponent(sort)}&limit=25`,
@@ -173,7 +173,7 @@ export function useInfiniteFeed(
   params: { readonly sort: string; readonly community?: string; readonly timeframe?: string },
 ) {
   return useInfiniteQuery<CachedValue<FeedPage>>({
-    queryKey: ['node', baseUrl, 'feed-pages', params.sort, params.community ?? '', params.timeframe ?? ''],
+    queryKey: ['node', baseUrl, 'feed-pages', params.sort, params.community ?? '', params.timeframe ?? '', forumViewerId()],
     queryFn: ({ pageParam }) => {
       const search = new URLSearchParams({ sort: params.sort, limit: '20' });
       if (params.community) search.set('community', params.community);
@@ -192,7 +192,7 @@ export function useInfiniteFeed(
 
 export function useNodePost(baseUrl: string | null, contentId: string | null) {
   return useQuery<CachedValue<FeedPost>>({
-    queryKey: ['node', baseUrl, 'post', contentId],
+    queryKey: ['node', baseUrl, 'post', contentId, forumViewerId()],
     queryFn: () =>
       new OfflineApi(`${baseUrl!.replace(/\/+$/, '')}/`).get<FeedPost>(
         `/v1/posts/${encodeURIComponent(contentId!)}`,
@@ -208,7 +208,7 @@ export function useNodeComments(
   sort: 'top' | 'new' | 'old' = 'top',
 ) {
   return useQuery<CachedValue<CommentPage>>({
-    queryKey: ['node', baseUrl, 'post', contentId, 'comments', sort],
+    queryKey: ['node', baseUrl, 'post', contentId, 'comments', sort, forumViewerId()],
     queryFn: () =>
       new OfflineApi(`${baseUrl!.replace(/\/+$/, '')}/`).get<CommentPage>(
         `/v1/posts/${encodeURIComponent(contentId!)}/comments?sort=${sort}&limit=200`,

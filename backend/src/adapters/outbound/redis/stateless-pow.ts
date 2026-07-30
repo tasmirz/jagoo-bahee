@@ -56,11 +56,13 @@ export class StatelessArgon2Pow extends PowVerifier {
   }
 
   async issue(authorKey: Uint8Array): Promise<PowChallenge> {
-    const expiresAtMs = this.clock.nowMs() + this.parameters.ttlMs;
+    const issuedAtMs = this.clock.nowMs();
+    const expiresAtMs = issuedAtMs + this.parameters.ttlMs;
     return {
       challenge: this.challengeFor(authorKey, expiresAtMs),
       difficulty: this.parameters.memoryKiB,
       expiresAtMs,
+      issuedAtMs,
       algorithm: 'argon2id',
       memoryKiB: this.parameters.memoryKiB,
       iterations: this.parameters.iterations,

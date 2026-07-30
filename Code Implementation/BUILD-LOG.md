@@ -1255,3 +1255,350 @@ one that will be missing.
 `identityKey` and `transportBindingSignature`; the client simply discarded them. The backend
 suite and `pnpm vectors` were therefore not re-run. `rns-screen.tsx` remains hardcoded English
 like the rest of the Signal screens; routing it through i18n is separate outstanding work.
+
+### "Epoch expired" on comment: the client compared the node's clock against its own
+
+**Symptom.** Commenting intermittently failed with an expiry error quoting an epoch-millisecond
+timestamp. Intermittent per user, not per attempt — for an affected device every retry failed
+identically.
+
+**Cause.** `/v1/credits/challenge` returns `expiresAtMs`, an absolute instant on the ISSUING
+NODE's clock (`clock.nowMs() + ttlMs`, ttl 5 min). `solvePow` compared it against the device's
+`Date.now()`. Those are two unsynchronised clocks. A device running more than 5 minutes fast
+therefore read a challenge minted milliseconds earlier as already expired, threw before even
+attempting the Argon2 solve, and did so deterministically — the offset is constant, so retrying
+could never help.
+
+It presented as a comment bug because comments do not carry PoW themselves
+(`jb:comment:create:v1` requires `[CREDENTIAL, NULLIFIER]`). `publishForumAction` calls
+`registerForumIdentity` when `activeCredential` is missing, and *that* solves a PoW challenge.
+So the failure appeared only when the cached credential was gone — hence "sometimes".
+
+**Fix.** A client can honestly measure a duration on its own clock; it cannot compare instants
+across two. `PowChallenge` now carries `issuedAtMs`, published as `serverNowMs`, so the client
+computes remaining life as `(expiresAtMs − serverNowMs) − elapsedSinceReceipt`. Device skew
+cancels out entirely. When a node publishes no `serverNowMs`, the client no longer guesses: the
+node re-checks expiry at verification and is the only party that can do it correctly.
+
+Also removed the four `console.log`s that were printing challenge material during this
+investigation.
+
+**Lesson (L-…):** an absolute timestamp crossing a trust boundary is a clock-domain conversion,
+and every one of them is a bug until the receiving side is given the sender's clock to
+subtract. `expiresAtMs` looked self-describing, which is exactly why nobody noticed it was
+meaningless without a reference instant. The test suite missed it because both existing PoW
+fixtures used `expiresAtMs: 1_900_000_000_000` — a year-2030 constant chosen to dodge the
+expiry branch, so the branch had no coverage at all.
+
+Related: a device more than 10 minutes fast also trips pipeline step 8 (CLOCK, `maxSkewMs`),
+so every envelope it signs is rejected as future-dated. Same root cause, different symptom, not
+addressed here.
+
+**Verified:**
+
+- `frontend`: 28 suites / 145 tests (3 new PoW tests — solves under a 45-minute-fast device
+  clock, refuses a challenge genuinely held past its lifetime, defers to the node when
+  `serverNowMs` is absent).
+- `backend`: 38 files / 478 tests pass, 3 files skipped without Mongo/Redis; 1 new test asserts
+  the issuing clock is published. `eslint src` 0 errors.
+
+**Pre-existing, NOT introduced here, and currently breaking `pnpm typecheck` for the backend:**
+`backend/src/composition/load-env.ts:29` passes `quiet: true` to dotenv, which exists only in
+dotenv 17+. `backend/package.json` asks for `^17.4.2` but the hoisted install resolves 16.4.7.
+It is the sole typecheck error. Left alone because fixing it means changing dependency
+resolution, which is a separate decision.
+
+### Moderation audit trail, community governance log, and the mod queue
+
+**Three defects, one theme: the record existed but was not usable.**
+
+1. **A mod log row carried `target: "jb1qh2…"` and nothing else.** That satisfies MOD-09's
+   wording — "actor, verb, target, reason, timestamp" — and defeats its purpose. Nobody
+   auditing the log can tell what was removed without resolving every ID by hand, and a
+   member action's target is a raw 64-char hex key. "Every censorship action is evidence"
+   (VIS-06) only holds if the evidence is legible.
+2. **`CommunityUpdateHandler` overwrote the community row in place.** Who enabled
+   require-post-approval, when the rules text changed, who flipped the community private —
+   none of it left a trace. These are governance levers, not preferences: enabling
+   require-post-approval changes what every future post does. That is a moderation act with
+   more reach than removing one post, and it was the one leaving no record.
+3. **MOD-08 (mod queue) had no read surface at all,** and `requirePostApproval` was inert —
+   stored, projected, never read by anything.
+
+**Built.**
+
+- `shared/target-summary.ts` — `resolveTargetSummary` renders a post/comment/identity target
+  into title, excerpt, author key, author display name, parent post and content state.
+- `ModEventDoc.targetSummary` — captured in `project()` BEFORE the verb is applied.
+- `community/community-audit.projection.ts` — a second per-community hash chain with its own
+  head row, recording `create` / `update` / `archive` with a field-level before→after diff.
+- `GET /v1/communities/:id/queue` and `GET /v1/communities/:id/audit`.
+
+**Decision: the summary is a SNAPSHOT, not a read-time join.** Resolving the target when the
+log is read shows what the post says *now*. An audit trail has to show what the moderator
+acted on *then* — a post edited after removal would otherwise silently rewrite the record of
+the decision. This stays rebuildable (P1-G3) because `ProjectionRebuilder` replays in
+log-index order, so re-projecting a ModAction sees the target exactly as it was.
+
+**Decision: `targetSummary` is deliberately NOT in `modChainHash`.** Two reasons. The chained
+field is `target`, a content ID, and the target's own signed envelope remains the authority on
+what it said — the summary is always re-derivable, and a tombstoned row is never deleted, so
+the comparison stays possible. And changing `modChainHash`'s inputs would change every
+existing chain hash, altering a working tamper-evidence primitive to commit to a denormalised
+copy of something the chain already covers. The community audit chain DOES commit to its
+`changes` list, because there no separate signed object holds those values.
+
+**Decision: the queue is a worklist, not a gate (MOD-01).** Nothing in it withholds anything.
+Every post listed is already published, projected, receipted and federated; it appears in the
+feed and resolves by direct link. `requirePostApproval` decides what a moderator is *asked to
+look at*. Making approval a precondition would put a server between an author and their own
+signature, and withheld approval is indistinguishable from a network error. The feed filter
+was deliberately left alone.
+
+Queue ordering is reported-first, then **oldest**-first. A queue sorted newest-first starves
+exactly the items that have waited longest.
+
+**Lesson (L-…):** a requirement written as a field list gets implemented as a field list. MOD-09
+says "actor, verb, target, reason, timestamp" and the projection has all five, so it read as
+done for the whole life of P1 — the acceptance criterion never asked whether a human could act
+on the result. When a requirement names an audience ("public mod log"), the test should be
+whether that audience can use it, not whether the columns exist.
+
+**Verified:** backend 39 files / 490 tests pass (12 new), 3 skipped without Mongo/Redis;
+`eslint src` 0 errors; typecheck clean apart from the pre-existing `load-env.ts` dotenv error.
+
+### Client: action timeouts, and the Signal identity screen
+
+**Spinners that never resolve.** Offline is the default assumption, and a request over a dying
+uplink does not reject — it hangs. Screens tracked only `busy`, so the spinner ran forever and
+the user could not tell a slow server from a dead one. `hooks/use-async-action.ts` adds a
+fourth state between running and settled: **late**. Past 12 s the progress bar becomes a
+decision — Keep waiting, or Cancel (which aborts via `AbortSignal`, already honoured by
+`data/request.ts` on both the direct and Tor paths). `design-system` gained `ActionProgress`.
+
+Cancel is honest about what it can undo: it aborts the in-flight request, never unmakes a
+signed envelope. Once bytes are signed the author has published and the outbox may still
+deliver. Cancel means "stop making me wait", never "that never happened" — anything else is a
+client-side approval gate wearing a friendlier name.
+
+**A leak the tests caught.** The elapsed-time ticker was cleared in `finally`, which never runs
+for a promise that never settles — precisely the case the hook exists for. It now lives in the
+same ref as the late timer and is cleared by cancel and unmount. Found because the suite needed
+`--forceExit`; it no longer does.
+
+**Signal identity screen.** "Create Signal identity" sat beside "Unlock", both enabled whenever
+the passphrase was ≥ 8 characters, whether or not a vault existed — a returning user could
+press Create, a new user could press Unlock, and the restore field appeared under a heading
+contradicting the buttons above it. Now one `VaultStage` (`setup` / `locked` / `unlocked`)
+selects one of three extracted components, so only the correct next step is on screen.
+
+**Optional passphrase and optional recovery salt (both, per the user's call).** The vault
+passphrase may now be empty — but not 1–7 characters, which looks like protection and is not.
+The BIP-39 recovery passphrase (the "25th word") is exposed as a folded-away advanced field and
+threaded through create, unlock AND restore.
+
+That last point mattered: `unlockSignalIdentity` never passed a recovery passphrase, so
+exposing the field without fixing unlock would have let people create identities they could
+never open. Worse, every salt is "valid" — a mistyped one derives a different identity
+*silently*. The vault now stores `seedCheck`, an HKDF output over the derived seed under its own
+info label, so a wrong salt is refused instead of silently accepted. Optional, so vaults created
+before it still unlock.
+
+**Uniform design.** All nine Signal screens used the deprecated `AppHeader` + `Screen` pair
+while the rest of the app had migrated to sticky `PageHeader` + `Page`. The Signal headers
+scrolled away and content ignored the responsive content column. All nine migrated;
+`SignalScreenProps.mode` is now required, which every route already passed.
+
+**Verified:** frontend 29 suites / 151 tests pass (6 new for the action runner); typecheck
+clean; `eslint app src` 0 errors (32 pre-existing `no-console` warnings).
+
+**Not done in this block:** the timeout runner is wired into the Signal identity screen only;
+the other Signal screens and the Forum flows still use their local `busy` booleans. `rns-screen`
+and the Signal screens remain hardcoded English rather than going through i18n.
+
+### Signal screens: the header swap was not the design problem
+
+The previous block migrated the Signal screens from the deprecated `AppHeader`/`Screen` pair
+to `PageHeader`/`Page`, and reported the design as uniform. It was not, and the user said so
+again. The header was one layer; everything INSIDE the screens was still bespoke.
+
+**What was actually wrong.** `features/signal/` used 8 of the design system's ~40 components
+and reimplemented the rest locally:
+
+| Local | Should have been | Consequence |
+| --- | --- | --- |
+| `function Field` + raw `TextInput` | `TextField` / `TextAreaField` / `PasswordField` | Different label weight, border and focus treatment from the same field on a Forum screen; **no reveal control on the vault passphrase** |
+| raw `TextInput` × 5 in `rns-screen` | same | as above, with no label element at all |
+| `styles.card` / `alert` / `hero` / `lifecycle` | `Card` | Four different card paddings and radii on one screen |
+| `styles.row` / `rowCompact` / `homeActionRow` | `Row` | Three gap values for the same visual construct |
+| `styles.fingerprint` | `Fingerprint` | Lost the grouping, `selectable`, and the a11y label carrying the full key |
+| `SectionHeader` + local `open` state | `Disclosure` | A fold that looked nothing like every other fold |
+
+**Done.** `Field` is now a thin adapter that dispatches to the three shared field components,
+so all 34 call sites render uniformly without 34 edits — and no call site can pick the wrong
+one. `rns-screen`'s five raw inputs are gone. Ad-hoc containers now use `Card` and `Row`; the
+recovery-salt fold uses `Disclosure`; the channel signing key uses `Fingerprint`.
+`screens.tsx` dropped from 30 local style keys to 21, and `rns-screen.tsx` from 9 to 5 — what
+remains is genuine layout (map, avatars, action rail) rather than restated design tokens.
+
+`PasswordField` bringing a show/hide control is not cosmetic: typing a long passphrase blind
+on a phone keyboard is how people get locked out of a vault whose only other key is 24 words
+on paper.
+
+Two spots were double-padding once they moved inside `Card`, which already supplies padding,
+border, radius and gap — `styles.alert` and `styles.lifecycle` were restating all four. Both
+now hold only what is genuinely local (the severity-coloured edge, list spacing).
+
+**Lesson (L-…):** "migrate the screen to the new layout primitives" is not the same as "make
+the screen uniform", and finishing the first while claiming the second is how a design system
+ends up with 40 components and a feature directory that uses 8. The check that would have
+caught it is mechanical and was not run: count the design-system imports in a feature against
+the local `StyleSheet.create` keys. A feature with more local style keys than shared component
+imports has reimplemented the design system, whatever its header says.
+
+**Verified:** frontend 29 suites / 151 tests pass; `tsc --noEmit` clean; `eslint app src`
+0 errors (32 pre-existing `no-console` warnings). No raw `TextInput` remains anywhere under
+`features/signal/`.
+
+### `just android` failed for three stacked reasons, and the first error named none of them
+
+Reported as: `Android sdkmanager was not found at .../cmdline-tools/latest/bin/sdkmanager`.
+That message was true and irrelevant — the machine's SDK was fine.
+
+**1. The NDK guard checked its tools before checking its condition.** The recipe exists to
+repair a partially-downloaded NDK 26.1.10909125 (a directory present without
+`source.properties`, which Gradle then fails on obscurely). It required `sdkmanager` up front,
+then checked the NDK. But `sdkmanager` lives in `cmdline-tools`, which **Android Studio does
+not install by default** — a perfectly working Studio SDK has a complete NDK and no
+`cmdline-tools` directory at all. So the guard blocked the exact configuration that needed no
+repair. Reordered: check the NDK marker first, and only reach for `sdkmanager` when there is
+something to fix. The POSIX branches now share one private `_android-ndk` recipe instead of
+two copies of the same one-liner.
+
+**2. Gradle ran under JDK 25.** `JAVA_HOME` was empty, so Gradle used whatever `java` was on
+PATH — OpenJDK 25.0.1 — while Gradle 8.10.2 + AGP 8.x require 17. The failure reads:
+
+```
+Error resolving plugin [id: 'com.facebook.react.settings']
+> 25.0.1
+```
+
+which names the plugin and prints the Java version as a bare number with no label, so it reads
+as a plugin-resolution problem. JDK 17 was already installed. `just android` on macOS now
+selects it via `/usr/libexec/java_home -v 17` and fails with an explicit message if absent,
+rather than inheriting the invoking shell's toolchain.
+
+**3. `frontend/android/` was stale and predates the `with-jagoo-rns` config plugin.**
+`modules/jagoo-rns/android/build.gradle` applies `com.chaquo.python`, whose classpath is
+injected into the generated project by `plugins/with-jagoo-rns.js`. That directory is
+gitignored and generated, and `expo run:android` only prebuilds when it is missing — so the
+checked-out tree had a project built before the plugin existed, and the plugin was never
+resolvable:
+
+```
+A problem occurred evaluating project ':jagoo-rns'.
+> Plugin with id 'com.chaquo.python' not found.
+```
+
+Fixed by `expo prebuild --clean --platform android`. Verified afterwards that the classpath,
+the `https://chaquo.com/maven` repository, and the `rns==1.4.2` / `lxmf==1.1.0` pip block all
+landed in the regenerated files.
+
+**Lesson (L-…):** a precondition check must be ordered by what it is actually protecting, not
+by what it happens to use. Checking the tool before the condition inverts the dependency —
+the tool is only needed on the failure path, so demanding it unconditionally turns an optional
+repair into a hard requirement, and the error message then describes the tool rather than the
+thing that was wrong.
+
+**Second lesson:** a generated, gitignored directory is a cache, and a config plugin only
+takes effect when that cache is rebuilt. Any change to `plugins/*.js` needs
+`expo prebuild --clean` to be observable — so "the plugin is correct" and "the build works"
+are independent claims. The earlier build-log entry recording a Windows `--entry-file` fix
+made **directly** in `frontend/android/app/build.gradle` has the same defect from the other
+side: that edit is not in git and is destroyed by the next prebuild. It should be a config
+plugin; it currently is not, and the regenerated tree does not contain it.
+
+**Verified:** `just --evaluate` parses; `_android-ndk` stays out of `just --list`; the NDK
+guard passes on a Studio-installed SDK with no `cmdline-tools`; prebuild regenerated the
+Chaquopy wiring. `./gradlew app:assembleDebug` under JDK 17 → **BUILD SUCCESSFUL in 29m 35s**,
+802 tasks, producing a 126 MB `app-debug.apk`.
+
+That first-build duration is the Chaquopy Python 3.11 runtime plus `rns`/`lxmf` wheels, and it
+is why the earlier entry's five-minute CI cap could never have covered this path. Budget ~30
+minutes for a cold Android build and treat any CI timeout below that as a false signal, not a
+regression.
+
+**Not claimed:** the APK has not been installed or launched on a device or emulator, so
+nothing here is evidence about runtime behaviour of the RNS module, BLE/RNode, or the Signal
+screens — that remains device-side work.
+
+### Four device-reported defects, two of which were the same bug wearing different clothes
+
+Reported: image upload "maybe" broken; the connection indicator claiming "same network"
+wrongly; a community the person created showing **Join** again after a relaunch; and the
+design still not uniform.
+
+**(i) and (iii) are one cause: the session was not authenticated, and nothing said so.**
+
+Two independent failures compounded:
+
+*Cache.* `/v1/communities/:id` returns `joined` only for an authenticated caller; anonymously
+it returns the same row WITHOUT that field. The React Query key was `[..., path, viewer]`
+where `viewer` was a boolean meaning "should I send auth headers" — a property of the CALL,
+not of the ANSWER. On a cold start the launch restore is still in flight when the first
+screens mount, so the anonymous answer is what lands. The URL never changed, so nothing
+refetched. Every viewer field — `joined`, `myVote`, `saved` — stayed at its anonymous default
+for the rest of the session. Fixed by adding `forumViewerId()` (a public identity ID, never
+the bearer token) to every viewer-scoped key, so authenticating is a key change and the
+refetch happens by construction rather than by remembering to invalidate.
+
+*Retry.* `restoreForumSession` gets ONE attempt at launch, and on a phone it usually runs
+before the radio has settled. When `signInForumIdentity` failed, `authenticated` stayed false
+forever — `refreshSession` only re-READ the vault state, it never re-attempted sign-in, and
+nothing else called it. Now re-attempted on every foreground and whenever connectivity
+returns, followed by a query invalidation.
+
+The symptoms never used the word "signed out", which is why this read as three separate bugs.
+An unauthenticated read does not fail — it silently degrades to its anonymous shape, so a
+community renders "Join" and `uploadAndClaimForumAttachment` throws "Register and
+authenticate this Forum identity first" from `forumSessionRequest`.
+
+**(ii) the node claimed LAN because nothing measured it.** `IMPLICIT_UPLINK` declared every
+scope including `LAN`; the default probe config has no targets; `probeUplink` marks an
+unmeasurable scope reachable (correct on its own — a scope with no target must not decay to
+false); `currentScope()` returns the NARROWEST live scope. `LAN` is narrowest, so it won by
+assumption, and the client rendered "Same network — Only this local network. Nothing you post
+leaves this building yet." to someone publishing over the internet.
+
+Every link in that chain is individually defensible, which is why it survived review. The fix
+is at the one point where the direction matters: an over-claimed WIDE scope over-promises
+reach and the next send corrects it; an under-claimed NARROW scope tells someone their post is
+contained when it is being published, and nothing ever corrects it. `LAN` must now be earned —
+declared in `UPLINKS`, or proven by a probe target that answers. `/v1/transport/scope` also
+gained `measured`, so a client can distinguish a probed claim from an assumed one.
+
+**(iv) uniform design, second pass.** The previous block fixed `features/signal/`. Nine more
+screens were still off-pattern: three on the deprecated `AppHeader`, six hand-rolling
+`IconButton + h2` inside a bordered `View` — two of those with inline style objects rather
+than tokens. All nine now use `PageHeader`, including its `subtitle`, `reach` and back-spacer
+props, which is what several were re-implementing by hand. `mode` was threaded into four
+screens and their route wrappers and is now required rather than optional, since a frosted
+header with the wrong theme is visibly broken.
+
+**Lesson (L-…):** a cache key must describe the ANSWER, not the REQUEST. `viewer: true` said
+what the client intended to send; it could not distinguish the response that came back with a
+viewer's fields from the one that came back without them. Any key that omits an input the
+server varies its response on is a cache that serves the wrong body — and the window where it
+goes wrong is launch, which is exactly when nobody is watching.
+
+**Second lesson:** a one-shot restore on a mobile client is a coin flip. Anything attempted
+once at launch — sign-in, discovery, a token refresh — must also be attempted on foreground
+and on reconnect, because the launch attempt races the radio and loses often.
+
+**Verified:** frontend 30 suites / 155 tests (4 new viewer-cache-key tests); backend 40 files
+/ 493 tests, 3 skipped without Mongo/Redis (3 new implicit-uplink tests); typecheck clean both
+sides apart from the pre-existing `load-env.ts` dotenv error; `eslint` 0 errors both sides.
+
+**Not claimed:** none of this has been re-run on a device. The four fixes are pinned by unit
+tests and by the compiler, but "upload works" and "the indicator now reads correctly" are
+device observations that have not been repeated since the change.
