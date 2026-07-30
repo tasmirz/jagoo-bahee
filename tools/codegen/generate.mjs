@@ -64,10 +64,12 @@ const KEY_ALGS = new Set(['ED25519', 'ML_DSA_44', 'FALCON_512']);
 
 /** PC-01: class 0–2 budgets are hard ceilings, enforced at construction. */
 const CLASS_BUDGET = { BROADCAST: 512, DIRECT: 1024, CHECKIN: 512 };
-// ADR-013: ML-KEM-768's 1088-byte encapsulation makes the frozen session-init body
-// physically impossible inside the ordinary DIRECT ceiling. Only this bootstrap domain
-// receives the exception; every subsequent Signal message stays within 1024 bytes.
-const DOMAIN_BUDGET = { 'jb:message:session:v1': 2048 };
+// ADR-013: ML-KEM-768's 1088-byte encapsulation makes both the session-init body and the
+// compact hybrid ratchet header physically impossible inside the ordinary DIRECT ceiling.
+const DOMAIN_BUDGET = {
+  'jb:message:session:v1': 2048,
+  'jb:message:signal:v1': 2048,
+};
 
 function validate(rows) {
   const seen = new Set();

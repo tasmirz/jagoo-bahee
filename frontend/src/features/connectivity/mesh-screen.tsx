@@ -173,7 +173,7 @@ export function MeshScreen({
       return;
     }
     if (frame.kind === 'ack') {
-      setNotice(`${frame.status}: ${frame.contentId.slice(0, 18)}â€¦`);
+      setNotice(`${frame.status}: ${frame.contentId.slice(0, 18)}…`);
       return;
     }
     if (frame.kind !== 'envelope') return;

@@ -133,7 +133,10 @@ describe('ER-01 — a duplicate returns the ORIGINAL receipt', () => {
 describe('rejection paths, in pipeline order', () => {
   it('step 1 — TOO_LARGE', async () => {
     const h = await harness();
-    await expectRejection(() => h.pipeline.accept(new Uint8Array(70000)), RejectionCode.TOO_LARGE);
+    await expectRejection(
+      () => h.pipeline.accept(new Uint8Array(131073)),
+      RejectionCode.TOO_LARGE,
+    );
   });
 
   it('step 1 — an empty body is MALFORMED', async () => {

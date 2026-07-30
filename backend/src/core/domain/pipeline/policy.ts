@@ -41,10 +41,10 @@ const KEY_ALG_BY_NAME: Record<string, number> = {
 export const CLASS_SIZE_BUDGET: Record<number, number> = {
   1: 512, // BROADCAST
   // ADR-013: the registry keeps ordinary DIRECT rows at 1024; the 2048 class ceiling
-  // permits the one ML-KEM-768 session-init row whose own generated maxBytes is 2048.
+  // permits ML-KEM-768 session bootstrap and compact hybrid ratchet headers.
   2: 2048, // DIRECT
   3: 512, // CHECKIN
-  4: 65536, // BULK — the registry row may lower this further
+  4: 131072, // BULK — enough for a sender key hybrid-wrapped to all 64 group members
 };
 
 /**
@@ -54,7 +54,7 @@ export const CLASS_SIZE_BUDGET: Record<number, number> = {
  * available pre-parse is the largest thing this node will ever accept. The per-domain
  * `maxBytes` is re-checked once the row is known.
  */
-export function acceptSize(raw: Uint8Array, absoluteMax = 65536): void {
+export function acceptSize(raw: Uint8Array, absoluteMax = 131072): void {
   if (raw.length > absoluteMax) {
     throw new EnvelopeRejected(
       RejectionCode.TOO_LARGE,

@@ -12,12 +12,16 @@ export default function CommunityRoute() {
     <AppScene colors={colors}>
       <CommunityDetailScreen
         baseUrl={homeNode.baseUrl}
+        homeNode={homeNode}
         colors={colors}
         communityId={communityId}
         onBack={() => router.back()}
         onOpenNetwork={() => router.push('/network')}
         onOpenPost={(contentId) =>
           router.push({ pathname: '/post/[contentId]', params: { contentId } })
+        }
+        onOpenManagement={() =>
+          router.push(`/community/${communityId}/manage` as never)
         }
         reach={reach}
       />

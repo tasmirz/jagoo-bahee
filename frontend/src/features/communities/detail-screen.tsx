@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
@@ -8,6 +9,7 @@ import {
 import type { AppPalette } from '../../theme';
 import { radius, spacing, type as typography } from '../../theme';
 import {
+  Button,
   EmptyState,
   IconButton,
   PressScale,
@@ -17,6 +19,8 @@ import {
   StatusBanner,
   type ReachState,
 } from '../../ui/primitives';
+import type { HomeNode } from '../../data/node-config';
+import { setForumMembership } from '../../signer';
 import { sealStateFor } from '../../verify';
 
 interface CommunityStats {
@@ -27,19 +31,23 @@ interface CommunityStats {
 
 export function CommunityDetailScreen({
   baseUrl,
+  homeNode,
   colors,
   communityId,
   onBack,
   onOpenNetwork,
   onOpenPost,
+  onOpenManagement,
   reach,
 }: {
   readonly baseUrl: string;
+  readonly homeNode: HomeNode;
   readonly colors: AppPalette;
   readonly communityId: string;
   readonly onBack: () => void;
   readonly onOpenNetwork: () => void;
   readonly onOpenPost: (contentId: string) => void;
+  readonly onOpenManagement: () => void;
   readonly reach: ReachState;
 }) {
   const encoded = encodeURIComponent(communityId);
@@ -51,6 +59,18 @@ export function CommunityDetailScreen({
   );
   const item = community.data?.value;
   const rows = posts.data?.value.items ?? [];
+  const [joined, setJoined] = useState(false);
+  const [membershipBusy, setMembershipBusy] = useState(false);
+  const [membershipNotice, setMembershipNotice] = useState('');
+  const toggleMembership = async () => {
+    if (!item) return;
+    setMembershipBusy(true); setMembershipNotice('');
+    try {
+      await setForumMembership(baseUrl, item.id, !joined, homeNode.discovery.services.auditLogs);
+      setJoined((value) => !value);
+      setMembershipNotice(!joined ? 'Membership signed and queued for delivery.' : 'Leaving this community was signed and queued.');
+    } catch (caught) { setMembershipNotice(caught instanceof Error ? caught.message : 'Membership could not be updated.'); } finally { setMembershipBusy(false); }
+  };
   return (
     <Screen colors={colors}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
@@ -99,6 +119,11 @@ export function CommunityDetailScreen({
                 label="Open reports"
                 value={stats.data?.value.pendingReports ?? 0}
               />
+            </View>
+            <View style={styles.membershipAction}>
+              <Button colors={colors} disabled={membershipBusy || item.archived} label={membershipBusy ? 'Signing…' : joined ? 'Leave community' : 'Join community'} onPress={() => void toggleMembership()} variant={joined ? 'secondary' : 'primary'} />
+              <Button colors={colors} icon="shield-checkmark-outline" label="Community controls" onPress={onOpenManagement} variant="secondary" />
+              {membershipNotice ? <Text accessibilityLiveRegion="polite" style={[typography.caption, { color: colors.text2 }]}>{membershipNotice}</Text> : null}
             </View>
             {item.archived ? (
               <StatusBanner
@@ -205,6 +230,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
   },
+  membershipAction: { paddingHorizontal: spacing.md, paddingTop: spacing.md, gap: spacing.xs },
   stat: { flex: 1, minHeight: 82, justifyContent: 'center', paddingHorizontal: spacing.sm },
   sectionTitle: { paddingHorizontal: spacing.md, paddingTop: spacing.xl, paddingBottom: spacing.sm },
   postRow: {

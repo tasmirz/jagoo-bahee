@@ -497,8 +497,8 @@ export function BottomNavigation({
     { id: 'home', label: 'Home', icon: 'home-outline' },
     { id: 'communities', label: 'Communities', icon: 'people-outline' },
     { id: 'create', label: 'Create', icon: 'add' },
-    { id: 'inbox', label: 'Inbox', icon: 'mail-outline', signal: true },
-    { id: 'profile', label: 'Profile', icon: 'person-outline' },
+    { id: 'signal', label: 'Signal', icon: 'radio-outline', signal: true },
+    { id: 'profile', label: 'You', icon: 'person-outline' },
   ];
   return (
     <BlurView

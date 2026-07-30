@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery } from '@tanstack/react-query';
+import { LayoutMode, SortMode, Timeframe } from '@jagoo/sdk/proto';
 import {
   useFederations,
   useNodeCommunities,
@@ -13,9 +14,16 @@ import {
 import type { HomeNode } from '../../data/node-config';
 import { listAuditCertificates } from '../../audit';
 import {
+  defineForumAwardType,
+  forumMessagingBundle,
   forumSessionRequest,
   forumSessionSummary,
+  loadDecryptedForumMessages,
+  sendEncryptedForumMessage,
+  updateForumFeedPreferences,
+  updateForumProfile,
   type ForumSessionSummary,
+  type DecryptedForumMessage,
 } from '../../signer';
 import {
   cryptoBackendDiagnostics,
@@ -28,6 +36,11 @@ import type { AppPalette } from '../../theme';
 import { radius, spacing, type as typography } from '../../theme';
 import { Button, EmptyState, StatusBanner } from '../../ui/primitives';
 import { useDebouncedValue } from '../../hooks/use-debounced-value';
+import {
+  changeLocalNotificationState,
+  loadLocalNotificationState,
+  type LocalNotificationState,
+} from '../forum/local-state';
 
 interface WorkspaceProps {
   readonly colors: AppPalette;
@@ -79,6 +92,52 @@ interface IdentityProfile {
   readonly commentKarma: number;
 }
 
+interface FeedPreferencesDocument {
+  readonly defaultSort: number;
+  readonly defaultTimeframe: number;
+  readonly showNsfw: boolean;
+  readonly blurNsfw: boolean;
+  readonly layout: number;
+  readonly favouriteCommunities: readonly string[];
+  readonly hiddenKeys: readonly string[];
+}
+
+function Field({
+  colors,
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  multiline = false,
+}: {
+  readonly colors: AppPalette;
+  readonly label: string;
+  readonly value: string;
+  readonly onChangeText: (value: string) => void;
+  readonly placeholder?: string;
+  readonly multiline?: boolean;
+}) {
+  return (
+    <View style={styles.field}>
+      <Text style={[typography.label, { color: colors.text }]}>{label}</Text>
+      <TextInput
+        accessibilityLabel={label}
+        multiline={multiline}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={colors.text3}
+        style={[
+          typography.body,
+          styles.input,
+          multiline ? styles.multiline : null,
+          { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text },
+        ]}
+        value={value}
+      />
+    </View>
+  );
+}
+
 interface NotificationRow {
   readonly id: string;
   readonly kind: string;
@@ -114,6 +173,27 @@ interface AdminSummary {
   readonly reports: number;
   readonly ipBlocks: number;
   readonly transparency: { readonly treeSize: number; readonly timestampMs: number };
+}
+
+interface AdminSecurityConfig {
+  readonly registrationsOpen: boolean;
+  readonly requestLimitPerMinute: number;
+}
+
+interface AdminIpBlock {
+  readonly subject: string;
+  readonly reason: string;
+  readonly expiresAtMs: number | null;
+}
+
+interface AdminUplink {
+  readonly id: string;
+  readonly sourceIp: string;
+  readonly ispName: string | null;
+  readonly state: string;
+  readonly forced: string | null;
+  readonly declaredScopes: readonly string[];
+  readonly liveScopes: readonly string[];
 }
 
 interface ReticulumAdminStatus {
@@ -277,11 +357,31 @@ function SessionGate({
 
 export function ProfileWorkspace({ colors, homeNode }: WorkspaceProps) {
   const summary = useSessionSummary();
+  const [displayName, setDisplayName] = useState('');
+  const [bio, setBio] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [sort, setSort] = useState(SortMode.SORT_MODE_HOT);
+  const [layout, setLayout] = useState(LayoutMode.LAYOUT_MODE_CARD);
+  const [showNsfw, setShowNsfw] = useState(false);
+  const [blurNsfw, setBlurNsfw] = useState(true);
   const profile = useSessionDocument<IdentityProfile>(
     homeNode.baseUrl,
     '/v1/me/profile',
     Boolean(summary?.authenticated),
   );
+  const preferences = useSessionDocument<FeedPreferencesDocument | null>(
+    homeNode.baseUrl,
+    '/v1/me/preferences',
+    Boolean(summary?.authenticated),
+  );
+  useEffect(() => {
+    if (!preferences.data) return;
+    setSort(preferences.data.defaultSort);
+    setLayout(preferences.data.layout);
+    setShowNsfw(preferences.data.showNsfw);
+    setBlurNsfw(preferences.data.blurNsfw);
+  }, [preferences.data]);
   return (
     <>
       <Panel colors={colors} eyebrow="Local key vault" title="Forum identity">
@@ -308,16 +408,177 @@ export function ProfileWorkspace({ colors, homeNode }: WorkspaceProps) {
         {profile.isError ? (
           <LoadingOrError colors={colors} error loading={false} noun="Profile" />
         ) : (
-          <StatusBanner
-            colors={colors}
-            icon="shield-checkmark-outline"
-            title="Profile linked without network identity"
-            body="The server profile contains a Forum key, never an IP address or device fingerprint."
-            tone="verified"
-          />
+          <>
+            <Panel colors={colors} eyebrow="Public Forum profile" title="Edit profile">
+              <Field colors={colors} label="Display name" value={displayName} onChangeText={setDisplayName} placeholder={profile.data?.displayName || 'Name shown to communities'} />
+              <Field colors={colors} label="Bio" value={bio} onChangeText={setBio} placeholder={profile.data?.bio || 'A short public introduction'} multiline />
+              <Button
+                colors={colors}
+                disabled={saving || (!displayName.trim() && !bio.trim())}
+                label={saving ? 'Signing profile…' : 'Save profile'}
+                onPress={() => {
+                  setSaving(true);
+                  setNotice('');
+                  void updateForumProfile(
+                    homeNode.baseUrl,
+                    {
+                      display_name: displayName || profile.data?.displayName || '',
+                      bio: bio || profile.data?.bio || '',
+                      avatar: '',
+                      banner: '',
+                    },
+                    homeNode.discovery.services.auditLogs,
+                  )
+                    .then(async () => {
+                      setNotice('Profile update signed and queued.');
+                      await profile.refetch();
+                    })
+                    .catch((error: Error) => setNotice(error.message))
+                    .finally(() => setSaving(false));
+                }}
+              />
+            </Panel>
+            <StatusBanner
+              colors={colors}
+              icon="shield-checkmark-outline"
+              title={notice || 'Profile linked without network identity'}
+              body="The server profile contains a Forum key, never an IP address or device fingerprint."
+              tone={notice && !notice.includes('queued') ? 'warning' : 'verified'}
+            />
+            <Panel colors={colors} eyebrow="Personal defaults" title="Feed preferences">
+              <Text style={[typography.label, { color: colors.text }]}>Default sort</Text>
+              <View style={styles.choiceRow}>
+                {([
+                  ['Hot', SortMode.SORT_MODE_HOT],
+                  ['New', SortMode.SORT_MODE_NEW],
+                  ['Top', SortMode.SORT_MODE_TOP],
+                ] as const).map(([label, value]) => (
+                  <ChoiceChip
+                    colors={colors}
+                    key={label}
+                    label={label}
+                    onPress={() => setSort(value)}
+                    selected={sort === value}
+                  />
+                ))}
+              </View>
+              <Text style={[typography.label, { color: colors.text }]}>Feed density</Text>
+              <View style={styles.choiceRow}>
+                {([
+                  ['Cards', LayoutMode.LAYOUT_MODE_CARD],
+                  ['Classic', LayoutMode.LAYOUT_MODE_CLASSIC],
+                  ['Compact', LayoutMode.LAYOUT_MODE_COMPACT],
+                ] as const).map(([label, value]) => (
+                  <ChoiceChip
+                    colors={colors}
+                    key={label}
+                    label={label}
+                    onPress={() => setLayout(value)}
+                    selected={layout === value}
+                  />
+                ))}
+              </View>
+              <PreferenceToggle
+                colors={colors}
+                label="Show mature-content posts"
+                onChange={setShowNsfw}
+                value={showNsfw}
+              />
+              <PreferenceToggle
+                colors={colors}
+                label="Blur mature-content previews"
+                onChange={setBlurNsfw}
+                value={blurNsfw}
+              />
+              <Button
+                colors={colors}
+                disabled={saving}
+                label={saving ? 'Signing preferences…' : 'Save feed preferences'}
+                onPress={() => {
+                  setSaving(true);
+                  setNotice('');
+                  void updateForumFeedPreferences(
+                    homeNode.baseUrl,
+                    {
+                      default_sort: sort,
+                      default_timeframe: Timeframe.TIMEFRAME_ALL,
+                      show_nsfw: showNsfw,
+                      blur_nsfw: blurNsfw,
+                      layout,
+                      favourite_communities:
+                        preferences.data?.favouriteCommunities.slice() ?? [],
+                      hidden_keys: [],
+                    },
+                    homeNode.discovery.services.auditLogs,
+                  )
+                    .then(async () => {
+                      setNotice('Feed preferences signed and queued.');
+                      await preferences.refetch();
+                    })
+                    .catch((error: Error) => setNotice(error.message))
+                    .finally(() => setSaving(false));
+                }}
+              />
+            </Panel>
+          </>
         )}
       </SessionGate>
     </>
+  );
+}
+
+function ChoiceChip({
+  colors,
+  label,
+  onPress,
+  selected,
+}: {
+  readonly colors: AppPalette;
+  readonly label: string;
+  readonly onPress: () => void;
+  readonly selected: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected }}
+      onPress={onPress}
+      style={[
+        styles.choiceChip,
+        {
+          backgroundColor: selected ? colors.surface2 : colors.bg,
+          borderColor: selected ? colors.ember : colors.border,
+        },
+      ]}
+    >
+      <Text style={[typography.caption, { color: selected ? colors.ember : colors.text2 }]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function PreferenceToggle({
+  colors,
+  label,
+  onChange,
+  value,
+}: {
+  readonly colors: AppPalette;
+  readonly label: string;
+  readonly onChange: (value: boolean) => void;
+  readonly value: boolean;
+}) {
+  return (
+    <View style={styles.preferenceToggle}>
+      <Text style={[typography.label, styles.flex, { color: colors.text }]}>{label}</Text>
+      <Switch
+        accessibilityLabel={label}
+        onValueChange={onChange}
+        trackColor={{ true: colors.ember }}
+        value={value}
+      />
+    </View>
   );
 }
 
@@ -608,12 +869,19 @@ export function LabelsWorkspace({ colors, homeNode }: WorkspaceProps) {
 }
 
 export function AwardsWorkspace({ colors, homeNode }: WorkspaceProps) {
+  const [slug, setSlug] = useState('');
+  const [name, setName] = useState('');
+  const [icon, setIcon] = useState('✦');
+  const [cost, setCost] = useState('1');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
   const awards = useNodeDocument<NodePage<AwardType>>(
     homeNode.baseUrl,
     '/v1/awards/types?limit=100',
   );
   const items = awards.data?.value.items ?? [];
   return (
+    <>
     <Panel colors={colors} eyebrow="Instance catalogue" title="Available awards">
       <LoadingOrError
         colors={colors}
@@ -641,17 +909,55 @@ export function AwardsWorkspace({ colors, homeNode }: WorkspaceProps) {
         ))
       )}
     </Panel>
+    <Panel colors={colors} eyebrow="Operator-signed catalogue" title="Define an award type">
+      <Field colors={colors} label="Stable slug" onChangeText={setSlug} value={slug} placeholder="community-helper" />
+      <Field colors={colors} label="Display name" onChangeText={setName} value={name} placeholder="Community helper" />
+      <Field colors={colors} label="Icon or short mark" onChangeText={setIcon} value={icon} />
+      <Field colors={colors} label="Credit cost" onChangeText={setCost} value={cost} />
+      {notice ? <Text accessibilityLiveRegion="polite" style={[typography.caption, { color: colors.text2 }]}>{notice}</Text> : null}
+      <Button
+        colors={colors}
+        disabled={busy || !/^[a-z0-9-]{2,32}$/.test(slug) || !name.trim() || !Number.isSafeInteger(Number(cost))}
+        label={busy ? 'Signing award type…' : 'Publish award type'}
+        onPress={() => {
+          setBusy(true); setNotice('');
+          void defineForumAwardType(
+            homeNode.baseUrl,
+            { slug, name, icon, cost: Number(cost), active: true },
+            homeNode.discovery.services.auditLogs,
+          )
+            .then(async () => {
+              setNotice('Award type signed and queued.');
+              setSlug(''); setName('');
+              await awards.refetch();
+            })
+            .catch((error: Error) => setNotice(error.message))
+            .finally(() => setBusy(false));
+        }}
+        variant="secondary"
+      />
+    </Panel>
+    </>
   );
 }
 
 export function NotificationsWorkspace({ colors, homeNode }: WorkspaceProps) {
   const summary = useSessionSummary();
+  const [localState, setLocalState] = useState<LocalNotificationState>({
+    read: [],
+    dismissed: [],
+  });
   const notifications = useSessionDocument<NodePage<NotificationRow>>(
     homeNode.baseUrl,
     '/v1/me/notifications?limit=100',
     Boolean(summary?.authenticated),
   );
-  const items = notifications.data?.items ?? [];
+  useEffect(() => {
+    void loadLocalNotificationState().then(setLocalState);
+  }, []);
+  const items = (notifications.data?.items ?? []).filter(
+    (item) => !localState.dismissed.includes(item.id),
+  );
   return (
     <SessionGate colors={colors} summary={summary}>
       <Panel colors={colors} eyebrow="Private projection" title="Notifications">
@@ -669,16 +975,44 @@ export function NotificationsWorkspace({ colors, homeNode }: WorkspaceProps) {
             body="Replies, mentions, awards, moderation, and follows will appear here."
           />
         ) : (
-          items.map((notification) => (
-            <DataRow
-              key={notification.id}
-              colors={colors}
-              icon={notification.read ? 'mail-open-outline' : 'notifications-outline'}
-              label={notification.kind.replace('_', ' ')}
-              detail={shortened(notification.contentId, 28)}
-              value={notification.read ? 'read' : 'new'}
-            />
-          ))
+          items.map((notification) => {
+            const read = notification.read || localState.read.includes(notification.id);
+            return (
+              <View key={notification.id} style={[styles.notificationRow, { borderBottomColor: colors.border }]}>
+                <View style={styles.flex}>
+                  <DataRow
+                    colors={colors}
+                    icon={read ? 'mail-open-outline' : 'notifications-outline'}
+                    label={notification.kind.replace('_', ' ')}
+                    detail={shortened(notification.contentId, 28)}
+                    value={read ? 'read' : 'new'}
+                  />
+                </View>
+                <Button
+                  colors={colors}
+                  label={read ? 'Unread' : 'Read'}
+                  onPress={() =>
+                    void changeLocalNotificationState(
+                      notification.id,
+                      read ? 'unread' : 'read',
+                    ).then(setLocalState)
+                  }
+                  variant="ghost"
+                />
+                <Button
+                  colors={colors}
+                  label="Dismiss"
+                  onPress={() =>
+                    void changeLocalNotificationState(
+                      notification.id,
+                      'dismiss',
+                    ).then(setLocalState)
+                  }
+                  variant="ghost"
+                />
+              </View>
+            );
+          })
         )}
       </Panel>
     </SessionGate>
@@ -687,6 +1021,15 @@ export function NotificationsWorkspace({ colors, homeNode }: WorkspaceProps) {
 
 export function MessagingWorkspace({ colors, homeNode }: WorkspaceProps) {
   const summary = useSessionSummary();
+  const [recipient, setRecipient] = useState('');
+  const [recipientX25519, setRecipientX25519] = useState('');
+  const [recipientKem, setRecipientKem] = useState('');
+  const [thread, setThread] = useState('');
+  const [plaintext, setPlaintext] = useState('');
+  const [decrypted, setDecrypted] = useState<readonly DecryptedForumMessage[]>([]);
+  const [bundle, setBundle] = useState<{ readonly x25519: string; readonly mlKem768: string } | null>(null);
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
   const messages = useSessionDocument<NodePage<MessageRow>>(
     homeNode.baseUrl,
     '/v1/me/messages?limit=100',
@@ -700,9 +1043,69 @@ export function MessagingWorkspace({ colors, homeNode }: WorkspaceProps) {
     }
     return [...latest.values()].sort((a, b) => b.createdAtMs - a.createdAtMs);
   }, [messages.data]);
+  const refreshDecrypted = async () => {
+    if (!summary?.identityKeyHex) return;
+    setDecrypted(await loadDecryptedForumMessages(homeNode.baseUrl, summary.identityKeyHex));
+  };
+  useEffect(() => {
+    if (!summary?.authenticated) return;
+    void Promise.all([forumMessagingBundle(), refreshDecrypted()])
+      .then(([nextBundle]) => setBundle(nextBundle))
+      .catch((error: Error) => setNotice(error.message));
+  }, [homeNode.baseUrl, summary?.authenticated, summary?.identityKeyHex]);
+  const send = async () => {
+    setBusy(true); setNotice('');
+    try {
+      const activeThread = thread.trim() || `forum-${Date.now().toString(36)}`;
+      const result = await sendEncryptedForumMessage(
+        homeNode.baseUrl,
+        {
+          recipientKeyHex: recipient,
+          recipientX25519Base64: recipientX25519,
+          recipientKemBase64: recipientKem,
+          plaintext,
+          thread: activeThread,
+          ratchetIndex: decrypted.filter((item) => item.thread === activeThread).length,
+        },
+        homeNode.discovery.services.auditLogs,
+      );
+      setThread(activeThread);
+      setPlaintext('');
+      setNotice(`Encrypted Forum message queued as ${result.contentId}`);
+      await Promise.all([messages.refetch(), refreshDecrypted()]);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The message could not be encrypted.');
+    } finally { setBusy(false); }
+  };
   return (
     <SessionGate colors={colors} summary={summary}>
-      <Panel colors={colors} eyebrow="Signal space" title="Encrypted conversations">
+      <Panel colors={colors} eyebrow="Forum private space" title="Encrypted conversations">
+        <StatusBanner
+          body="Forum messaging keys are shared out of band because this node deliberately has no contact-discovery graph. The node stores recipient routing keys and ciphertext only."
+          colors={colors}
+          icon="lock-closed-outline"
+          title="End-to-end encrypted"
+          tone="verified"
+        />
+        {bundle ? (
+          <View style={[styles.bundle, { backgroundColor: colors.surface2 }]}>
+            <Text style={[typography.label, { color: colors.text }]}>Your shareable messaging bundle</Text>
+            <Text selectable style={[typography.mono, { color: colors.text2 }]}>X25519 {bundle.x25519}</Text>
+            <Text selectable style={[typography.mono, { color: colors.text2 }]}>ML-KEM-768 {bundle.mlKem768}</Text>
+          </View>
+        ) : null}
+        <Field colors={colors} label="Recipient Forum key (hex)" onChangeText={setRecipient} value={recipient} />
+        <Field colors={colors} label="Recipient X25519 key (base64)" onChangeText={setRecipientX25519} value={recipientX25519} />
+        <Field colors={colors} label="Recipient ML-KEM-768 key (base64)" onChangeText={setRecipientKem} value={recipientKem} />
+        <Field colors={colors} label="Conversation ID" onChangeText={setThread} placeholder="Leave blank to create one" value={thread} />
+        <Field colors={colors} label="Message" multiline onChangeText={setPlaintext} value={plaintext} />
+        <Button
+          colors={colors}
+          disabled={busy || recipient.length !== 64 || !recipientX25519 || !recipientKem || !plaintext.trim()}
+          label={busy ? 'Encrypting…' : 'Send encrypted message'}
+          onPress={() => void send()}
+        />
+        {notice ? <Text accessibilityLiveRegion="polite" style={[typography.caption, { color: colors.text2 }]}>{notice}</Text> : null}
         <LoadingOrError
           colors={colors}
           error={messages.isError}
@@ -719,15 +1122,14 @@ export function MessagingWorkspace({ colors, homeNode }: WorkspaceProps) {
           />
         ) : (
           threads.map((message) => (
-            <DataRow
-              key={message.thread}
-              colors={colors}
-              icon="lock-closed-outline"
-              label={`Thread ${shortened(message.thread, 14)}`}
-              detail={`Ratchet message ${message.ratchetIndex}`}
-              value={new Date(message.createdAtMs).toLocaleDateString()}
-              signal
-            />
+            <View key={message.thread}>
+              <DataRow colors={colors} icon="lock-closed-outline" label={`Thread ${shortened(message.thread, 14)}`} detail={`Ratchet message ${message.ratchetIndex}`} value={new Date(message.createdAtMs).toLocaleDateString()} signal />
+              {decrypted.filter((item) => item.thread === message.thread).map((item) => (
+                <Text key={item.id} style={[typography.body, { color: colors.text }]}>
+                  {item.plaintext ?? 'Encrypted message sent from this device'}
+                </Text>
+              ))}
+            </View>
           ))
         )}
       </Panel>
@@ -875,6 +1277,14 @@ function CryptoParityPanel({ colors }: { readonly colors: AppPalette }) {
 
 export function AdminWorkspace({ colors, homeNode }: WorkspaceProps) {
   const summary = useSessionSummary();
+  const [registrationsOpen, setRegistrationsOpen] = useState(true);
+  const [requestLimit, setRequestLimit] = useState('120');
+  const [blockSubject, setBlockSubject] = useState('');
+  const [blockReason, setBlockReason] = useState('');
+  const [peerId, setPeerId] = useState('');
+  const [vouchNote, setVouchNote] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
   const admin = useSessionDocument<AdminSummary>(
     homeNode.baseUrl,
     '/v1/admin/summary',
@@ -885,6 +1295,49 @@ export function AdminWorkspace({ colors, homeNode }: WorkspaceProps) {
     '/v1/admin/reticulum',
     Boolean(summary?.authenticated),
   );
+  const security = useSessionDocument<AdminSecurityConfig>(
+    homeNode.baseUrl,
+    '/v1/admin/config/security',
+    Boolean(summary?.authenticated),
+  );
+  const blocks = useSessionDocument<{ readonly items: readonly AdminIpBlock[] }>(
+    homeNode.baseUrl,
+    '/v1/admin/ip-blocks',
+    Boolean(summary?.authenticated),
+  );
+  const features = useSessionDocument<{
+    readonly planes: readonly string[];
+    readonly adapters: Readonly<Record<string, string>>;
+  }>(homeNode.baseUrl, '/v1/admin/features', Boolean(summary?.authenticated));
+  const uplinks = useSessionDocument<{
+    readonly items: readonly AdminUplink[];
+    readonly transitions: readonly unknown[];
+  }>(homeNode.baseUrl, '/v1/transport/uplinks', Boolean(summary?.authenticated));
+  const bridge = useSessionDocument<Record<string, unknown>>(
+    homeNode.baseUrl,
+    '/v1/transport/bridge',
+    Boolean(summary?.authenticated),
+  );
+  const reachability = useSessionDocument<Record<string, unknown>>(
+    homeNode.baseUrl,
+    '/v1/transport/reachability',
+    Boolean(summary?.authenticated),
+  );
+  useEffect(() => {
+    if (!security.data) return;
+    setRegistrationsOpen(security.data.registrationsOpen);
+    setRequestLimit(String(security.data.requestLimitPerMinute));
+  }, [security.data]);
+  const mutate = async (path: string, init: RequestInit, success: string) => {
+    setBusy(true); setNotice('');
+    try {
+      await forumSessionRequest(homeNode.baseUrl, path, init);
+      setNotice(success);
+      await Promise.all([security.refetch(), blocks.refetch(), uplinks.refetch(), admin.refetch()]);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Operator action failed.');
+    } finally { setBusy(false); }
+  };
   if (!summary?.authenticated) {
     return <SessionGate colors={colors} summary={summary} />;
   }
@@ -925,6 +1378,65 @@ export function AdminWorkspace({ colors, homeNode }: WorkspaceProps) {
           detail="Every acknowledged envelope occupies an append-only leaf."
           value={String(admin.data?.transparency.treeSize ?? 0)}
         />
+      </Panel>
+      {notice ? (
+        <StatusBanner
+          body={notice}
+          colors={colors}
+          icon={notice.includes('updated') || notice.includes('removed') || notice.includes('recorded') ? 'checkmark-circle-outline' : 'warning-outline'}
+          title="Operator action"
+          tone={notice.includes('updated') || notice.includes('removed') || notice.includes('recorded') ? 'verified' : 'warning'}
+        />
+      ) : null}
+      <Panel colors={colors} eyebrow="Registration and abuse limits" title="Security policy">
+        <PreferenceToggle colors={colors} label="Allow new registrations" onChange={setRegistrationsOpen} value={registrationsOpen} />
+        <Field colors={colors} label="Requests per minute" onChangeText={setRequestLimit} value={requestLimit} />
+        <Button
+          colors={colors}
+          disabled={busy || Number(requestLimit) < 10 || Number(requestLimit) > 100_000}
+          label={busy ? 'Saving…' : 'Save security policy'}
+          onPress={() => void mutate('/v1/admin/config/security', {
+            method: 'PUT',
+            body: JSON.stringify({ registrations_open: registrationsOpen, request_limit_per_minute: Number(requestLimit) }),
+          }, 'Security policy updated.')}
+        />
+      </Panel>
+      <Panel colors={colors} eyebrow="Network boundary" title="IP blocks">
+        {(blocks.data?.items ?? []).map((block) => (
+          <View key={block.subject} style={[styles.notificationRow, { borderBottomColor: colors.border }]}>
+            <DataRow colors={colors} icon="ban-outline" label={block.subject} detail={block.reason} value={block.expiresAtMs ? new Date(block.expiresAtMs).toLocaleDateString() : 'permanent'} />
+            <Button colors={colors} disabled={busy} label="Remove block" onPress={() => void mutate(`/v1/admin/ip-blocks/${encodeURIComponent(block.subject)}`, { method: 'DELETE' }, 'IP block removed.')} variant="ghost" />
+          </View>
+        ))}
+        <Field colors={colors} label="IP address or CIDR" onChangeText={setBlockSubject} value={blockSubject} />
+        <Field colors={colors} label="Reason" onChangeText={setBlockReason} value={blockReason} />
+        <Button colors={colors} disabled={busy || !blockSubject.trim() || !blockReason.trim()} label="Add IP block" onPress={() => void mutate('/v1/admin/ip-blocks', { method: 'POST', body: JSON.stringify({ subject: blockSubject, reason: blockReason, expires_at_ms: null }) }, 'IP block updated.')} variant="destructive" />
+      </Panel>
+      <Panel colors={colors} eyebrow="Measured transport state" title="Uplinks and bridge">
+        {(uplinks.data?.items ?? []).map((uplink) => (
+          <View key={uplink.id} style={[styles.notificationRow, { borderBottomColor: colors.border }]}>
+            <DataRow colors={colors} icon="git-network-outline" label={uplink.id} detail={`${uplink.ispName ?? uplink.sourceIp} · declared ${uplink.declaredScopes.join(', ') || 'none'} · live ${uplink.liveScopes.join(', ') || 'none'}`} value={uplink.forced ?? uplink.state} />
+            <View style={styles.choiceRow}>
+              {['auto', 'up', 'down'].map((state) => <Button key={state} colors={colors} disabled={busy} label={state} onPress={() => void mutate(`/v1/transport/uplinks/${encodeURIComponent(uplink.id)}/state`, { method: 'POST', body: JSON.stringify({ state }) }, 'Uplink state updated.')} variant="ghost" />)}
+            </View>
+          </View>
+        ))}
+        <DataRow colors={colors} icon="swap-horizontal-outline" label="Bridge telemetry" detail={JSON.stringify(bridge.data ?? {})} value={bridge.isLoading ? 'checking' : 'visible'} />
+        <DataRow colors={colors} icon="navigate-outline" label="Reachability report" detail={JSON.stringify(reachability.data ?? {})} value={reachability.isLoading ? 'checking' : 'visible'} />
+      </Panel>
+      <Panel colors={colors} eyebrow="Out-of-band operator evidence" title="Federation vouch">
+        <Field colors={colors} label="Known peer ID" onChangeText={setPeerId} value={peerId} />
+        <Field colors={colors} label="Verification note" multiline onChangeText={setVouchNote} value={vouchNote} />
+        <View style={styles.choiceRow}>
+          {['NORMAL', 'TRUSTED', 'BLOCKED'].map((level) => (
+            <Button key={level} colors={colors} disabled={busy || !peerId.trim()} label={level.toLowerCase()} onPress={() => void mutate('/v1/admin/federation/vouches', { method: 'POST', body: JSON.stringify({ peer_id: peerId, level, note: vouchNote }) }, 'Federation vouch recorded.')} variant={level === 'BLOCKED' ? 'destructive' : 'secondary'} />
+          ))}
+        </View>
+      </Panel>
+      <Panel colors={colors} eyebrow="Runtime bindings" title="Enabled adapters">
+        {Object.entries(features.data?.adapters ?? {}).map(([name, value]) => (
+          <DataRow colors={colors} icon="hardware-chip-outline" key={name} label={name} value={value} />
+        ))}
       </Panel>
       <Panel colors={colors} eyebrow="Optional transport" title="Reticulum relay">
         <DataRow
@@ -1046,6 +1558,35 @@ export function FeatureWorkspace({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  field: { gap: spacing.xs },
+  choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
+  choiceChip: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    justifyContent: 'center',
+  },
+  preferenceToggle: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  notificationRow: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: spacing.xs,
+    paddingBottom: spacing.xs,
+  },
+  bundle: { borderRadius: radius.md, padding: spacing.md, gap: spacing.xs },
+  input: {
+    minHeight: 48,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  multiline: { minHeight: 112, textAlignVertical: 'top' },
   panel: {
     marginHorizontal: spacing.md,
     padding: spacing.md,

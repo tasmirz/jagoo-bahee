@@ -45,17 +45,27 @@ import {
 } from '@jagoo/sdk';
 import {
   ChannelDeclare,
+  ChannelRetire,
+  ChannelRotate,
   ChannelSubscribe,
+  ChannelUpdate,
+  ChannelVouch,
   ChannelKind,
   BroadcastEmit,
+  BroadcastRevoke,
   CheckIn,
   MissingPersonReport,
   KeyCertificate,
   KeyRevocation,
   PrekeyBundle,
   ResourceReport,
+  type RevokeReason,
   RevocationKind,
   SignalSessionInit,
+  SignalMessage,
+  SignalDeliveryReceipt,
+  SignalGroupCreate,
+  SignalGroupUpdate,
 } from '@jagoo/sdk/proto';
 import type { DiscoveredService } from '../data/node-config';
 import { solvePow, type PowChallengeJson } from '../data/pow';
@@ -251,6 +261,14 @@ export class SecureSignalSigner implements SignalSigner {
     } finally {
       root.fill(0);
     }
+  }
+
+  async adoptChannelRotation(previousChannel: string, nextChannel: string): Promise<void> {
+    const mapping = await this.channelMap();
+    const nextIndex = mapping[nextChannel];
+    if (nextIndex === undefined) throw new Error('replacement channel key is not present in this vault');
+    mapping[previousChannel] = nextIndex;
+    await SecureStore.setItemAsync(CHANNEL_MAP_KEY, JSON.stringify(mapping), storeOptions);
   }
 
   async identity(ctx: ContextOf<Plane.SIGNAL>): Promise<PublicIdentity> {
@@ -517,6 +535,7 @@ export interface SignalSessionSummary {
   readonly unlocked: boolean;
   readonly authenticated: boolean;
   readonly identityId?: string;
+  readonly identityKeyHex?: string;
 }
 
 async function submit(
@@ -552,7 +571,14 @@ export async function signalSessionSummary(): Promise<SignalSessionSummary> {
     configured,
     unlocked: activeSigner !== null,
     authenticated: activeAccessToken !== null,
-    ...(identity ? { identityId: identity.id } : {}),
+    ...(identity
+      ? {
+          identityId: identity.id,
+          identityKeyHex: [...identity.publicKey]
+            .map((value) => value.toString(16).padStart(2, '0'))
+            .join(''),
+        }
+      : {}),
   };
 }
 
@@ -946,6 +972,133 @@ export async function publishSignalBroadcast(
   ).contentId;
 }
 
+export async function revokeSignalBroadcast(
+  baseUrl: string,
+  input: { readonly channelId: string; readonly target: string; readonly reason: RevokeReason; readonly note: string },
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<string> {
+  return (
+    await publishSignalEnvelope(
+      baseUrl,
+      {
+        context: { kind: 'channel', channelId: input.channelId },
+        domain: 'jb:broadcast:revoke:v1',
+        scope: input.channelId,
+        body: BroadcastRevoke.encode(BroadcastRevoke.fromPartial({
+          channel: input.channelId, target: input.target, reason: input.reason, note: input.note,
+        })).finish(),
+      },
+      auditServices,
+    )
+  ).contentId;
+}
+
+async function publishSignalBody(
+  baseUrl: string,
+  domain: string,
+  body: Uint8Array,
+  auditServices: readonly DiscoveredService[],
+  channelId?: string,
+): Promise<string> {
+  return (
+    await publishSignalEnvelope(
+      baseUrl,
+      {
+        context: channelId ? { kind: 'channel', channelId } : { kind: 'device' },
+        domain,
+        body,
+        ...(channelId ? { scope: channelId } : {}),
+      },
+      auditServices,
+    )
+  ).contentId;
+}
+
+export const updateSignalChannel = (baseUrl: string, input: ChannelUpdate, audit: readonly DiscoveredService[] = []) =>
+  publishSignalBody(baseUrl, 'jb:channel:update:v1', ChannelUpdate.encode(ChannelUpdate.fromPartial(input)).finish(), audit, input.channel);
+
+export const rotateSignalChannel = (baseUrl: string, input: ChannelRotate, audit: readonly DiscoveredService[] = []) =>
+  publishSignalBody(baseUrl, 'jb:channel:rotate:v1', ChannelRotate.encode(ChannelRotate.fromPartial(input)).finish(), audit, input.channel);
+
+export async function updateOwnedSignalChannel(
+  baseUrl: string,
+  input: {
+    readonly channel: string;
+    readonly name: string;
+    readonly description: string;
+    readonly language: string;
+  },
+  audit: readonly DiscoveredService[] = [],
+): Promise<string> {
+  if (!activeSigner) throw new Error('Unlock your Signal identity first');
+  const signing = await activeSigner.identity({ kind: 'channel', channelId: input.channel });
+  const messaging = await activeSigner.messagingPublicKey();
+  return updateSignalChannel(
+    baseUrl,
+    {
+      channel: input.channel,
+      patch: {
+        channel_name: input.name,
+        description: input.description,
+        kind: ChannelKind.CHANNEL_KIND_ORGANISATION,
+        categories: [],
+        claims: [],
+        signing_key: signing.publicKey,
+        kem_public_key: messaging.mlKem768,
+        pq_key: await activeSigner.channelPqPublicKey(input.channel),
+        language: input.language,
+        valid_from: BigInt(Date.now()),
+      },
+    },
+    audit,
+  );
+}
+
+export async function rotateOwnedSignalChannel(
+  baseUrl: string,
+  channel: string,
+  audit: readonly DiscoveredService[] = [],
+): Promise<string> {
+  if (!activeSigner) throw new Error('Unlock your Signal identity first');
+  const replacement = await activeSigner.createChannelIdentity();
+  const messaging = await activeSigner.messagingPublicKey();
+  const contentId = await rotateSignalChannel(
+    baseUrl,
+    {
+      channel,
+      new_signing_key: replacement.publicKey,
+      new_kem_key: messaging.mlKem768,
+      effective_from_ms: BigInt(Date.now() + 1_000),
+    },
+    audit,
+  );
+  await activeSigner.adoptChannelRotation(channel, replacement.channelId);
+  return contentId;
+}
+
+export const retireSignalChannel = (baseUrl: string, input: ChannelRetire, audit: readonly DiscoveredService[] = []) =>
+  publishSignalBody(baseUrl, 'jb:channel:retire:v1', ChannelRetire.encode(ChannelRetire.fromPartial(input)).finish(), audit, input.channel);
+
+export const vouchSignalChannel = (baseUrl: string, input: ChannelVouch, audit: readonly DiscoveredService[] = []) =>
+  publishSignalBody(baseUrl, 'jb:channel:vouch:v1', ChannelVouch.encode(ChannelVouch.fromPartial(input)).finish(), audit, input.channel);
+
+export const sendSignalMessage = (baseUrl: string, input: SignalMessage, audit: readonly DiscoveredService[] = []) =>
+  publishSignalBody(baseUrl, 'jb:message:signal:v1', SignalMessage.encode(SignalMessage.fromPartial(input)).finish(), audit);
+
+export const publishSignalDeliveryReceipt = (baseUrl: string, input: SignalDeliveryReceipt, audit: readonly DiscoveredService[] = []) =>
+  publishSignalBody(baseUrl, 'jb:message:receipt:v1', SignalDeliveryReceipt.encode(SignalDeliveryReceipt.fromPartial(input)).finish(), audit);
+
+export const createSignalGroup = (baseUrl: string, input: SignalGroupCreate, audit: readonly DiscoveredService[] = []) =>
+  publishSignalBody(baseUrl, 'jb:group:create:v1', SignalGroupCreate.encode(SignalGroupCreate.fromPartial(input)).finish(), audit);
+
+export const updateSignalGroup = (baseUrl: string, input: SignalGroupUpdate, audit: readonly DiscoveredService[] = []) =>
+  publishSignalBody(baseUrl, 'jb:group:update:v1', SignalGroupUpdate.encode(SignalGroupUpdate.fromPartial(input)).finish(), audit);
+
+export async function revokeSignalKey(baseUrl: string, audit: readonly DiscoveredService[] = []): Promise<string> {
+  if (!activeSigner) throw new Error('Unlock your Signal identity first');
+  return publishSignalBody(baseUrl, 'jb:key:revoke:signal:v1', await activeSigner.prepareDuressRevocation(), audit);
+}
+
 interface NodePrekeyBundle {
   readonly identityKey: string;
   readonly signedPrekey: string;
@@ -953,6 +1106,116 @@ interface NodePrekeyBundle {
   readonly kemPublicKey: string;
   readonly oneTimePrekeys: readonly string[];
   readonly validUntilMs: number;
+}
+
+async function verifiedSignalPrekey(
+  baseUrl: string,
+  recipientKeyHex: string,
+): Promise<NodePrekeyBundle> {
+  const key = recipientKeyHex.toLowerCase();
+  let prekey: NodePrekeyBundle;
+  try {
+    prekey = await requestJson<NodePrekeyBundle>(
+      baseUrl,
+      `/v1/signal/prekeys/${encodeURIComponent(key)}`,
+    );
+    verifyNodePrekey(key, prekey);
+    await cacheSignalPrekey(key, prekey);
+  } catch (error) {
+    const cached = await loadCachedSignalPrekey(key);
+    if (!cached) throw error;
+    prekey = cached;
+  }
+  verifyNodePrekey(key, prekey);
+  return prekey;
+}
+
+async function wrappedSignalGroupKey(
+  baseUrl: string,
+  memberKeys: readonly string[],
+  context: string,
+): Promise<Uint8Array> {
+  if (!activeSigner) throw new Error('Unlock your Signal identity first');
+  const senderKey = await Crypto.getRandomBytesAsync(32);
+  try {
+    const wraps = await Promise.all(
+      memberKeys.map(async (recipient) => {
+        if (!/^[0-9a-f]{64}$/i.test(recipient)) {
+          throw new Error('Every group member key must be 64 hexadecimal characters.');
+        }
+        const prekey = await verifiedSignalPrekey(baseUrl, recipient);
+        const encrypted = await activeSigner!.sealFirstMessage(
+          {
+            x25519: unbase64(prekey.signedPrekey),
+            mlKem768: unbase64(prekey.kemPublicKey),
+          },
+          senderKey,
+          `signal-group:${context}:${recipient.toLowerCase()}`,
+        );
+        return {
+          recipient: recipient.toLowerCase(),
+          kemCiphertext: base64(encrypted.kemCiphertext),
+          ephemeralX25519: base64(encrypted.ephemeralX25519),
+          ciphertext: base64(encrypted.ciphertext),
+        };
+      }),
+    );
+    return text.encode(JSON.stringify({ version: 1, algorithm: 'X25519+ML-KEM-768', wraps }));
+  } finally {
+    senderKey.fill(0);
+  }
+}
+
+export async function createSecureSignalGroup(
+  baseUrl: string,
+  name: string,
+  members: readonly string[],
+  audit: readonly DiscoveredService[] = [],
+): Promise<string> {
+  const normalized = [...new Set(members.map((item) => item.trim().toLowerCase()).filter(Boolean))];
+  if (normalized.length < 2 || normalized.length > 64) {
+    throw new Error('A Signal group needs 2 to 64 unique member keys.');
+  }
+  return createSignalGroup(
+    baseUrl,
+    {
+      name: name.trim(),
+      member_keys: normalized.map((item) => Uint8Array.from(BufferFromHex(item))),
+      group_key_wrapped: await wrappedSignalGroupKey(baseUrl, normalized, `new:${name.trim()}`),
+    },
+    audit,
+  );
+}
+
+export async function updateSecureSignalGroup(
+  baseUrl: string,
+  input: {
+    readonly group: string;
+    readonly currentMembers: readonly string[];
+    readonly add: readonly string[];
+    readonly remove: readonly string[];
+  },
+  audit: readonly DiscoveredService[] = [],
+): Promise<string> {
+  const additions = [...new Set(input.add.map((item) => item.trim().toLowerCase()).filter(Boolean))];
+  const removals = new Set(input.remove.map((item) => item.trim().toLowerCase()).filter(Boolean));
+  const next = [
+    ...new Set([
+      ...input.currentMembers.map((item) => item.toLowerCase()).filter((item) => !removals.has(item)),
+      ...additions,
+    ]),
+  ];
+  if (next.length < 2 || next.length > 64) throw new Error('The updated group needs 2 to 64 members.');
+  return updateSignalGroup(
+    baseUrl,
+    {
+      group: input.group,
+      add: additions.map((item) => Uint8Array.from(BufferFromHex(item))),
+      remove: [...removals].map((item) => Uint8Array.from(BufferFromHex(item))),
+      rekey_wrapped: await wrappedSignalGroupKey(baseUrl, next, `rekey:${input.group}`),
+    },
+    audit,
+  );
 }
 
 function verifyNodePrekey(recipientKeyHex: string, prekey: NodePrekeyBundle): void {
@@ -989,20 +1252,7 @@ export async function startSignalSession(
   if (!activeSigner) throw new Error('Unlock your Signal identity first');
   if (!/^[0-9a-f]{64}$/i.test(recipientKeyHex)) throw new Error('recipient key must be 64 hex characters');
   const key = recipientKeyHex.toLowerCase();
-  let prekey: NodePrekeyBundle;
-  try {
-    prekey = await requestJson<NodePrekeyBundle>(
-      baseUrl,
-      `/v1/signal/prekeys/${encodeURIComponent(key)}`,
-    );
-    verifyNodePrekey(key, prekey);
-    await cacheSignalPrekey(key, prekey);
-  } catch (error) {
-    const cached = await loadCachedSignalPrekey(key);
-    if (!cached) throw error;
-    prekey = cached;
-  }
-  verifyNodePrekey(key, prekey);
+  const prekey = await verifiedSignalPrekey(baseUrl, key);
   const context = `signal:${recipientKeyHex.toLowerCase()}`;
   const encrypted = await activeSigner.sealFirstMessage(
     {
@@ -1032,6 +1282,96 @@ export async function startSignalSession(
       auditServices,
     )
   ).contentId;
+}
+
+interface NodeSignalMessage {
+  readonly id: string;
+  readonly session: string;
+  readonly senderKey: string;
+  readonly recipientKey: string;
+  readonly counter: string;
+  readonly header: string;
+  readonly ciphertext: string;
+  readonly attachmentRefs: readonly string[];
+  readonly createdAtMs: number;
+  readonly deliveryState: number;
+  readonly deliveryUpdatedAtMs: number;
+}
+
+export interface DecryptedSignalMessage extends NodeSignalMessage {
+  readonly plaintext: string | null;
+}
+
+export async function continueSignalSession(
+  baseUrl: string,
+  input: {
+    readonly session: string;
+    readonly recipientKey: string;
+    readonly counter: bigint;
+    readonly plaintext: string;
+    readonly attachmentRefs?: readonly string[];
+  },
+  audit: readonly DiscoveredService[] = [],
+): Promise<string> {
+  if (!activeSigner) throw new Error('Unlock your Signal identity first');
+  const prekey = await verifiedSignalPrekey(baseUrl, input.recipientKey);
+  const encrypted = await activeSigner.sealFirstMessage(
+    {
+      x25519: unbase64(prekey.signedPrekey),
+      mlKem768: unbase64(prekey.kemPublicKey),
+    },
+    text.encode(input.plaintext),
+    `signal-message:${input.session}:${input.counter}`,
+  );
+  // Compact binary framing avoids adding roughly 500 bytes of JSON/base64 expansion to
+  // every constrained DIRECT message. ML-KEM-768 is fixed at 1088 bytes and X25519 at 32.
+  const header = concat(new Uint8Array([1]), encrypted.kemCiphertext, encrypted.ephemeralX25519);
+  return sendSignalMessage(
+    baseUrl,
+    {
+      session: input.session,
+      counter: input.counter,
+      header,
+      ciphertext: encrypted.ciphertext,
+      attachment_refs: input.attachmentRefs?.slice() ?? [],
+    },
+    audit,
+  );
+}
+
+export async function loadSignalMessages(
+  baseUrl: string,
+  identityKeyHex: string,
+): Promise<readonly DecryptedSignalMessage[]> {
+  if (!activeSigner) throw new Error('Unlock your Signal identity first');
+  const response = await signalSessionRequest<{ readonly items: readonly NodeSignalMessage[] }>(
+    baseUrl,
+    '/v1/signal/me/messages?limit=100',
+  );
+  return Promise.all(
+    response.items.map(async (message) => {
+      if (message.recipientKey.toLowerCase() !== identityKeyHex.toLowerCase()) {
+        return { ...message, plaintext: null };
+      }
+      try {
+        const header = unbase64(message.header);
+        if (header.length !== 1121 || header[0] !== 1) {
+          throw new Error('unsupported Signal ratchet header');
+        }
+        const opened = await activeSigner!.openFirstMessage(
+          {
+            kemCiphertext: header.slice(1, 1089),
+            ephemeralX25519: header.slice(1089),
+            ciphertext: unbase64(message.ciphertext),
+          },
+          `signal-message:${message.session}:${message.counter}`,
+        );
+        return { ...message, plaintext: new TextDecoder().decode(opened) };
+      } catch {
+        return { ...message, plaintext: null };
+      }
+    }),
+  );
 }
 
 type NodeSignalSession = CachedSignalSession;

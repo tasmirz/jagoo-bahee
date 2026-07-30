@@ -24,8 +24,9 @@ export default function TabLayout() {
       <Tabs.Screen name="index" options={{ title: 'Home' }} />
       <Tabs.Screen name="communities" options={{ title: 'Communities' }} />
       <Tabs.Screen name="create" options={{ title: 'Create' }} />
-      <Tabs.Screen name="inbox" options={{ title: 'Inbox' }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
+      <Tabs.Screen name="signal" options={{ title: 'Signal' }} />
+      <Tabs.Screen name="inbox" options={{ href: null }} />
+      <Tabs.Screen name="profile" options={{ title: 'You' }} />
     </Tabs>
   );
 }

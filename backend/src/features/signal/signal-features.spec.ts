@@ -367,7 +367,7 @@ describe('P4 crisis and identified messaging', () => {
         plane: Plane.SIGNAL,
         domain: 'jb:group:create:v1',
         scope: '',
-        priority: Priority.DIRECT,
+        priority: Priority.BULK,
         nonce: nextNonce(),
         body: SignalGroupCreate.encode(
           SignalGroupCreate.fromPartial({
@@ -383,7 +383,7 @@ describe('P4 crisis and identified messaging', () => {
         plane: Plane.SIGNAL,
         domain: 'jb:group:update:v1',
         scope: created.contentId,
-        priority: Priority.DIRECT,
+        priority: Priority.BULK,
         nonce: nextNonce(),
         body: SignalGroupUpdate.encode(
           SignalGroupUpdate.fromPartial({

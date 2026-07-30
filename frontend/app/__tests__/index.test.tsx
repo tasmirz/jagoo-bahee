@@ -84,15 +84,17 @@ function appValue(homeNode: HomeNode | null | undefined) {
 }
 
 describe('bootstrap route', () => {
-  it('asks for a home server on a new device', async () => {
+  it('starts the recovery-safe identity flow on a new device', async () => {
     mockUseApp.mockReturnValue(appValue(null));
     let view!: renderer.ReactTestRenderer;
     await act(async () => {
       view = renderer.create(<BootstrapRoute />);
     });
-    expect(view.root.findAllByProps({ accessibilityLabel: 'Home server address' })).not.toHaveLength(
-      0,
-    );
+    expect(
+      view.root.findAll(
+        (node) => node.props.accessibilityRole === 'header' && node.props.children === 'Start with an identity',
+      ),
+    ).not.toHaveLength(0);
     act(() => view.unmount());
   });
 

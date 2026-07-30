@@ -15,6 +15,8 @@ export default function PostRoute() {
         contentId={contentId}
         homeNode={homeNode}
         onAudit={() => router.push({ pathname: '/audit/[contentId]', params: { contentId } })}
+        onEdit={() => router.push(`/post/${contentId}/edit` as never)}
+        onOpenIdentity={(keyId) => router.push(`/identity/${keyId}` as never)}
         onBack={() => router.back()}
         onOpenNetwork={() => router.push('/network')}
         reach={reach}

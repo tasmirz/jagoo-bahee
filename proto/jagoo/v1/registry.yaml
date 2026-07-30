@@ -583,7 +583,10 @@ domains:
     idempotent: true
     scope_kind: NONE
     key_algs: [ED25519]
-    max_bytes: 1024
+    # The compact hybrid ratchet header contains an ML-KEM-768 ciphertext (1088 bytes)
+    # plus an ephemeral X25519 key. Keep it DIRECT, but grant the same PQ exception as
+    # session bootstrap so ordinary text messages remain constrained to 2 KiB.
+    max_bytes: 2048
     credit_cost: 1
     requires: []
     permission: authenticated
@@ -628,11 +631,14 @@ domains:
   - domain: 'jb:group:create:v1'
     plane: SIGNAL
     body: jagoo.v1.SignalGroupCreate
-    priority: DIRECT
+    priority: BULK
     idempotent: true
     scope_kind: NONE
     key_algs: [ED25519]
-    max_bytes: 1024
+    # A group sender key is hybrid-wrapped independently for as many as 64 members.
+    # One ML-KEM-768 ciphertext is already 1088 bytes; the former 1 KiB ceiling made
+    # every cryptographically valid group impossible to publish.
+    max_bytes: 131072
     credit_cost: 2
     requires: []
     permission: authenticated
@@ -640,11 +646,13 @@ domains:
   - domain: 'jb:group:update:v1'
     plane: SIGNAL
     body: jagoo.v1.SignalGroupUpdate
-    priority: DIRECT
+    priority: BULK
     idempotent: false
     scope_kind: NONE
     key_algs: [ED25519]
-    max_bytes: 1024
+    # Membership changes rekey every remaining member (MSG-25), so this needs the
+    # same bounded 64-member hybrid wrap budget as group creation.
+    max_bytes: 131072
     credit_cost: 1
     requires: []
     permission: group.admin

@@ -3,6 +3,7 @@
  * SecureStore keeps the root device-bound and unavailable while the phone is locked.
  */
 import * as Crypto from 'expo-crypto';
+import * as FileSystem from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
 import {
   FORUM_PATH,
@@ -47,7 +48,32 @@ import {
 import { KeyCertificate, KeyRevocation, RevocationKind } from '@jagoo/sdk/proto';
 import {
   CommentCreate,
+  CommentDelete,
+  CommentUpdate,
+  CommunityArchive,
+  CommunityCreate,
+  CommunityUpdate,
+  ModAction,
+  ReportCreate,
+  ReportResolve,
+  RoleAssign,
+  RoleDefine,
+  RoleRevoke,
+  ProfileUpdate,
+  FollowIdentity,
+  BlockIdentity,
+  FeedPreferences,
+  AwardGive,
+  AwardTypeDefine,
+  AttachmentClaim,
+  ForumMessageSend,
+  Label,
+  MembershipJoin,
+  MembershipLeave,
   PostCreate,
+  PostDelete,
+  PostUpdate,
+  SaveContent,
   PostKind,
   TargetKind,
   VoteCast,
@@ -58,6 +84,7 @@ import { submitSignedEnvelope } from '../offline/outbox';
 
 const ROOT_KEY = 'jb.forum.root.v1';
 const FORUM_CREDENTIAL_KEY = 'jb.forum.credential.v1';
+const FORUM_DEVICE_LOCK_KEY = 'jb.forum.device-lock.v1';
 const text = new TextEncoder();
 const storeOptions: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
@@ -205,6 +232,7 @@ export class SecureForumSigner implements ForumSigner {
     await Promise.all([
       SecureStore.deleteItemAsync(ROOT_KEY, storeOptions),
       SecureStore.deleteItemAsync(FORUM_CREDENTIAL_KEY, storeOptions),
+      SecureStore.deleteItemAsync(FORUM_DEVICE_LOCK_KEY, storeOptions),
     ]);
   }
 
@@ -451,6 +479,7 @@ export interface ForumSessionSummary {
   readonly unlocked: boolean;
   readonly authenticated: boolean;
   readonly identityId?: string;
+  readonly identityKeyHex?: string;
 }
 
 export interface PublishedPost {
@@ -515,7 +544,14 @@ export async function forumSessionSummary(): Promise<ForumSessionSummary> {
     configured,
     unlocked: activeSigner !== null,
     authenticated: activeAccessToken !== null,
-    ...(identity ? { identityId: identity.id } : {}),
+    ...(identity
+      ? {
+          identityId: identity.id,
+          identityKeyHex: [...identity.publicKey]
+            .map((value) => value.toString(16).padStart(2, '0'))
+            .join(''),
+        }
+      : {}),
   };
 }
 
@@ -523,21 +559,31 @@ export async function forumSessionSummary(): Promise<ForumSessionSummary> {
  * Makes an authenticated read without exposing the bearer token outside the signer boundary.
  * Feature workspaces use this for profile, notification, message, and operator projections.
  */
-export async function forumSessionRequest<T>(baseUrl: string, path: string): Promise<T> {
+export async function forumSessionRequest<T>(
+  baseUrl: string,
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
   if (!activeAccessToken) {
     throw new Error('Register and authenticate this Forum identity first');
   }
   return requestJson<T>(baseUrl, path, {
-    headers: { Authorization: `Bearer ${activeAccessToken}` },
+    ...init,
+    headers: {
+      ...init.headers,
+      Authorization: `Bearer ${activeAccessToken}`,
+    },
   });
 }
 
 export async function createForumIdentity(
-  lockPassphrase: string,
+  lockPassphrase?: string,
+  recoveryPassphrase = '',
 ): Promise<{ readonly recoveryPhrase: string; readonly identityId: string }> {
   const recoveryPhrase = generateRootMnemonic();
+  const vaultPassphrase = await resolveVaultPassphrase(lockPassphrase, true);
   activeSigner?.lock();
-  activeSigner = await SecureForumSigner.create(lockPassphrase, recoveryPhrase);
+  activeSigner = await SecureForumSigner.create(vaultPassphrase, recoveryPhrase, recoveryPassphrase);
   activeAccessToken = null;
   activeCredential = null;
   await SecureStore.deleteItemAsync(FORUM_CREDENTIAL_KEY, storeOptions);
@@ -547,13 +593,16 @@ export async function createForumIdentity(
 
 export async function importForumIdentity(
   recoveryPhrase: string,
-  lockPassphrase: string,
+  lockPassphrase?: string,
+  recoveryPassphrase = '',
 ): Promise<string> {
   if (!isValidMnemonic(recoveryPhrase.trim())) throw new Error('Enter a valid 24-word phrase');
+  const vaultPassphrase = await resolveVaultPassphrase(lockPassphrase, true);
   activeSigner?.lock();
   activeSigner = await SecureForumSigner.create(
-    lockPassphrase,
+    vaultPassphrase,
     recoveryPhrase.trim().replace(/\s+/g, ' '),
+    recoveryPassphrase,
   );
   activeAccessToken = null;
   activeCredential = null;
@@ -561,13 +610,38 @@ export async function importForumIdentity(
   return (await activeSigner.identity({ kind: 'device' })).id;
 }
 
-export async function unlockForumIdentity(lockPassphrase: string): Promise<string> {
+export async function unlockForumIdentity(
+  lockPassphrase?: string,
+  recoveryPassphrase = '',
+): Promise<string> {
+  const vaultPassphrase = await resolveVaultPassphrase(lockPassphrase, false);
   activeSigner?.lock();
-  activeSigner = await SecureForumSigner.unlock(lockPassphrase);
+  activeSigner = await SecureForumSigner.unlock(vaultPassphrase, recoveryPassphrase);
   activeAccessToken = null;
   const storedCredential = await SecureStore.getItemAsync(FORUM_CREDENTIAL_KEY, storeOptions);
   activeCredential = storedCredential ? { bytes: unbase64(storedCredential) } : null;
   return (await activeSigner.identity({ kind: 'device' })).id;
+}
+
+/**
+ * A device-lock-only vault still encrypts the mnemonic; its high-entropy wrapping secret is held
+ * in the platform keystore. Supplying an app password deliberately removes that device secret.
+ */
+async function resolveVaultPassphrase(
+  passphrase: string | undefined,
+  creating: boolean,
+): Promise<string> {
+  if (passphrase?.trim()) {
+    if (passphrase.length < 8) throw new Error('Use at least 8 characters for the app password');
+    await SecureStore.deleteItemAsync(FORUM_DEVICE_LOCK_KEY, storeOptions);
+    return passphrase;
+  }
+  const existing = await SecureStore.getItemAsync(FORUM_DEVICE_LOCK_KEY, storeOptions);
+  if (existing) return existing;
+  if (!creating) throw new Error('This identity needs its app password to unlock');
+  const generated = base64(await Crypto.getRandomBytesAsync(32));
+  await SecureStore.setItemAsync(FORUM_DEVICE_LOCK_KEY, generated, storeOptions);
+  return generated;
 }
 
 export function lockForumIdentity(): void {
@@ -655,6 +729,22 @@ export async function publishForumPost(
     readonly title: string;
     readonly bodyMarkdown: string;
     readonly communityId?: string;
+    readonly kind?: PostKind;
+    readonly url?: string;
+    readonly attachments?: readonly string[];
+    readonly poll?: {
+      readonly question: string;
+      readonly options: readonly string[];
+      readonly multiple: boolean;
+      readonly closesAtMs: bigint;
+    };
+    readonly crosspostOf?: string;
+    readonly flair?: string;
+    readonly flags?: {
+      readonly nsfw: boolean;
+      readonly spoiler: boolean;
+      readonly oc: boolean;
+    };
   },
   auditServices: readonly DiscoveredService[] = [],
 ): Promise<PublishedPost> {
@@ -680,8 +770,21 @@ export async function publishForumPost(
       body: PostCreate.encode(
         PostCreate.fromPartial({
           title: input.title,
-          kind: PostKind.POST_KIND_TEXT,
+          kind: input.kind ?? PostKind.POST_KIND_TEXT,
           body_markdown: input.bodyMarkdown,
+          url: input.url ?? '',
+          attachments: input.attachments?.slice() ?? [],
+          poll: input.poll
+            ? {
+                question: input.poll.question,
+                options: input.poll.options.slice(),
+                multiple: input.poll.multiple,
+                closes_at_ms: input.poll.closesAtMs,
+              }
+            : undefined,
+          crosspost_of: input.crosspostOf ?? '',
+          flair: input.flair ?? '',
+          flags: input.flags,
         }),
       ).finish(),
       scope: communityId,
@@ -755,6 +858,350 @@ async function publishForumAction(
     auditPending: audited.auditPending,
     pending: audited.pending,
   };
+}
+
+export async function createForumCommunity(
+  baseUrl: string,
+  input: {
+    readonly name: string;
+    readonly title: string;
+    readonly description: string;
+    readonly rulesMarkdown: string;
+    readonly isPrivate: boolean;
+    readonly isNsfw: boolean;
+  },
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<PublishedAction> {
+  if (!activeSigner) throw new Error('Unlock your Forum identity first');
+  if (!activeCredential) await registerForumIdentity(baseUrl, auditServices);
+  const identity = await activeSigner.identity({ kind: 'device' });
+  const challenge = await requestJson<PowChallengeJson>(baseUrl, '/v1/credits/challenge', {
+    method: 'POST',
+    body: JSON.stringify({ author_key: base64(identity.publicKey) }),
+  });
+  const pow = await solvePow(challenge, identity.publicKey);
+  const epoch = Math.floor(Date.now() / (24 * 60 * 60 * 1000));
+  const sealed = await activeSigner.seal(
+    { kind: 'device' },
+    {
+      domain: 'jb:community:create:v1',
+      body: CommunityCreate.encode(
+        CommunityCreate.fromPartial({
+          name: input.name,
+          title: input.title,
+          description: input.description,
+          rules_markdown: input.rulesMarkdown,
+          is_private: input.isPrivate,
+          is_nsfw: input.isNsfw,
+        }),
+      ).finish(),
+      antiAbuse: {
+        credential: activeCredential!.bytes,
+        nullifier: await activeSigner.nullifier(epoch, 'jb:community:create:v1'),
+        epoch,
+        pow,
+      },
+    },
+  );
+  const result = await submitAuditedEnvelope(baseUrl, sealed.wireBytes, auditServices);
+  return {
+    contentId: result.contentId,
+    ...(result.receipt ? { leafIndex: result.receipt.leaf_index } : {}),
+    ...(result.certificate ? { certificate: result.certificate } : {}),
+    auditCopies: result.auditCopies,
+    auditPending: result.auditPending,
+    pending: result.pending,
+  };
+}
+
+export async function setForumMembership(
+  baseUrl: string,
+  communityId: string,
+  joined: boolean,
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<PublishedAction> {
+  return publishForumAction(
+    baseUrl,
+    {
+      domain: joined ? 'jb:membership:join:v1' : 'jb:membership:leave:v1',
+      scope: communityId,
+      body: joined
+        ? MembershipJoin.encode(MembershipJoin.fromPartial({ community: communityId })).finish()
+        : MembershipLeave.encode(MembershipLeave.fromPartial({ community: communityId })).finish(),
+    },
+    auditServices,
+  );
+}
+
+export async function updateForumPost(
+  baseUrl: string,
+  input: { readonly communityId: string; readonly target: string; readonly bodyMarkdown: string; readonly flair?: string },
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<PublishedAction> {
+  return publishForumAction(baseUrl, {
+    domain: 'jb:post:update:v1', scope: input.communityId, parent: input.target,
+    body: PostUpdate.encode(PostUpdate.fromPartial({ target: input.target, body_markdown: input.bodyMarkdown, flair: input.flair ?? '' })).finish(),
+  }, auditServices);
+}
+
+export async function deleteForumPost(
+  baseUrl: string,
+  input: { readonly communityId: string; readonly target: string; readonly reason: string },
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<PublishedAction> {
+  return publishForumAction(baseUrl, {
+    domain: 'jb:post:delete:v1', scope: input.communityId, parent: input.target,
+    body: PostDelete.encode(PostDelete.fromPartial({ target: input.target, reason: input.reason })).finish(),
+  }, auditServices);
+}
+
+export async function setForumSaved(
+  baseUrl: string,
+  input: { readonly target: string; readonly targetKind: 'post' | 'comment'; readonly save: boolean; readonly collection?: string },
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<PublishedAction> {
+  return publishForumAction(baseUrl, {
+    domain: 'jb:social:save:v1', parent: input.target,
+    body: SaveContent.encode(SaveContent.fromPartial({
+      target: input.target,
+      target_kind: input.targetKind === 'post' ? TargetKind.TARGET_KIND_POST : TargetKind.TARGET_KIND_COMMENT,
+      save: input.save,
+      collection: input.collection ?? '',
+    })).finish(),
+  }, auditServices);
+}
+
+export const updateForumComment = (baseUrl: string, input: CommentUpdate & { readonly communityId: string }, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:comment:update:v1', scope: input.communityId, parent: input.target, body: CommentUpdate.encode(CommentUpdate.fromPartial({ target: input.target, body_markdown: input.body_markdown })).finish() }, audit);
+
+export const deleteForumComment = (baseUrl: string, input: CommentDelete & { readonly communityId: string }, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:comment:delete:v1', scope: input.communityId, parent: input.target, body: CommentDelete.encode(CommentDelete.fromPartial({ target: input.target, reason: input.reason })).finish() }, audit);
+
+export const updateForumCommunity = (baseUrl: string, input: CommunityUpdate, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:community:update:v1', scope: input.target, body: CommunityUpdate.encode(CommunityUpdate.fromPartial(input)).finish() }, audit);
+
+export const archiveForumCommunity = (baseUrl: string, input: CommunityArchive, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:community:archive:v1', scope: input.target, body: CommunityArchive.encode(CommunityArchive.fromPartial(input)).finish() }, audit);
+
+export const publishForumModeration = (baseUrl: string, communityId: string, input: ModAction, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:mod:action:v1', scope: communityId, parent: input.target, body: ModAction.encode(ModAction.fromPartial(input)).finish() }, audit);
+
+export const createForumReport = (baseUrl: string, communityId: string, input: ReportCreate, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:report:create:v1', scope: communityId, parent: input.target, body: ReportCreate.encode(ReportCreate.fromPartial(input)).finish() }, audit);
+
+export const resolveForumReport = (baseUrl: string, communityId: string, input: ReportResolve, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:report:resolve:v1', scope: communityId, parent: input.target, body: ReportResolve.encode(ReportResolve.fromPartial(input)).finish() }, audit);
+
+export const defineForumRole = (baseUrl: string, input: RoleDefine, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:role:define:v1', scope: input.community, body: RoleDefine.encode(RoleDefine.fromPartial(input)).finish() }, audit);
+
+export const assignForumRole = (baseUrl: string, input: RoleAssign, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:role:assign:v1', scope: input.community, body: RoleAssign.encode(RoleAssign.fromPartial(input)).finish() }, audit);
+
+export const revokeForumRole = (baseUrl: string, input: RoleRevoke, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:role:revoke:v1', scope: input.community, body: RoleRevoke.encode(RoleRevoke.fromPartial(input)).finish() }, audit);
+
+export const updateForumProfile = (baseUrl: string, input: ProfileUpdate, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:profile:update:v1', body: ProfileUpdate.encode(ProfileUpdate.fromPartial(input)).finish() }, audit);
+
+export const followForumIdentity = (baseUrl: string, input: FollowIdentity, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:social:follow:v1', body: FollowIdentity.encode(FollowIdentity.fromPartial(input)).finish() }, audit);
+
+export const blockForumIdentity = (baseUrl: string, input: BlockIdentity, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:social:block:v1', body: BlockIdentity.encode(BlockIdentity.fromPartial(input)).finish() }, audit);
+
+export const updateForumFeedPreferences = (baseUrl: string, input: FeedPreferences, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:prefs:feed:v1', body: FeedPreferences.encode(FeedPreferences.fromPartial(input)).finish() }, audit);
+
+export const giveForumAward = (baseUrl: string, communityId: string, input: AwardGive, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:award:give:v1', scope: communityId, parent: input.target, body: AwardGive.encode(AwardGive.fromPartial(input)).finish() }, audit);
+
+export const defineForumAwardType = (baseUrl: string, input: AwardTypeDefine, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:award:type:v1', body: AwardTypeDefine.encode(AwardTypeDefine.fromPartial(input)).finish() }, audit);
+
+export const claimForumAttachment = (baseUrl: string, input: AttachmentClaim, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:attachment:claim:v1', body: AttachmentClaim.encode(AttachmentClaim.fromPartial(input)).finish() }, audit);
+
+export async function uploadAndClaimForumAttachment(
+  baseUrl: string,
+  input: {
+    readonly uri: string;
+    readonly mime: string;
+    readonly size: number;
+    readonly altText: string;
+  },
+  audit: readonly DiscoveredService[] = [],
+): Promise<PublishedAction> {
+  if (!Number.isSafeInteger(input.size) || input.size <= 0) {
+    throw new Error('The selected file has no readable content.');
+  }
+  const encoded = await FileSystem.readAsStringAsync(input.uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const bytes = unbase64(encoded);
+  const hash = new Uint8Array(
+    await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, Uint8Array.from(bytes).buffer),
+  );
+  const ticket = await forumSessionRequest<{
+    readonly url: string;
+    readonly key: string;
+    readonly headers?: Readonly<Record<string, string>>;
+  }>(baseUrl, '/v1/attachments/upload-url', {
+    method: 'POST',
+    body: JSON.stringify({
+      mime: input.mime,
+      size: input.size,
+      sha256: base64(hash),
+    }),
+  });
+  if (ticket.url.startsWith('memory://')) {
+    throw new Error('This development node uses an in-memory blob adapter that is not uploadable from a device.');
+  }
+  const uploadUrl = new URL(ticket.url, `${baseUrl.replace(/\/+$/, '')}/`).toString();
+  const upload = await FileSystem.uploadAsync(uploadUrl, input.uri, {
+    httpMethod: 'PUT',
+    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+    headers: { ...ticket.headers },
+  });
+  if (upload.status < 200 || upload.status >= 300) {
+    throw new Error(`Attachment upload failed with HTTP ${upload.status}.`);
+  }
+  await forumSessionRequest(baseUrl, '/v1/attachments/confirm', {
+    method: 'POST',
+    body: JSON.stringify({
+      key: ticket.key,
+      mime: input.mime,
+      size: input.size,
+      sha256: base64(hash),
+    }),
+  });
+  return claimForumAttachment(
+    baseUrl,
+    {
+      storage_key: ticket.key,
+      content_sha256: hash,
+      mime: input.mime,
+      size_bytes: BigInt(input.size),
+      width: 0,
+      height: 0,
+      duration_ms: 0,
+      alt_text: input.altText.trim(),
+    },
+    audit,
+  );
+}
+
+export const sendForumMessage = (baseUrl: string, input: ForumMessageSend, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:message:forum:v1', body: ForumMessageSend.encode(ForumMessageSend.fromPartial(input)).finish() }, audit);
+
+export async function sendEncryptedForumMessage(
+  baseUrl: string,
+  input: {
+    readonly recipientKeyHex: string;
+    readonly recipientX25519Base64: string;
+    readonly recipientKemBase64: string;
+    readonly plaintext: string;
+    readonly thread: string;
+    readonly ratchetIndex?: number;
+  },
+  audit: readonly DiscoveredService[] = [],
+): Promise<PublishedAction> {
+  if (!activeSigner) throw new Error('Unlock your Forum identity first');
+  if (!/^[0-9a-f]{64}$/i.test(input.recipientKeyHex)) {
+    throw new Error('Recipient Forum key must be 64 hexadecimal characters.');
+  }
+  const ratchetIndex = input.ratchetIndex ?? 0;
+  const encrypted = await activeSigner.sealMessage(
+    {
+      x25519: unbase64(input.recipientX25519Base64),
+      mlKem768: unbase64(input.recipientKemBase64),
+    },
+    text.encode(input.plaintext),
+    input.thread,
+    ratchetIndex,
+  );
+  return sendForumMessage(
+    baseUrl,
+    {
+      recipient_key: Uint8Array.from(
+        input.recipientKeyHex.match(/.{2}/g)?.map((pair) => Number.parseInt(pair, 16)) ?? [],
+      ),
+      kem_ciphertext: encrypted.kemCiphertext,
+      ephemeral_x25519: encrypted.ephemeralX25519,
+      ciphertext: encrypted.ciphertext,
+      thread: input.thread,
+      ratchet_index: ratchetIndex,
+    },
+    audit,
+  );
+}
+
+export async function forumMessagingBundle(): Promise<{
+  readonly x25519: string;
+  readonly mlKem768: string;
+}> {
+  if (!activeSigner) throw new Error('Unlock your Forum identity first');
+  const keys = await activeSigner.messagingPublicKey();
+  return {
+    x25519: base64(keys.x25519),
+    mlKem768: base64(keys.mlKem768),
+  };
+}
+
+interface ForumMessageDocument {
+  readonly id: string;
+  readonly senderKey: string;
+  readonly recipientKey: string;
+  readonly ciphertext: string;
+  readonly kemCiphertext: string;
+  readonly ephemeralX25519: string;
+  readonly thread: string;
+  readonly ratchetIndex: number;
+  readonly createdAtMs: number;
+}
+
+export interface DecryptedForumMessage extends ForumMessageDocument {
+  readonly plaintext: string | null;
+}
+
+export async function loadDecryptedForumMessages(
+  baseUrl: string,
+  identityKeyHex: string,
+): Promise<readonly DecryptedForumMessage[]> {
+  if (!activeSigner) throw new Error('Unlock your Forum identity first');
+  const response = await forumSessionRequest<{ readonly items: readonly ForumMessageDocument[] }>(
+    baseUrl,
+    '/v1/me/messages?limit=100',
+  );
+  return Promise.all(
+    response.items.map(async (message) => {
+      if (message.recipientKey.toLowerCase() !== identityKeyHex.toLowerCase()) {
+        return { ...message, plaintext: null };
+      }
+      try {
+        const opened = await activeSigner!.openMessage(
+          {
+            kemCiphertext: unbase64(message.kemCiphertext),
+            ephemeralX25519: unbase64(message.ephemeralX25519),
+            ciphertext: unbase64(message.ciphertext),
+          },
+          message.thread,
+          message.ratchetIndex,
+        );
+        return { ...message, plaintext: new TextDecoder().decode(opened) };
+      } catch {
+        return { ...message, plaintext: null };
+      }
+    }),
+  );
+}
+
+export const emitForumLabel = (baseUrl: string, communityId: string, input: Label, audit: readonly DiscoveredService[] = []) =>
+  publishForumAction(baseUrl, { domain: 'jb:label:emit:v1', scope: communityId, parent: input.target, body: Label.encode(Label.fromPartial(input)).finish() }, audit);
+
+export async function revokeForumKey(baseUrl: string, audit: readonly DiscoveredService[] = []): Promise<PublishedAction> {
+  if (!activeSigner) throw new Error('Unlock your Forum identity first');
+  return publishForumAction(baseUrl, { domain: 'jb:key:revoke:forum:v1', body: await activeSigner.prepareDuressRevocation() }, audit);
 }
 
 export async function publishForumVote(

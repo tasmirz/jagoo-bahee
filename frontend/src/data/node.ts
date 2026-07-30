@@ -9,8 +9,23 @@ export interface FeedPost {
   readonly authorKey: string;
   readonly community: string;
   readonly title: string;
+  readonly kind: number;
   readonly bodyMarkdown: string | null;
+  readonly url: string;
   readonly attachments: readonly string[];
+  readonly flair: string;
+  readonly poll: {
+    readonly question: string;
+    readonly options: readonly string[];
+    readonly multiple: boolean;
+    readonly closesAtMs: number;
+  } | null;
+  readonly crosspostOf: string;
+  readonly flags: {
+    readonly nsfw: boolean;
+    readonly spoiler: boolean;
+    readonly oc: boolean;
+  };
   readonly createdAtMs: number;
   readonly score: number;
   readonly commentCount: number;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ComponentProps } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -11,7 +11,9 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import * as DocumentPicker from 'expo-document-picker';
 import { verifyAuditCertificate } from '@jagoo/sdk';
+import { PostKind, ReportReason, TargetKind } from '@jagoo/sdk/proto';
 import { featureDestinations, type FeatureDestination } from '../catalog';
 import {
   useNodeCommunities,
@@ -28,10 +30,17 @@ import {
   importForumIdentity,
   lockForumIdentity,
   publishForumComment,
+  createForumReport,
+  deleteForumComment,
+  giveForumAward,
   publishForumPost,
+  setForumSaved,
+  updateForumComment,
   publishForumVote,
   registerForumIdentity,
+  revokeForumKey,
   unlockForumIdentity,
+  uploadAndClaimForumAttachment,
   type ForumSessionSummary,
 } from '../../signer';
 import type { AppPalette, ThemeMode } from '../../theme';
@@ -54,6 +63,7 @@ import {
 import { certificateStatus, listAuditCertificates, type StoredAuditCertificate } from '../../audit';
 import { sealStateFor } from '../../verify';
 import { useDebouncedValue } from '../../hooks/use-debounced-value';
+import type { Locale } from '../../i18n';
 import {
   FeatureWorkspace,
   MessagingWorkspace,
@@ -162,6 +172,45 @@ function PostCard({
           <Seal colors={colors} state={seal} />
         </View>
         <Text style={[typography.h1, { color: colors.text }]}>{title}</Text>
+        {post.flair || post.flags.nsfw || post.flags.spoiler || post.flags.oc ? (
+          <View style={styles.composeKinds}>
+            {post.flair ? <Pill colors={colors} label={post.flair} /> : null}
+            {post.flags.nsfw ? <Pill colors={colors} label="Mature" /> : null}
+            {post.flags.spoiler ? <Pill colors={colors} label="Spoiler" /> : null}
+            {post.flags.oc ? <Pill colors={colors} label="Original" /> : null}
+          </View>
+        ) : null}
+        {post.url ? (
+          <Text numberOfLines={2} selectable style={[typography.body, { color: colors.link }]}>
+            {post.url}
+          </Text>
+        ) : null}
+        {post.poll ? (
+          <View style={[styles.contextForm, { backgroundColor: colors.surface2 }]}>
+            <Text style={[typography.label, { color: colors.text }]}>{post.poll.question}</Text>
+            {post.poll.options.map((option) => (
+              <View key={option} style={[styles.pollOption, { borderColor: colors.border }]}>
+                <Text style={[typography.body, { color: colors.text }]}>{option}</Text>
+              </View>
+            ))}
+            <Text style={[typography.caption, { color: colors.text2 }]}>
+              Closes {new Date(post.poll.closesAtMs).toLocaleString()}
+            </Text>
+          </View>
+        ) : null}
+        {post.crosspostOf ? (
+          <Text style={[typography.caption, { color: colors.text2 }]}>
+            Crosspost of {post.crosspostOf.slice(0, 20)}…
+          </Text>
+        ) : null}
+        {post.attachments.length > 0 ? (
+          <View style={styles.attachmentRow}>
+            <Ionicons color={colors.text2} name="attach-outline" size={18} />
+            <Text style={[typography.caption, { color: colors.text2 }]}>
+              {post.attachments.length} signed attachment{post.attachments.length === 1 ? '' : 's'}
+            </Text>
+          </View>
+        ) : null}
         <Text numberOfLines={compact ? 2 : 3} style={[typography.body, { color: colors.text2 }]}>
           {body}
         </Text>
@@ -317,19 +366,33 @@ export function PostDetailScreen({
   contentId,
   onBack,
   onAudit,
+  onEdit,
+  onOpenIdentity,
   onOpenNetwork,
 }: CommonProps & {
   readonly homeNode: HomeNode;
   readonly contentId: string;
   readonly onBack: () => void;
   readonly onAudit: () => void;
+  readonly onEdit: () => void;
+  readonly onOpenIdentity: (keyId: string) => void;
 }) {
   const baseUrl = homeNode.baseUrl;
   const post = useNodePost(baseUrl, contentId);
   const comments = useNodeComments(baseUrl, contentId);
   const [reply, setReply] = useState('');
+  const [replyParent, setReplyParent] = useState('');
+  const [collapsedComments, setCollapsedComments] = useState<readonly string[]>([]);
   const [replying, setReplying] = useState(false);
   const [replyNotice, setReplyNotice] = useState('');
+  const [saved, setSaved] = useState(false);
+  const [saveNotice, setSaveNotice] = useState('');
+  const [postAction, setPostAction] = useState<'none' | 'report' | 'award'>('none');
+  const [actionDetail, setActionDetail] = useState('');
+  const [awardType, setAwardType] = useState('');
+  const [actionBusy, setActionBusy] = useState(false);
+  const [commentAction, setCommentAction] = useState<{ readonly id: string; readonly kind: 'edit' | 'delete' } | null>(null);
+  const [commentActionText, setCommentActionText] = useState('');
   const item = post.data?.value;
   const rows = comments.data?.value.items ?? [];
   return (
@@ -341,6 +404,7 @@ export function PostDetailScreen({
       </View>
       <ContentColumn>
         {item ? (
+          <>
           <PostCard
             colors={colors}
             onPress={onAudit}
@@ -359,6 +423,66 @@ export function PostDetailScreen({
             }}
             post={item}
           />
+          <View style={styles.postContextActions}>
+            <Button
+              colors={colors}
+              icon="person-outline"
+              label="View author profile"
+              onPress={() => onOpenIdentity(item.authorKey)}
+              variant="ghost"
+            />
+            <View style={styles.inlineActions}>
+              <Button
+                colors={colors}
+                icon={saved ? 'bookmark' : 'bookmark-outline'}
+                label={saved ? 'Unsave' : 'Save'}
+                onPress={() => {
+                  void setForumSaved(
+                    homeNode.baseUrl,
+                    { target: item.contentId, targetKind: 'post', save: !saved },
+                    homeNode.discovery.services.auditLogs,
+                  )
+                    .then(() => {
+                      setSaved((value) => !value);
+                      setSaveNotice(!saved ? 'Saved on this identity.' : 'Removed from saved content.');
+                    })
+                    .catch((error: Error) => setSaveNotice(error.message));
+                }}
+                variant="secondary"
+              />
+              <Button colors={colors} label="Award" onPress={() => setPostAction(postAction === 'award' ? 'none' : 'award')} variant="ghost" />
+              <Button colors={colors} label="Report" onPress={() => setPostAction(postAction === 'report' ? 'none' : 'report')} variant="ghost" />
+            </View>
+            {postAction === 'award' ? (
+              <View style={styles.contextForm}>
+                <Text style={[typography.label, { color: colors.text }]}>Give an award</Text>
+                <TextInput accessibilityLabel="Award type" onChangeText={setAwardType} placeholder="Award slug" placeholderTextColor={colors.text3} style={[styles.input, typography.body, { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text }]} value={awardType} />
+                <TextInput accessibilityLabel="Award message" onChangeText={setActionDetail} placeholder="Optional private note" placeholderTextColor={colors.text3} style={[styles.input, typography.body, { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text }]} value={actionDetail} />
+                <Button colors={colors} disabled={actionBusy || !awardType.trim()} label={actionBusy ? 'Signing award…' : 'Send award'} onPress={() => {
+                  setActionBusy(true);
+                  void giveForumAward(homeNode.baseUrl, item.community, { target: item.contentId, target_kind: TargetKind.TARGET_KIND_POST, award_type: awardType, anonymous: true, message: actionDetail }, homeNode.discovery.services.auditLogs)
+                    .then(() => { setSaveNotice('Award signed and queued.'); setPostAction('none'); })
+                    .catch((error: Error) => setSaveNotice(error.message))
+                    .finally(() => setActionBusy(false));
+                }} />
+              </View>
+            ) : null}
+            {postAction === 'report' ? (
+              <View style={styles.contextForm}>
+                <Text style={[typography.label, { color: colors.text }]}>Report this post</Text>
+                <TextInput accessibilityLabel="Report details" multiline onChangeText={setActionDetail} placeholder="What should moderators review?" placeholderTextColor={colors.text3} style={[styles.input, styles.replyInput, typography.body, { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text }]} value={actionDetail} />
+                <Button colors={colors} disabled={actionBusy || !actionDetail.trim()} label={actionBusy ? 'Signing report…' : 'Submit report'} onPress={() => {
+                  setActionBusy(true);
+                  void createForumReport(homeNode.baseUrl, item.community, { target: item.contentId, target_kind: TargetKind.TARGET_KIND_POST, reason: ReportReason.REPORT_REASON_OTHER, detail: actionDetail }, homeNode.discovery.services.auditLogs)
+                    .then(() => { setSaveNotice('Report signed and queued for moderators.'); setPostAction('none'); })
+                    .catch((error: Error) => setSaveNotice(error.message))
+                    .finally(() => setActionBusy(false));
+                }} />
+              </View>
+            ) : null}
+            {saveNotice ? <Text accessibilityLiveRegion="polite" style={[typography.caption, { color: colors.text2 }]}>{saveNotice}</Text> : null}
+          </View>
+          </>
         ) : post.isError ? (
           <StatusBanner
             body="The node could not return this post. Its acknowledgement may still be in your proof vault."
@@ -371,12 +495,17 @@ export function PostDetailScreen({
         <SectionHeader
           colors={colors}
           title="Top comments"
-          action="Audit proof"
-          onAction={onAudit}
+          action="Edit post"
+          onAction={onEdit}
         />
         {item ? (
           <View style={styles.replyComposer}>
-            <Text style={[typography.label, { color: colors.text }]}>Write a signed reply</Text>
+            <View style={styles.inlineActions}>
+              <Text style={[typography.label, styles.flex, { color: colors.text }]}>
+                {replyParent ? 'Reply to this comment' : 'Write a signed reply'}
+              </Text>
+              {replyParent ? <Button colors={colors} label="Cancel reply" onPress={() => setReplyParent('')} variant="ghost" /> : null}
+            </View>
             <TextInput
               accessibilityLabel="Reply"
               maxLength={10_000}
@@ -394,7 +523,7 @@ export function PostDetailScreen({
             />
             <Button
               colors={colors}
-              disabled={!reply.trim() || replying || reach !== 'connected'}
+              disabled={!reply.trim() || replying}
               icon="send-outline"
               label={replying ? 'Signing reply…' : 'Publish reply'}
               onPress={() => {
@@ -405,12 +534,14 @@ export function PostDetailScreen({
                   {
                     bodyMarkdown: reply,
                     communityId: item.community,
+                    parentComment: replyParent || undefined,
                     postId: item.contentId,
                   },
                   homeNode.discovery.services.auditLogs,
                 )
                   .then(async () => {
                     setReply('');
+                    setReplyParent('');
                     setReplyNotice('Reply acknowledged, saved, and forwarded to audit services.');
                     await comments.refetch();
                   })
@@ -442,15 +573,69 @@ export function PostDetailScreen({
               </Text>
               <Seal colors={colors} state={sealStateFor(comment.provenance)} />
             </View>
-            <Text style={[typography.body, { color: colors.text }]}>
-              {comment.bodyMarkdown ?? 'Hidden with a public tombstone.'}
-            </Text>
-            <View accessibilityLabel={`Comment score ${comment.score}`} style={styles.inlineActions}>
-              <Ionicons name="arrow-up-outline" size={16} color={colors.text2} />
-              <Text style={[typography.caption, { color: colors.text2 }]}>
-                {comment.score} points
-              </Text>
+            <View style={styles.inlineActions}>
+              <Button colors={colors} label="Reply" onPress={() => {
+                setReplyParent(comment.contentId);
+                setReply('');
+              }} variant="ghost" />
+              <Button colors={colors} label={collapsedComments.includes(comment.contentId) ? 'Expand' : 'Collapse'} onPress={() => setCollapsedComments((items) => items.includes(comment.contentId) ? items.filter((id) => id !== comment.contentId) : [...items, comment.contentId])} variant="ghost" />
             </View>
+            {!collapsedComments.includes(comment.contentId) ? <Text style={[typography.body, { color: colors.text }]}>
+              {comment.bodyMarkdown ?? 'Hidden with a public tombstone.'}
+            </Text> : <Text style={[typography.caption, { color: colors.text2 }]}>Comment collapsed on this device.</Text>}
+            {!collapsedComments.includes(comment.contentId) ? <VoteControl
+              colors={colors}
+              score={comment.score}
+              onVote={async (value) => {
+                await publishForumVote(
+                  homeNode.baseUrl,
+                  {
+                    communityId: item?.community ?? '',
+                    target: comment.contentId,
+                    targetKind: 'comment',
+                    value,
+                  },
+                  homeNode.discovery.services.auditLogs,
+                );
+                await comments.refetch();
+              }}
+            /> : null}
+            {!collapsedComments.includes(comment.contentId) ? <View style={styles.inlineActions}>
+              <Button colors={colors} label="Edit" onPress={() => { setCommentAction({ id: comment.contentId, kind: 'edit' }); setCommentActionText(comment.bodyMarkdown ?? ''); }} variant="ghost" />
+              <Button colors={colors} label="Delete" onPress={() => { setCommentAction({ id: comment.contentId, kind: 'delete' }); setCommentActionText(''); }} variant="ghost" />
+            </View> : null}
+            {commentAction?.id === comment.contentId ? (
+              <View style={styles.contextForm}>
+                <TextInput
+                  accessibilityLabel={commentAction.kind === 'edit' ? 'Edited comment' : 'Comment deletion reason'}
+                  multiline
+                  onChangeText={setCommentActionText}
+                  placeholder={commentAction.kind === 'edit' ? 'Update your comment' : 'Reason shown on the tombstone'}
+                  placeholderTextColor={colors.text3}
+                  style={[styles.input, styles.replyInput, typography.body, { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text }]}
+                  value={commentActionText}
+                />
+                <View style={styles.inlineActions}>
+                  <Button colors={colors} label="Cancel" onPress={() => setCommentAction(null)} variant="ghost" />
+                  <Button
+                    colors={colors}
+                    disabled={actionBusy || !commentActionText.trim()}
+                    label={actionBusy ? 'Signing…' : commentAction.kind === 'edit' ? 'Save comment' : 'Delete comment'}
+                    onPress={() => {
+                      setActionBusy(true);
+                      const operation = commentAction.kind === 'edit'
+                        ? updateForumComment(homeNode.baseUrl, { communityId: item?.community ?? '', target: comment.contentId, body_markdown: commentActionText }, homeNode.discovery.services.auditLogs)
+                        : deleteForumComment(homeNode.baseUrl, { communityId: item?.community ?? '', target: comment.contentId, reason: commentActionText }, homeNode.discovery.services.auditLogs);
+                      void operation
+                        .then(async () => { setCommentAction(null); await comments.refetch(); })
+                        .catch((error: Error) => setReplyNotice(error.message))
+                        .finally(() => setActionBusy(false));
+                    }}
+                    variant={commentAction.kind === 'delete' ? 'destructive' : 'primary'}
+                  />
+                </View>
+              </View>
+            ) : null}
           </View>
         ))}
         {!comments.isLoading && rows.length === 0 ? (
@@ -616,11 +801,11 @@ export function CommunitiesScreen({
   reach,
   baseUrl,
   onOpenNetwork,
-  onOpenFeature,
+  onOpenCreate,
   onOpenCommunity,
 }: CommonProps & {
   readonly baseUrl: string;
-  readonly onOpenFeature: (feature: FeatureDestination) => void;
+  readonly onOpenCreate: () => void;
   readonly onOpenCommunity: (communityId: string) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -645,8 +830,8 @@ export function CommunitiesScreen({
         <SectionHeader
           colors={colors}
           title="Discover"
-          action="Manage"
-          onAction={() => onOpenFeature(featureDestinations[2]!)}
+          action="Create"
+          onAction={onOpenCreate}
         />
         {items.map((community) => (
           <PressScale
@@ -675,7 +860,7 @@ export function CommunitiesScreen({
         ))}
         {!communities.isLoading && items.length === 0 ? (
           <EmptyState
-            action="Manage communities"
+            action="Create community"
             body={
               query
                 ? 'No communities on this node match that search.'
@@ -683,7 +868,7 @@ export function CommunitiesScreen({
             }
             colors={colors}
             icon="people-outline"
-            onAction={() => onOpenFeature(featureDestinations[2]!)}
+            onAction={onOpenCreate}
             title={query ? 'Nothing found' : 'Build the first community'}
           />
         ) : null}
@@ -700,7 +885,18 @@ export function ComposeScreen({
 }: CommonProps & { readonly homeNode: HomeNode }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  const [kind, setKind] = useState(PostKind.POST_KIND_TEXT);
+  const [url, setUrl] = useState('');
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState('');
+  const [crosspostOf, setCrosspostOf] = useState('');
+  const [flair, setFlair] = useState('');
+  const [attachmentIds, setAttachmentIds] = useState('');
+  const [altText, setAltText] = useState('');
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [spoiler, setSpoiler] = useState(false);
+  const [nsfw, setNsfw] = useState(false);
+  const [originalContent, setOriginalContent] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<{
     readonly tone: 'verified' | 'danger';
@@ -708,7 +904,10 @@ export function ComposeScreen({
     readonly body: string;
   } | null>(null);
   const communities = useNodeCommunities(homeNode.baseUrl, '');
-  const publishingCommunity = communities.data?.value.items[0] ?? null;
+  const [communityId, setCommunityId] = useState('');
+  const communityItems = communities.data?.value.items ?? [];
+  const publishingCommunity =
+    communityItems.find((item) => item.id === communityId) ?? communityItems[0] ?? null;
 
   const publish = async () => {
     setPublishing(true);
@@ -719,12 +918,32 @@ export function ComposeScreen({
         {
           title: title.trim(),
           bodyMarkdown: body.trim(),
+          kind,
+          url: url.trim(),
+          attachments: attachmentIds.split(/[\s,]+/).filter(Boolean),
+          poll:
+            kind === PostKind.POST_KIND_POLL
+              ? {
+                  question: pollQuestion.trim(),
+                  options: pollOptions.split('\n').map((item) => item.trim()).filter(Boolean),
+                  multiple: false,
+                  closesAtMs: BigInt(Date.now() + 7 * 24 * 60 * 60 * 1000),
+                }
+              : undefined,
+          crosspostOf: kind === PostKind.POST_KIND_CROSSPOST ? crosspostOf.trim() : '',
+          flair: flair.trim(),
+          flags: { nsfw, spoiler, oc: originalContent },
           ...(publishingCommunity ? { communityId: publishingCommunity.id } : {}),
         },
         homeNode.discovery.services.auditLogs,
       );
       setTitle('');
       setBody('');
+      setUrl('');
+      setPollQuestion('');
+      setPollOptions('');
+      setCrosspostOf('');
+      setAttachmentIds('');
       setPublishResult({
         tone: 'verified',
         title: receipt.pending ? 'Signed and queued on this device' : 'Published with durable proof',
@@ -745,20 +964,77 @@ export function ComposeScreen({
       setPublishing(false);
     }
   };
+  const attach = async () => {
+    setAttachmentBusy(true);
+    setPublishResult(null);
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        type: kind === PostKind.POST_KIND_VIDEO ? 'video/*' : 'image/*',
+      });
+      if (picked.canceled) return;
+      const asset = picked.assets[0]!;
+      if (!asset.size) throw new Error('The selected file size is unavailable.');
+      const result = await uploadAndClaimForumAttachment(
+        homeNode.baseUrl,
+        {
+          uri: asset.uri,
+          mime: asset.mimeType ?? 'application/octet-stream',
+          size: asset.size,
+          altText,
+        },
+        homeNode.discovery.services.auditLogs,
+      );
+      setAttachmentIds((value) => [value.trim(), result.contentId].filter(Boolean).join('\n'));
+      setPublishResult({
+        tone: 'verified',
+        title: 'Attachment claim signed',
+        body: `${result.contentId.slice(0, 18)}… is ready to include in this post.`,
+      });
+    } catch (error) {
+      setPublishResult({
+        tone: 'danger',
+        title: 'Attachment was not added',
+        body: error instanceof Error ? error.message : 'Attachment upload failed.',
+      });
+    } finally {
+      setAttachmentBusy(false);
+    }
+  };
   return (
     <Screen colors={colors}>
       <AppHeader colors={colors} reach={reach} onReach={onOpenNetwork} title="Create" />
       <ContentColumn>
         <View style={styles.compose}>
           <Text style={[typography.overline, { color: colors.text2 }]}>Community</Text>
-          <View style={[styles.selector, { backgroundColor: colors.surface2 }]}>
-            <Text style={[typography.label, { color: colors.text }]}>
-              {publishingCommunity ? `r/${publishingCommunity.name}` : 'No community available'}
-            </Text>
-            <Ionicons name="people-outline" size={18} color={colors.text2} />
+          <View style={styles.composeKinds}>
+            {communityItems.map((community) => (
+              <Pill
+                colors={colors}
+                key={community.id}
+                label={`r/${community.name}`}
+                onPress={() => setCommunityId(community.id)}
+                selected={publishingCommunity?.id === community.id}
+              />
+            ))}
           </View>
           <View style={styles.composeKinds}>
-            <Pill colors={colors} label="Signed text post" selected />
+            {([
+              ['Text', PostKind.POST_KIND_TEXT],
+              ['Link', PostKind.POST_KIND_LINK],
+              ['Image', PostKind.POST_KIND_IMAGE],
+              ['Video', PostKind.POST_KIND_VIDEO],
+              ['Poll', PostKind.POST_KIND_POLL],
+              ['Crosspost', PostKind.POST_KIND_CROSSPOST],
+            ] as const).map(([label, value]) => (
+              <Pill
+                colors={colors}
+                key={label}
+                label={label}
+                onPress={() => setKind(value)}
+                selected={kind === value}
+              />
+            ))}
           </View>
           <Text style={[typography.label, { color: colors.text }]}>Title</Text>
           <TextInput
@@ -777,6 +1053,43 @@ export function ComposeScreen({
           <Text style={[typography.caption, { color: colors.text2, textAlign: 'right' }]}>
             {title.length}/300
           </Text>
+          {kind === PostKind.POST_KIND_LINK ? (
+            <>
+              <Text style={[typography.label, { color: colors.text }]}>Link URL</Text>
+              <TextInput accessibilityLabel="Link URL" autoCapitalize="none" keyboardType="url" onChangeText={setUrl} placeholder="https://…" placeholderTextColor={colors.text3} style={[styles.input, typography.body, { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text }]} value={url} />
+            </>
+          ) : null}
+          {kind === PostKind.POST_KIND_POLL ? (
+            <>
+              <Text style={[typography.label, { color: colors.text }]}>Poll question</Text>
+              <TextInput accessibilityLabel="Poll question" onChangeText={setPollQuestion} placeholder="Ask one clear question" placeholderTextColor={colors.text3} style={[styles.input, typography.body, { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text }]} value={pollQuestion} />
+              <Text style={[typography.label, { color: colors.text }]}>Options</Text>
+              <TextInput accessibilityLabel="Poll options" multiline onChangeText={setPollOptions} placeholder={'One option per line\nAt least two options'} placeholderTextColor={colors.text3} style={[styles.input, styles.textarea, typography.body, { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text }]} value={pollOptions} />
+            </>
+          ) : null}
+          {kind === PostKind.POST_KIND_CROSSPOST ? (
+            <>
+              <Text style={[typography.label, { color: colors.text }]}>Original post ID</Text>
+              <TextInput accessibilityLabel="Original post ID" autoCapitalize="none" onChangeText={setCrosspostOf} placeholder="jb1…" placeholderTextColor={colors.text3} style={[styles.input, typography.mono, { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text }]} value={crosspostOf} />
+            </>
+          ) : null}
+          {kind === PostKind.POST_KIND_IMAGE || kind === PostKind.POST_KIND_VIDEO ? (
+            <>
+              <Text style={[typography.label, { color: colors.text }]}>Accessible description</Text>
+              <TextInput accessibilityLabel="Attachment alternative text" multiline onChangeText={setAltText} placeholder="Describe what is visible or audible" placeholderTextColor={colors.text3} style={[styles.input, styles.textarea, typography.body, { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text }]} value={altText} />
+              <Button
+                colors={colors}
+                disabled={attachmentBusy || reach !== 'connected' || !altText.trim()}
+                icon="attach-outline"
+                label={attachmentBusy ? 'Uploading and signing…' : `Choose ${kind === PostKind.POST_KIND_VIDEO ? 'video' : 'image'}`}
+                onPress={() => void attach()}
+                variant="secondary"
+              />
+              <Text style={[typography.label, { color: colors.text }]}>Signed attachment claim IDs</Text>
+              <TextInput accessibilityLabel="Attachment claim IDs" multiline onChangeText={setAttachmentIds} placeholder="Paste one or more jb1… attachment claim IDs" placeholderTextColor={colors.text3} style={[styles.input, styles.textarea, typography.mono, { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text }]} value={attachmentIds} />
+              <Text style={[typography.caption, { color: colors.text2 }]}>Only content-addressed attachment claims are accepted; raw device paths are never published.</Text>
+            </>
+          ) : null}
           <Text style={[typography.label, { color: colors.text }]}>Body</Text>
           <TextInput
             accessibilityLabel="Post body"
@@ -799,6 +1112,8 @@ export function ComposeScreen({
               Markdown is preserved inside the signed request.
             </Text>
           </View>
+          <Text style={[typography.label, { color: colors.text }]}>Flair</Text>
+          <TextInput accessibilityLabel="Post flair" onChangeText={setFlair} placeholder="Optional community flair" placeholderTextColor={colors.text3} style={[styles.input, typography.body, { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text }]} value={flair} />
           <View style={styles.settingRow}>
             <View style={styles.flex}>
               <Text style={[typography.label, { color: colors.text }]}>Spoiler</Text>
@@ -813,13 +1128,21 @@ export function ComposeScreen({
               value={spoiler}
             />
           </View>
+          <View style={styles.settingRow}>
+            <View style={styles.flex}><Text style={[typography.label, { color: colors.text }]}>Mature content</Text><Text style={[typography.caption, { color: colors.text2 }]}>Respect each reader's blur preference</Text></View>
+            <Switch accessibilityLabel="Mark as mature content" onValueChange={setNsfw} trackColor={{ false: colors.surface2, true: colors.ember }} value={nsfw} />
+          </View>
+          <View style={styles.settingRow}>
+            <View style={styles.flex}><Text style={[typography.label, { color: colors.text }]}>Original content</Text><Text style={[typography.caption, { color: colors.text2 }]}>Mark work you created yourself</Text></View>
+            <Switch accessibilityLabel="Mark as original content" onValueChange={setOriginalContent} trackColor={{ false: colors.surface2, true: colors.ember }} value={originalContent} />
+          </View>
           {reach !== 'connected' ? (
             <StatusBanner
               colors={colors}
               icon="time-outline"
-              title="Publishing is unavailable on this path"
-              body="Your draft stays on this screen. Durable background outbox delivery arrives in P5."
-              tone="warning"
+              title="This post will enter the outbox"
+              body="A final content ID is assigned immediately. Jagoo will retry the signed envelope when a server, mesh peer, or carried pack becomes available."
+              tone="neutral"
             />
           ) : null}
           {publishResult ? (
@@ -838,7 +1161,15 @@ export function ComposeScreen({
           <Button
             colors={colors}
             disabled={
-              !title.trim() || !publishingCommunity || reach !== 'connected' || publishing
+              !title.trim() ||
+              !publishingCommunity ||
+              publishing ||
+              (kind === PostKind.POST_KIND_LINK && !url.trim()) ||
+              (kind === PostKind.POST_KIND_POLL &&
+                pollOptions.split('\n').filter((item) => item.trim()).length < 2) ||
+              (kind === PostKind.POST_KIND_CROSSPOST && !crosspostOf.startsWith('jb1')) ||
+              ((kind === PostKind.POST_KIND_IMAGE || kind === PostKind.POST_KIND_VIDEO) &&
+                !attachmentIds.trim())
             }
             label={publishing ? 'Signing and publishing…' : 'Publish signed post'}
             icon="send-outline"
@@ -910,24 +1241,30 @@ export function ProfileScreen({
   onOpenNetwork,
   themeMode,
   onThemeChange,
+  locale,
+  onLocaleChange,
   onOpenFeature,
 }: CommonProps & {
   readonly themeMode: ThemeMode;
   readonly onThemeChange: () => void;
+  readonly locale: Locale;
+  readonly onLocaleChange: () => void;
   readonly onOpenFeature: (feature: FeatureDestination) => void;
 }) {
   const [session, setSession] = useState<ForumSessionSummary | null>(null);
   useEffect(() => {
     void forumSessionSummary().then(setSession);
   }, []);
-  const grouped = useMemo(
-    () =>
-      featureDestinations.reduce<Record<string, FeatureDestination[]>>((result, feature) => {
-        (result[feature.area] ??= []).push(feature);
-        return result;
-      }, {}),
-    [],
-  );
+  const open = (id: string) => {
+    const feature = featureDestinations.find((item) => item.id === id);
+    if (feature) onOpenFeature(feature);
+  };
+  const rows: readonly { readonly id: string; readonly title: string; readonly body: string; readonly icon: ComponentProps<typeof Ionicons>['name'] }[] = [
+    { id: 'profile', title: 'Profile details', body: 'Display name, bio, public activity, follows and blocks.', icon: 'person-outline' },
+    { id: 'identity', title: 'Identity & security', body: 'Recovery, certificates, lock state and key revocation.', icon: 'key-outline' },
+    { id: 'notifications', title: 'Notifications', body: 'Replies, mentions, awards and community activity.', icon: 'notifications-outline' },
+    { id: 'posts', title: 'Posts & comments', body: 'Your published content, replies and discussion controls.', icon: 'document-text-outline' },
+  ];
   return (
     <Screen colors={colors}>
       <AppHeader colors={colors} reach={reach} onReach={onOpenNetwork} title="Profile" />
@@ -952,8 +1289,8 @@ export function ProfileScreen({
           <View style={styles.profileActions}>
             <Button
               colors={colors}
-              label="Profile details"
-              onPress={() => onOpenFeature(featureDestinations[1]!)}
+              label="Edit profile"
+              onPress={() => open('profile')}
               variant="secondary"
             />
             <IconButton
@@ -964,31 +1301,36 @@ export function ProfileScreen({
             />
           </View>
         </View>
-        {Object.entries(grouped).map(([area, features]) => (
-          <View key={area}>
-            <SectionHeader colors={colors} title={area} />
-            {features.map((feature) => (
-              <PressScale
-                key={feature.id}
-                label={`Open ${feature.title}`}
-                onPress={() => onOpenFeature(feature)}
-              >
-                <View style={[styles.featureRow, { borderBottomColor: colors.border }]}>
-                  <View style={[styles.featureIcon, { backgroundColor: colors.surface2 }]}>
-                    <Ionicons name={feature.icon} size={19} color={colors.ember} />
-                  </View>
-                  <View style={styles.flex}>
-                    <Text style={[typography.label, { color: colors.text }]}>{feature.title}</Text>
-                    <Text numberOfLines={2} style={[typography.caption, { color: colors.text2 }]}>
-                      {feature.description}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={18} color={colors.text2} />
-                </View>
-              </PressScale>
-            ))}
-          </View>
+        <SectionHeader colors={colors} title="Your space" />
+        {rows.map((row) => (
+          <PressScale key={row.id} label={`Open ${row.title}`} onPress={() => open(row.id)}>
+            <View style={[styles.featureRow, { borderBottomColor: colors.border }]}>
+              <View style={[styles.featureIcon, { backgroundColor: colors.surface2 }]}>
+                <Ionicons name={row.icon} size={19} color={colors.ember} />
+              </View>
+              <View style={styles.flex}>
+                <Text style={[typography.label, { color: colors.text }]}>{row.title}</Text>
+                <Text numberOfLines={2} style={[typography.caption, { color: colors.text2 }]}>{row.body}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.text2} />
+            </View>
+          </PressScale>
         ))}
+        <SectionHeader colors={colors} title="App" />
+        <PressScale label="Change app language" onPress={onLocaleChange}>
+          <View style={[styles.featureRow, { borderBottomColor: colors.border }]}>
+            <View style={[styles.featureIcon, { backgroundColor: colors.surface2 }]}><Ionicons name="language-outline" size={19} color={colors.ember} /></View>
+            <View style={styles.flex}><Text style={[typography.label, { color: colors.text }]}>Language</Text><Text style={[typography.caption, { color: colors.text2 }]}>{locale === 'bn' ? 'বাংলা' : 'English'} · tap to switch</Text></View>
+            <Ionicons name="swap-horizontal-outline" size={18} color={colors.text2} />
+          </View>
+        </PressScale>
+        <PressScale label="Open network and server settings" onPress={onOpenNetwork}>
+          <View style={[styles.featureRow, { borderBottomColor: colors.border }]}>
+            <View style={[styles.featureIcon, { backgroundColor: colors.surface2 }]}><Ionicons name="globe-outline" size={19} color={colors.ember} /></View>
+            <View style={styles.flex}><Text style={[typography.label, { color: colors.text }]}>Network & home server</Text><Text style={[typography.caption, { color: colors.text2 }]}>Reach, federation, mesh and the selected server.</Text></View>
+            <Ionicons name="chevron-forward" size={18} color={colors.text2} />
+          </View>
+        </PressScale>
       </ContentColumn>
     </Screen>
   );
@@ -1003,8 +1345,10 @@ function IdentityPanel({
 }) {
   const registrationUrl = homeNode.baseUrl;
   const [passphrase, setPassphrase] = useState('');
+  const [recoverySalt, setRecoverySalt] = useState('');
   const [importPhrase, setImportPhrase] = useState('');
   const [recoveryPhrase, setRecoveryPhrase] = useState('');
+  const [revokeConfirm, setRevokeConfirm] = useState('');
   const [summary, setSummary] = useState<ForumSessionSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{
@@ -1040,7 +1384,7 @@ function IdentityPanel({
     setBusy(true);
     setNotice(null);
     try {
-      const result = await createForumIdentity(passphrase);
+      const result = await createForumIdentity(passphrase || undefined, recoverySalt);
       setRecoveryPhrase(result.recoveryPhrase);
       await refresh();
       setNotice({
@@ -1087,11 +1431,24 @@ function IdentityPanel({
         ]}
         value={passphrase}
       />
+      <TextInput
+        accessibilityLabel="Recovery salt, if this identity uses one"
+        onChangeText={setRecoverySalt}
+        placeholder="Recovery salt (only if you chose one)"
+        placeholderTextColor={colors.text3}
+        secureTextEntry
+        style={[
+          styles.input,
+          typography.body,
+          { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text },
+        ]}
+        value={recoverySalt}
+      />
       {!summary?.configured ? (
         <>
           <Button
             colors={colors}
-            disabled={busy || passphrase.length < 8}
+            disabled={busy}
             label={busy ? 'Creating…' : 'Create new identity'}
             icon="key-outline"
             onPress={() => void create()}
@@ -1112,11 +1469,14 @@ function IdentityPanel({
           />
           <Button
             colors={colors}
-            disabled={busy || passphrase.length < 8 || !importPhrase.trim()}
+            disabled={busy || !importPhrase.trim()}
             label="Import recovery phrase"
             variant="secondary"
             onPress={() =>
-              void execute(() => importForumIdentity(importPhrase, passphrase), 'Identity imported')
+              void execute(
+                () => importForumIdentity(importPhrase, passphrase || undefined, recoverySalt),
+                'Identity imported',
+              )
             }
           />
         </>
@@ -1146,14 +1506,62 @@ function IdentityPanel({
               void refresh();
             }}
           />
+          <TextInput
+            accessibilityLabel='Type "REVOKE" to publish a Forum key revocation'
+            autoCapitalize="characters"
+            onChangeText={setRevokeConfirm}
+            placeholder='Type "REVOKE" to revoke this key'
+            placeholderTextColor={colors.text3}
+            style={[
+              styles.input,
+              typography.body,
+              { backgroundColor: colors.surface2, borderColor: colors.border, color: colors.text },
+            ]}
+            value={revokeConfirm}
+          />
+          <Button
+            colors={colors}
+            disabled={busy || revokeConfirm !== 'REVOKE'}
+            label="Publish Forum key revocation"
+            onPress={() => {
+              setBusy(true);
+              setNotice(null);
+              void revokeForumKey(
+                homeNode.baseUrl,
+                homeNode.discovery.services.auditLogs,
+              )
+                .then((result) => {
+                  setNotice({
+                    tone: 'verified',
+                    title: 'Revocation queued',
+                    body: result.contentId,
+                  });
+                  setRevokeConfirm('');
+                })
+                .catch((error: Error) =>
+                  setNotice({
+                    tone: 'danger',
+                    title: 'Revocation failed',
+                    body: error.message,
+                  }),
+                )
+                .finally(() => setBusy(false));
+            }}
+            variant="destructive"
+          />
         </>
       ) : (
         <Button
           colors={colors}
-          disabled={busy || passphrase.length < 8}
+          disabled={busy}
           label={busy ? 'Unlocking…' : 'Unlock identity'}
           icon="lock-open-outline"
-          onPress={() => void execute(() => unlockForumIdentity(passphrase), 'Identity unlocked')}
+          onPress={() =>
+            void execute(
+              () => unlockForumIdentity(passphrase || undefined, recoverySalt),
+              'Identity unlocked',
+            )
+          }
         />
       )}
       {recoveryPhrase ? (
@@ -1360,7 +1768,7 @@ const styles = StyleSheet.create({
   postActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   inlineActions: { flexDirection: 'row', alignItems: 'center' },
   vote: {
-    minHeight: 42,
+    minHeight: 44,
     borderRadius: radius.pill,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1383,6 +1791,8 @@ const styles = StyleSheet.create({
   },
   commentMeta: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.sm },
   replyComposer: { padding: spacing.md, gap: spacing.sm },
+  postContextActions: { paddingHorizontal: spacing.md, paddingBottom: spacing.sm, gap: spacing.xs },
+  contextForm: { gap: spacing.sm, paddingTop: spacing.sm },
   replyInput: { minHeight: 112, textAlignVertical: 'top' },
   auditHero: { padding: spacing.xl, alignItems: 'center', gap: spacing.sm },
   auditSeal: {
@@ -1437,6 +1847,13 @@ const styles = StyleSheet.create({
   input: { minHeight: 52, borderWidth: 1, borderRadius: radius.md, padding: spacing.sm },
   textarea: { minHeight: 170 },
   attachmentRow: { flexDirection: 'row', alignItems: 'center' },
+  pollOption: {
+    minHeight: 44,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    justifyContent: 'center',
+  },
   settingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.xs },
   inboxTabs: { flexDirection: 'row', paddingHorizontal: spacing.md },
   inboxTab: {

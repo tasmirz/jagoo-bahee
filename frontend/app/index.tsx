@@ -1,5 +1,5 @@
 import { Redirect } from 'expo-router';
-import { HomeServerSetupScreen } from '../src/features/connectivity';
+import { WelcomeFlow } from '../src/features/onboarding';
 import { useApp } from '../src/application/app-provider';
 import { AppLoading, AppScene } from '../src/ui/scene';
 
@@ -9,7 +9,7 @@ export default function BootstrapRoute() {
   if (homeNode) return <Redirect href="/(tabs)" />;
   return (
     <AppScene colors={colors}>
-      <HomeServerSetupScreen colors={colors} onConnect={connectHomeNode} />
+      <WelcomeFlow colors={colors} onComplete={connectHomeNode} />
     </AppScene>
   );
 }

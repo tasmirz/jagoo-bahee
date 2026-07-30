@@ -1,4 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { DeliveryState, VouchLevel } from '@jagoo/sdk/proto';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -17,23 +18,37 @@ import { useNodeDocument, type NodePage } from '../../data/node';
 import type { HomeNode } from '../../data/node-config';
 import {
   authenticateSignalIdentity,
+  continueSignalSession,
+  createSecureSignalGroup,
   createSignalIdentity,
   declareSignalChannel,
+  importSignalIdentity,
   panicSignal,
   loadSignalInbox,
+  loadSignalMessages,
   publishMissingPerson,
   publishSignalBroadcast,
   publishSignalCheckIn,
   publishSignalPrekeys,
+  publishSignalDeliveryReceipt,
   publishSignalPushSubscription,
   publishSignalResource,
+  revokeSignalBroadcast,
+  revokeSignalKey,
   registerSignalIdentity,
+  retireSignalChannel,
+  rotateOwnedSignalChannel,
   signalSessionSummary,
+  signalSessionRequest,
   startSignalSession,
+  updateSecureSignalGroup,
+  updateOwnedSignalChannel,
+  vouchSignalChannel,
   unlockSignalIdentity,
   verifySignalQrFingerprint,
   type SignalSessionSummary,
   type DecryptedSignalSession,
+  type DecryptedSignalMessage,
 } from '../../signer/signal';
 import {
   acknowledgeSignalAlert,
@@ -103,6 +118,14 @@ interface SignalResource {
   readonly area: SignalArea | null;
   readonly detail: string;
   readonly reportedAtMs: number;
+}
+
+interface SignalGroupDocument {
+  readonly id: string;
+  readonly name: string;
+  readonly adminKey: string;
+  readonly memberKeys: readonly string[];
+  readonly updatedAtMs: number;
 }
 
 const severity = {
@@ -482,6 +505,13 @@ export function SignalChannelScreen({
   const [notice, setNotice] = useState('');
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const [lifecycleOpen, setLifecycleOpen] = useState(false);
+  const [trustBasis, setTrustBasis] = useState('');
+  const [retireNote, setRetireNote] = useState('');
+  const [channelName, setChannelName] = useState('');
+  const [channelDescription, setChannelDescription] = useState('');
+  const [rotationConfirm, setRotationConfirm] = useState('');
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const channel = channelQuery.data?.value;
   useEffect(() => {
     void loadSignalSubscriptions().then((items) =>
@@ -598,6 +628,108 @@ export function SignalChannelScreen({
             value={scannedFingerprint}
           />
           <Button colors={colors} label="Verify locally" onPress={() => void verify()} variant="secondary" system="signal" />
+          <SectionHeader colors={colors} title="Trust & lifecycle" action={lifecycleOpen ? 'Close' : 'Manage'} onAction={() => setLifecycleOpen((value) => !value)} />
+          {lifecycleOpen ? (
+            <View style={styles.lifecycle}>
+              <Text style={[typography.label, { color: colors.text }]}>Owned channel details</Text>
+              <Field colors={colors} label="Channel name" onChangeText={setChannelName} placeholder={channel.name} value={channelName} />
+              <Field colors={colors} label="Description" multiline onChangeText={setChannelDescription} placeholder={channel.description} value={channelDescription} />
+              <Button
+                colors={colors}
+                disabled={lifecycleBusy || (!channelName.trim() && !channelDescription.trim())}
+                label={lifecycleBusy ? 'Signing update…' : 'Update channel'}
+                onPress={() => {
+                  setLifecycleBusy(true);
+                  void updateOwnedSignalChannel(
+                    homeNode.baseUrl,
+                    {
+                      channel: channel.id,
+                      name: channelName.trim() || channel.name,
+                      description: channelDescription.trim() || channel.description,
+                      language: channel.language,
+                    },
+                    homeNode.discovery.services.auditLogs,
+                  )
+                    .then(async () => {
+                      setNotice('Channel update signed and queued.');
+                      setChannelName('');
+                      setChannelDescription('');
+                      await channelQuery.refetch();
+                    })
+                    .catch((error: Error) => setNotice(error.message))
+                    .finally(() => setLifecycleBusy(false));
+                }}
+                system="signal"
+                variant="secondary"
+              />
+              <Text style={[typography.label, { color: colors.text }]}>Vouch for this channel</Text>
+              <Field colors={colors} label="How do you know this channel?" multiline onChangeText={setTrustBasis} value={trustBasis} />
+              <Button
+                colors={colors}
+                disabled={lifecycleBusy || !trustBasis.trim()}
+                label={lifecycleBusy ? 'Signing trust statement…' : 'Publish vouch'}
+                onPress={() => {
+                  setLifecycleBusy(true);
+                  void vouchSignalChannel(
+                    homeNode.baseUrl,
+                    { channel: channel.id, level: VouchLevel.VOUCH_LEVEL_KNOWN, basis: trustBasis, asserted_at_ms: BigInt(Date.now()) },
+                    homeNode.discovery.services.auditLogs,
+                  )
+                    .then(() => setNotice('Vouch signed and queued. Trust remains evidence, not a universal verification badge.'))
+                    .catch((error: Error) => setNotice(error.message))
+                    .finally(() => setLifecycleBusy(false));
+                }}
+                system="signal"
+                variant="secondary"
+              />
+              <Text style={[typography.label, { color: colors.text }]}>Rotate an owned channel key</Text>
+              <Text style={[typography.caption, { color: colors.text2 }]}>
+                Rotation is signed by the current channel key. Subscribers retain continuity while the vault adopts a fresh signing key.
+              </Text>
+              <Field colors={colors} label='Type "ROTATE" to confirm' onChangeText={setRotationConfirm} value={rotationConfirm} />
+              <Button
+                colors={colors}
+                disabled={lifecycleBusy || rotationConfirm !== 'ROTATE'}
+                label="Rotate channel keys"
+                onPress={() => {
+                  setLifecycleBusy(true);
+                  void rotateOwnedSignalChannel(
+                    homeNode.baseUrl,
+                    channel.id,
+                    homeNode.discovery.services.auditLogs,
+                  )
+                    .then(() => {
+                      setNotice('Key rotation signed and queued. The old channel ID remains the subscription anchor.');
+                      setRotationConfirm('');
+                    })
+                    .catch((error: Error) => setNotice(error.message))
+                    .finally(() => setLifecycleBusy(false));
+                }}
+                system="signal"
+                variant="secondary"
+              />
+              <Text style={[typography.label, { color: colors.blackout }]}>Retire an owned channel</Text>
+              <Field colors={colors} label="Retirement note" multiline onChangeText={setRetireNote} value={retireNote} />
+              <Button
+                colors={colors}
+                disabled={lifecycleBusy || !retireNote.trim()}
+                label="Retire channel"
+                onPress={() => {
+                  setLifecycleBusy(true);
+                  void retireSignalChannel(
+                    homeNode.baseUrl,
+                    { channel: channel.id, note: retireNote, successor_key: new Uint8Array() },
+                    homeNode.discovery.services.auditLogs,
+                  )
+                    .then(() => setNotice('Channel retirement signed and queued.'))
+                    .catch((error: Error) => setNotice(error.message))
+                    .finally(() => setLifecycleBusy(false));
+                }}
+                system="signal"
+                variant="destructive"
+              />
+            </View>
+          ) : null}
           {notice ? (
             <StatusBanner
               body={notice}
@@ -873,6 +1005,8 @@ export function SignalIdentityScreen({ colors, homeNode, reach, onNetwork }: Sig
   });
   const [passphrase, setPassphrase] = useState('');
   const [recovery, setRecovery] = useState('');
+  const [restorePhrase, setRestorePhrase] = useState('');
+  const [revokeConfirm, setRevokeConfirm] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const refresh = async () => setSummary(await signalSessionSummary());
@@ -934,6 +1068,31 @@ export function SignalIdentityScreen({ colors, homeNode, reach, onNetwork }: Sig
           system="signal"
         />
       </View>
+      {!summary.configured ? (
+        <>
+          <SectionHeader colors={colors} title="Returning Signal user" />
+          <Field
+            colors={colors}
+            label="Signal recovery phrase"
+            multiline
+            onChangeText={setRestorePhrase}
+            placeholder="Paste the 24 words stored when this Signal identity was created"
+            value={restorePhrase}
+          />
+          <Button
+            colors={colors}
+            disabled={
+              busy ||
+              passphrase.length < 8 ||
+              restorePhrase.trim().split(/\s+/).length !== 24
+            }
+            label="Restore Signal identity"
+            onPress={() => void run(() => importSignalIdentity(restorePhrase, passphrase))}
+            system="signal"
+            variant="secondary"
+          />
+        </>
+      ) : null}
       {recovery ? (
         <View style={[styles.recovery, { backgroundColor: colors.surface, borderColor: colors.constrained }]}>
           <Text style={[typography.label, { color: colors.constrained }]}>Write this down offline</Text>
@@ -979,6 +1138,27 @@ export function SignalIdentityScreen({ colors, homeNode, reach, onNetwork }: Sig
             variant="secondary"
             system="signal"
           />
+          <Field
+            colors={colors}
+            label='Type "REVOKE" to publish a key revocation'
+            onChangeText={setRevokeConfirm}
+            value={revokeConfirm}
+          />
+          <Button
+            colors={colors}
+            disabled={busy || revokeConfirm !== 'REVOKE'}
+            label="Revoke Signal key"
+            onPress={() =>
+              void run(() =>
+                revokeSignalKey(
+                  homeNode.baseUrl,
+                  homeNode.discovery.services.auditLogs,
+                ),
+              )
+            }
+            system="signal"
+            variant="destructive"
+          />
           <Button
             colors={colors}
             disabled={busy}
@@ -1002,14 +1182,36 @@ export function SignalIdentityScreen({ colors, homeNode, reach, onNetwork }: Sig
 }
 
 export function SignalMessagesScreen({ colors, homeNode, reach, onNetwork }: SignalScreenProps) {
+  const [mode, setMode] = useState<'sessions' | 'groups'>('sessions');
   const [recipient, setRecipient] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [sessions, setSessions] = useState<readonly DecryptedSignalSession[]>([]);
+  const [messages, setMessages] = useState<readonly DecryptedSignalMessage[]>([]);
+  const [identityKey, setIdentityKey] = useState('');
+  const [activeSession, setActiveSession] = useState('');
+  const [groupName, setGroupName] = useState('');
+  const [groupMembers, setGroupMembers] = useState('');
+  const [groups, setGroups] = useState<readonly SignalGroupDocument[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState('');
+  const [addMembers, setAddMembers] = useState('');
+  const [removeMembers, setRemoveMembers] = useState('');
+  const memberKeys = (value: string) =>
+    value.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
   const refresh = async () => {
     try {
-      setSessions(await loadSignalInbox(homeNode.baseUrl));
+      const summary = await signalSessionSummary();
+      const nextSessions = await loadSignalInbox(homeNode.baseUrl);
+      setSessions(nextSessions);
+      setIdentityKey(summary.identityKeyHex ?? '');
+      if (summary.identityKeyHex) {
+        setMessages(await loadSignalMessages(homeNode.baseUrl, summary.identityKeyHex));
+      }
+      const groupResponse = await signalSessionRequest<{
+        readonly items: readonly SignalGroupDocument[];
+      }>(homeNode.baseUrl, '/v1/signal/me/groups');
+      setGroups(groupResponse.items);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not read Signal inbox');
     }
@@ -1021,19 +1223,81 @@ export function SignalMessagesScreen({ colors, homeNode, reach, onNetwork }: Sig
     setBusy(true);
     setNotice('');
     try {
-      const id = await startSignalSession(
-        homeNode.baseUrl,
-        recipient,
-        message,
-        homeNode.discovery.services.auditLogs,
-      );
-      setNotice(`Encrypted session queued as ${id}`);
+      let id: string;
+      if (activeSession) {
+        const session = sessions.find((item) => item.id === activeSession);
+        if (!session) throw new Error('Choose a valid session.');
+        const recipientKey =
+          session.senderKey.toLowerCase() === identityKey.toLowerCase()
+            ? session.recipientKey
+            : session.senderKey;
+        const latest = messages
+          .filter((item) => item.session === activeSession)
+          .reduce((value, item) => Math.max(value, Number(item.counter)), 0);
+        id = await continueSignalSession(
+          homeNode.baseUrl,
+          {
+            session: activeSession,
+            recipientKey,
+            counter: BigInt(latest + 1),
+            plaintext: message,
+          },
+          homeNode.discovery.services.auditLogs,
+        );
+      } else {
+        id = await startSignalSession(
+          homeNode.baseUrl,
+          recipient,
+          message,
+          homeNode.discovery.services.auditLogs,
+        );
+      }
+      setNotice(`Encrypted message queued as ${id}`);
       setMessage('');
+      await refresh();
     } catch (error) {
       setNotice((error as Error).message);
     } finally {
       setBusy(false);
     }
+  };
+  const createGroup = async () => {
+    setBusy(true); setNotice('');
+    try {
+      const id = await createSecureSignalGroup(
+        homeNode.baseUrl,
+        groupName,
+        memberKeys(groupMembers),
+        homeNode.discovery.services.auditLogs,
+      );
+      setNotice(`Group created and rekey package queued as ${id}`);
+      setGroupName(''); setGroupMembers('');
+      await refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The group could not be created.');
+    } finally { setBusy(false); }
+  };
+  const updateGroup = async () => {
+    const group = groups.find((item) => item.id === selectedGroup);
+    if (!group) return;
+    setBusy(true); setNotice('');
+    try {
+      const id = await updateSecureSignalGroup(
+        homeNode.baseUrl,
+        {
+          group: group.id,
+          currentMembers: group.memberKeys,
+          add: memberKeys(addMembers),
+          remove: memberKeys(removeMembers),
+        },
+        homeNode.discovery.services.auditLogs,
+      );
+      setNotice(`Membership update and mandatory rekey queued as ${id}`);
+      setAddMembers(''); setRemoveMembers('');
+      await refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'The group could not be updated.');
+    } finally { setBusy(false); }
   };
   return (
     <Screen colors={colors}>
@@ -1045,21 +1309,58 @@ export function SignalMessagesScreen({ colors, homeNode, reach, onNetwork }: Sig
         title="End-to-end encrypted"
         tone="verified"
       />
-      <Field
-        colors={colors}
-        label="Recipient Signal key (hex)"
-        onChangeText={setRecipient}
-        placeholder="64 hexadecimal characters"
-        value={recipient}
-      />
-      <Field colors={colors} label="First message" multiline onChangeText={setMessage} value={message} />
-      <Button
-        colors={colors}
-        disabled={busy || recipient.length !== 64 || message.trim().length === 0}
-        label={busy ? 'Encrypting…' : 'Start encrypted session'}
-        onPress={() => void send()}
-        system="signal"
-      />
+      <View style={styles.rowCompact}>
+        <Pill colors={colors} label="Messages" onPress={() => setMode('sessions')} selected={mode === 'sessions'} />
+        <Pill colors={colors} label="Groups" onPress={() => setMode('groups')} selected={mode === 'groups'} />
+      </View>
+      {mode === 'sessions' ? (
+        <>
+          <Text style={[typography.label, { color: colors.text }]}>Continue a conversation</Text>
+          <View style={styles.rowCompact}>
+            <Pill colors={colors} label="New session" onPress={() => setActiveSession('')} selected={!activeSession} />
+            {sessions.map((session) => (
+              <Pill colors={colors} key={session.id} label={session.id.slice(0, 10)} onPress={() => setActiveSession(session.id)} selected={activeSession === session.id} />
+            ))}
+          </View>
+          {!activeSession ? (
+            <Field colors={colors} label="Recipient Signal key (hex)" onChangeText={setRecipient} placeholder="64 hexadecimal characters" value={recipient} />
+          ) : null}
+          <Field colors={colors} label={activeSession ? 'Message' : 'First message'} multiline onChangeText={setMessage} value={message} />
+          <Button colors={colors} disabled={busy || (!activeSession && recipient.length !== 64) || message.trim().length === 0} label={busy ? 'Encrypting…' : activeSession ? 'Send encrypted message' : 'Start encrypted session'} onPress={() => void send()} system="signal" />
+        </>
+      ) : (
+        <>
+          <SectionHeader colors={colors} title="Create a coordination group" />
+          <Field colors={colors} label="Group name" onChangeText={setGroupName} value={groupName} />
+          <Field colors={colors} label="Member Signal keys" multiline onChangeText={setGroupMembers} placeholder="Two or more 64-character keys, separated by spaces" value={groupMembers} />
+          <Button colors={colors} disabled={busy || !groupName.trim() || memberKeys(groupMembers).length < 2} label={busy ? 'Wrapping sender key…' : 'Create encrypted group'} onPress={() => void createGroup()} system="signal" />
+          <SectionHeader colors={colors} title="Groups on this identity" />
+          {groups.length === 0 ? <EmptyState body="Groups you create or join will appear here." colors={colors} icon="people-outline" system="signal" title="No Signal groups" /> : groups.map((group) => (
+            <Pressable
+              accessibilityLabel={`Open Signal group ${group.name}`}
+              accessibilityRole="button"
+              accessibilityState={{ selected: selectedGroup === group.id }}
+              key={group.id}
+              onPress={() => setSelectedGroup(group.id)}
+              style={[styles.listRow, { borderBottomColor: colors.border }]}
+            >
+              <View style={styles.flex}>
+                <Text style={[typography.label, { color: colors.text }]}>{group.name}</Text>
+                <Text style={[typography.caption, { color: colors.text2 }]}>{group.memberKeys.length} members · {group.id.slice(0, 18)}…</Text>
+              </View>
+              <Ionicons color={selectedGroup === group.id ? colors.signal : colors.text2} name="chevron-forward" size={18} />
+            </Pressable>
+          ))}
+          {selectedGroup ? (
+            <View style={styles.lifecycle}>
+              <StatusBanner body="Every membership change creates a fresh 32-byte sender key and wraps it separately for every remaining member." colors={colors} icon="key-outline" title="Rekey is mandatory" tone="verified" />
+              <Field colors={colors} label="Add member keys" multiline onChangeText={setAddMembers} value={addMembers} />
+              <Field colors={colors} label="Remove member keys" multiline onChangeText={setRemoveMembers} value={removeMembers} />
+              <Button colors={colors} disabled={busy || (!addMembers.trim() && !removeMembers.trim())} label={busy ? 'Rekeying…' : 'Update members and rekey'} onPress={() => void updateGroup()} system="signal" />
+            </View>
+          ) : null}
+        </>
+      )}
       {notice ? (
         <StatusBanner
           body={notice}
@@ -1070,7 +1371,7 @@ export function SignalMessagesScreen({ colors, homeNode, reach, onNetwork }: Sig
         />
       ) : null}
       <Button colors={colors} label="Refresh encrypted inbox" onPress={() => void refresh()} variant="ghost" />
-      {sessions.map((session) => (
+      {mode === 'sessions' ? sessions.map((session) => (
         <View
           key={session.id}
           style={[styles.listRow, { borderBottomColor: colors.border }]}
@@ -1084,13 +1385,28 @@ export function SignalMessagesScreen({ colors, homeNode, reach, onNetwork }: Sig
             </Text>
           </View>
         </View>
-      ))}
+      )) : null}
+      {mode === 'sessions' ? messages.map((item) => (
+        <View key={item.id} style={[styles.listRow, { borderBottomColor: colors.border }]}>
+          <View style={styles.flex}>
+            <Text style={[typography.caption, { color: colors.text2 }]}>Message {item.counter} · {new Date(item.createdAtMs).toLocaleString()}</Text>
+            <Text style={[typography.body, { color: colors.text }]}>{item.plaintext ?? 'Encrypted message sent from this device'}</Text>
+          </View>
+          {item.recipientKey.toLowerCase() === identityKey.toLowerCase() ? (
+            <Button colors={colors} label={item.deliveryState >= DeliveryState.DELIVERY_STATE_READ ? 'Read' : 'Mark read'} onPress={() => {
+              void publishSignalDeliveryReceipt(homeNode.baseUrl, { message: item.id, state: DeliveryState.DELIVERY_STATE_READ }, homeNode.discovery.services.auditLogs)
+                .then(() => setNotice('Signed read receipt queued.'))
+                .catch((error: Error) => setNotice(error.message));
+            }} system="signal" variant="ghost" />
+          ) : null}
+        </View>
+      )) : null}
     </Screen>
   );
 }
 
 export function SignalStudioScreen({ colors, homeNode, reach, onNetwork }: SignalScreenProps) {
-  const [mode, setMode] = useState<'channel' | 'broadcast'>('channel');
+  const [mode, setMode] = useState<'channel' | 'broadcast' | 'revoke'>('channel');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [channel, setChannel] = useState('');
@@ -1098,6 +1414,8 @@ export function SignalStudioScreen({ colors, homeNode, reach, onNetwork }: Signa
   const [headline, setHeadline] = useState('');
   const [detail, setDetail] = useState('');
   const [severityValue, setSeverityValue] = useState(3);
+  const [revokeTarget, setRevokeTarget] = useState('');
+  const [revokeNote, setRevokeNote] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   const publish = async () => {
@@ -1112,7 +1430,7 @@ export function SignalStudioScreen({ colors, homeNode, reach, onNetwork }: Signa
         );
         setChannel(result.channelId);
         setNotice(`Channel declared: ${result.channelId}`);
-      } else {
+      } else if (mode === 'broadcast') {
         const id = await publishSignalBroadcast(
           homeNode.baseUrl,
           {
@@ -1128,6 +1446,9 @@ export function SignalStudioScreen({ colors, homeNode, reach, onNetwork }: Signa
           homeNode.discovery.services.auditLogs,
         );
         setNotice(`Broadcast accepted: ${id}`);
+      } else {
+        const id = await revokeSignalBroadcast(homeNode.baseUrl, { channelId: channel, target: revokeTarget, reason: 3, note: revokeNote }, homeNode.discovery.services.auditLogs);
+        setNotice(`Broadcast retraction accepted: ${id}`);
       }
     } catch (error) {
       setNotice((error as Error).message);
@@ -1141,13 +1462,14 @@ export function SignalStudioScreen({ colors, homeNode, reach, onNetwork }: Signa
       <View style={styles.rowCompact}>
         <Pill colors={colors} label="Declare channel" onPress={() => setMode('channel')} selected={mode === 'channel'} />
         <Pill colors={colors} label="Emit broadcast" onPress={() => setMode('broadcast')} selected={mode === 'broadcast'} />
+        <Pill colors={colors} label="Retract" onPress={() => setMode('revoke')} selected={mode === 'revoke'} />
       </View>
       {mode === 'channel' ? (
         <>
           <Field colors={colors} label="Channel name" onChangeText={setName} value={name} />
           <Field colors={colors} label="Description" multiline onChangeText={setDescription} value={description} />
         </>
-      ) : (
+      ) : mode === 'broadcast' ? (
         <>
           <Field colors={colors} label="Channel ID" onChangeText={setChannel} value={channel} />
           <Field colors={colors} keyboardType="number-pad" label="Sequence" onChangeText={setSequence} value={sequence} />
@@ -1165,11 +1487,18 @@ export function SignalStudioScreen({ colors, homeNode, reach, onNetwork }: Signa
           <Field colors={colors} label="Actionable headline" onChangeText={setHeadline} value={headline} />
           <Field colors={colors} label="Optional detail" multiline onChangeText={setDetail} value={detail} />
         </>
+      ) : (
+        <>
+          <Field colors={colors} label="Channel ID" onChangeText={setChannel} value={channel} />
+          <Field colors={colors} label="Broadcast receipt ID" onChangeText={setRevokeTarget} value={revokeTarget} />
+          <Field colors={colors} label="Why is this being retracted?" multiline onChangeText={setRevokeNote} value={revokeNote} />
+          <StatusBanner colors={colors} icon="alert-circle-outline" title="Retractions stay visible" body="Subscribers will see that the original broadcast was retracted and why." tone="warning" />
+        </>
       )}
       <Button
         colors={colors}
         disabled={busy}
-        label={busy ? 'Signing…' : mode === 'channel' ? 'Declare identified channel' : 'Emit broadcast'}
+        label={busy ? 'Signing…' : mode === 'channel' ? 'Declare identified channel' : mode === 'broadcast' ? 'Emit broadcast' : 'Retract broadcast'}
         onPress={() => void publish()}
         system="signal"
       />
@@ -1238,6 +1567,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingVertical: spacing.md,
   },
+  lifecycle: { gap: spacing.sm, paddingVertical: spacing.sm },
   map: {
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,

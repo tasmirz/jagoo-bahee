@@ -1,4 +1,8 @@
-set shell := ["bash", "-c"]
+[unix]
+set shell := ["bash", "-cu"]
+
+[windows]
+set shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 
 default:
     @just --list
@@ -16,6 +20,7 @@ alias d := dev
 setup: install proto-gen build
 
 # Start the full local dev environment (Databases + Backend in background, Frontend interactive)
+[unix]
 dev: ops-up
     @mkdir -p .run
     @if [ -f .run/backend.pid ] && ps -p $(cat .run/backend.pid) > /dev/null 2>&1; then \
@@ -28,11 +33,24 @@ dev: ops-up
     @echo "Starting frontend interactively..."
     @pnpm --filter @jagoo/frontend dev
 
+[windows]
+dev: ops-up
+    @New-Item -ItemType Directory -Force .run | Out-Null
+    @if ((Test-Path .run/backend.pid) -and (Get-Process -Id (Get-Content .run/backend.pid) -ErrorAction SilentlyContinue)) { Write-Host "Backend is already running (PID: $(Get-Content .run/backend.pid)). Skipping start." } else { Write-Host "Starting backend in background..."; $process = Start-Process -FilePath 'cmd.exe' -ArgumentList '/d', '/s', '/c', 'pnpm --filter @jagoo/backend dev > .run/backend.log 2>&1' -PassThru -WindowStyle Hidden; Set-Content -Path .run/backend.pid -Value $process.Id; Write-Host "Backend started. Use 'just logs' for backend output, and 'just kill' to stop." }
+    @Write-Host "Starting frontend interactively..."
+    @pnpm --filter @jagoo/frontend dev
+
 # View background logs
+[unix]
 logs:
     tail -f .run/backend.log
 
+[windows]
+logs:
+    Get-Content -Path .run/backend.log -Wait
+
 # View background processes status
+[unix]
 ps:
     @echo "SERVICE    PID      PORTS      STATUS"
     @echo "----------------------------------------"
@@ -56,7 +74,18 @@ ps:
     @echo "--------------------------------"
     @docker compose -f ops/docker-compose.yml ps --format "table {{ "{{" }}.Name}}\t{{ "{{" }}.Service}}\t{{ "{{" }}.Ports}}\t{{ "{{" }}.Status}}"
 
+[windows]
+ps:
+    @Write-Host "SERVICE    PID      PORTS      STATUS"
+    @Write-Host "----------------------------------------"
+    @if (Test-Path .run/backend.pid) { $pid = Get-Content .run/backend.pid; if (Get-Process -Id $pid -ErrorAction SilentlyContinue) { $ports = (Get-NetTCPConnection -OwningProcess $pid -State Listen -ErrorAction SilentlyContinue | ForEach-Object LocalPort | Sort-Object -Unique) -join ','; if (-not $ports) { $ports = '-' }; '{0,-10} {1,-8} {2,-10} {3}' -f 'backend', $pid, $ports, 'RUNNING' } else { '{0,-10} {1,-8} {2,-10} {3}' -f 'backend', $pid, '-', 'DEAD' } } else { '{0,-10} {1,-8} {2,-10} {3}' -f 'backend', '-', '-', 'STOPPED' }
+    @Write-Host ''
+    @Write-Host 'INFRASTRUCTURE (Docker)'
+    @Write-Host '--------------------------------'
+    @docker compose -f ops/docker-compose.yml ps --format "table {{ "{{" }}.Name}}\t{{ "{{" }}.Service}}\t{{ "{{" }}.Ports}}\t{{ "{{" }}.Status}}"
+
 # Kill background processes and stop infrastructure
+[unix]
 kill:
     @for svc in backend; do \
         if [ -f .run/$svc.pid ]; then \
@@ -71,28 +100,71 @@ kill:
     @docker compose -f ops/docker-compose.yml down
     @echo "All services stopped."
 
+[windows]
+kill:
+    @if (Test-Path .run/backend.pid) { $pid = Get-Content .run/backend.pid; Write-Host "Stopping backend (PID: $pid)..."; taskkill /PID $pid /T /F 2>$null | Out-Null; Remove-Item -Force .run/backend.pid }
+    @Write-Host 'Stopping infrastructure...'
+    @docker compose -f ops/docker-compose.yml down
+    @Write-Host 'All services stopped.'
+
 # Clean up all build artifacts and node_modules
+[unix]
 clean:
     pnpm run clean
     cargo clean -p jb-core || true
+
+[windows]
+clean:
+    pnpm run clean
+    @cargo clean -p jb-core; if ($LASTEXITCODE -ne 0) { Write-Warning 'Cargo cleanup failed; continuing.' }
 
 # Hard reset: wipe docker volumes, clean all artifacts, and reinstall from scratch
 reset: ops-down-v clean install
 
 # Seed the database with initial mock data
+[unix]
 seed:
     pnpm --filter @jagoo/backend exec tsx src/cli/seed.ts || echo "Note: No seed.ts script found yet, ready for implementation"
+
+[windows]
+seed:
+    @pnpm --filter @jagoo/backend exec tsx src/cli/seed.ts; if ($LASTEXITCODE -ne 0) { Write-Host 'Note: No seed.ts script found yet, ready for implementation' }
 
 # Run all primary CI checks across the monorepo
 check: lint typecheck test proto-check vectors
 
-# Build and install the custom Android development client (required for native modules)
+# Build and install the custom Android development client (required for native modules).
+# React Native 0.76 pins NDK 26.1.10909125. A partial SDK download can leave the directory
+# present without source.properties; repair that package before Gradle evaluates the project.
+# Build/install Android and repair the pinned NDK automatically when needed.
+[windows]
 android:
+    @$androidSdk = if ($env:ANDROID_HOME) { $env:ANDROID_HOME } elseif ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } else { Join-Path $env:LOCALAPPDATA 'Android\Sdk' }; $sdkManager = Join-Path $androidSdk 'cmdline-tools\latest\bin\sdkmanager.bat'; $ndkMarker = Join-Path $androidSdk 'ndk\26.1.10909125\source.properties'; if (-not (Test-Path -LiteralPath $sdkManager)) { throw "Android sdkmanager was not found at $sdkManager. Install Android command-line tools or set ANDROID_HOME." }; if (-not (Test-Path -LiteralPath $ndkMarker)) { Write-Host 'Repairing incomplete Android NDK 26.1.10909125...'; & $sdkManager --uninstall 'ndk;26.1.10909125' 2>$null; & $sdkManager --install 'platform-tools' 'ndk;26.1.10909125'; if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $ndkMarker)) { throw 'Android NDK repair did not complete.' } }; Write-Host "Android SDK ready: $androidSdk"
     pnpm --filter @jagoo/frontend exec expo run:android
 
-# Build and install the custom iOS development client (required for native modules)
+[linux]
+android:
+    @android_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"; sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"; marker="$android_sdk/ndk/26.1.10909125/source.properties"; if [ ! -x "$sdkmanager" ]; then echo "Android sdkmanager was not found at $sdkmanager. Install Android command-line tools or set ANDROID_HOME." >&2; exit 1; fi; if [ ! -f "$marker" ]; then echo "Repairing incomplete Android NDK 26.1.10909125..."; "$sdkmanager" --uninstall "ndk;26.1.10909125" >/dev/null 2>&1 || true; "$sdkmanager" --install "platform-tools" "ndk;26.1.10909125"; test -f "$marker"; fi; echo "Android SDK ready: $android_sdk"
+    pnpm --filter @jagoo/frontend exec expo run:android
+
+[macos]
+android:
+    @android_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"; sdkmanager="$android_sdk/cmdline-tools/latest/bin/sdkmanager"; marker="$android_sdk/ndk/26.1.10909125/source.properties"; if [ ! -x "$sdkmanager" ]; then echo "Android sdkmanager was not found at $sdkmanager. Install Android command-line tools or set ANDROID_HOME." >&2; exit 1; fi; if [ ! -f "$marker" ]; then echo "Repairing incomplete Android NDK 26.1.10909125..."; "$sdkmanager" --uninstall "ndk;26.1.10909125" >/dev/null 2>&1 || true; "$sdkmanager" --install "platform-tools" "ndk;26.1.10909125"; test -f "$marker"; fi; echo "Android SDK ready: $android_sdk"
+    pnpm --filter @jagoo/frontend exec expo run:android
+
+# Native iOS builds are a macOS/Xcode capability. Other platforms keep a discoverable,
+# successful recipe that explains the constraint rather than failing with "pod: command not found".
+[macos]
 ios:
     pnpm --filter @jagoo/frontend exec expo run:ios
+
+[linux]
+ios:
+    @echo "iOS native builds require macOS with Xcode. Use 'pnpm --filter @jagoo/frontend start' to work with an already-built iOS development client."
+
+[windows]
+ios:
+    @Write-Host "iOS native builds require macOS with Xcode. Use 'pnpm --filter @jagoo/frontend start' to work with an already-built iOS development client."
 
 # ==========================================
 # 📦 Installation

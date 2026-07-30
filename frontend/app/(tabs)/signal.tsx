@@ -3,7 +3,8 @@ import { useApp } from '../../src/application/app-provider';
 import { SignalHomeScreen } from '../../src/features/signal';
 import { AppScene } from '../../src/design-system';
 
-export default function SignalRoute() {
+/** Signal is a primary destination, not an item hidden behind the Forum inbox. */
+export default function SignalTabRoute() {
   const router = useRouter();
   const { colors, homeNode, reach } = useApp();
   if (!homeNode) return null;
