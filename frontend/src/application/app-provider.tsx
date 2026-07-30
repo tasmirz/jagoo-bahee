@@ -16,6 +16,7 @@ import { queryClient } from '../data';
 import {
   loadActiveProfileId,
   loadIdentityProfiles,
+  removeIdentityProfile,
   saveIdentityProfile,
   setActiveProfileId,
   type IdentityProfile,
@@ -47,11 +48,13 @@ import { scopeDisplay, ScopeSheet } from '../features/connectivity/scope-indicat
 import { useScopeStatus } from '../features/connectivity/use-scope';
 import type { ScopeStatus } from '../features/connectivity/scope';
 import { messages, type Locale } from '../i18n';
-import { drainOutboxOnce } from '../offline/outbox';
+import { clearOutboxNode, drainOutboxOnce } from '../offline/outbox';
 import { refreshMeshCertificates } from '../offline/certificate-cache';
 import { configureAuditIssueReporting } from '../audit';
 import {
   LEGACY_FORUM_VAULT_ID,
+  configureAntiAbuseServices,
+  deleteForumIdentityVault,
   forumSessionSummary,
   restoreForumSession,
   selectForumIdentityVault,
@@ -77,6 +80,21 @@ export interface AppContextValue {
     },
   ) => Promise<void>;
   readonly disconnectHomeNode: () => Promise<void>;
+  /**
+   * Remove a saved server and its identity from this device.
+   *
+   * `removeIdentityProfile` has existed since profiles did and was reachable from nothing,
+   * so the only way to change server was `disconnectHomeNode` — which wipes the active
+   * node and drops you back into onboarding whether or not that is what you wanted.
+   *
+   * Destroying the key vault is a SEPARATE decision from forgetting the server, because
+   * they are not the same loss: forgetting an address is reversible by typing it again,
+   * and destroying a vault is only reversible with the 24-word phrase.
+   */
+  readonly forgetIdentityProfile: (
+    vaultId: string,
+    options?: { readonly destroyVault?: boolean },
+  ) => Promise<void>;
   readonly homeNode: HomeNode | null | undefined;
   readonly identityProfiles: readonly IdentityProfile[];
   readonly locale: Locale;
@@ -191,6 +209,7 @@ function AppStateProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (!homeNode) return;
     configureAuditIssueReporting(homeNode.discovery.services.auditLogs, homeNode.transport);
+    configureAntiAbuseServices(homeNode.discovery.services.mcaptcha);
   }, [homeNode]);
 
   useEffect(() => {
@@ -291,6 +310,52 @@ function AppStateProvider({ children }: PropsWithChildren) {
     setHomeNode(null);
     setSession(await forumSessionSummary());
   }, []);
+
+  /**
+   * Forget a saved server, and optionally destroy the key vault behind it.
+   *
+   * Deleting the ACTIVE row has to land somewhere sensible: the next remaining profile if
+   * there is one, and onboarding only when nothing is left. Falling back to onboarding
+   * whenever the active row went away would make removing one of three servers look like
+   * being signed out of all of them.
+   */
+  const forgetIdentityProfile = useCallback(
+    async (vaultId: string, options: { readonly destroyVault?: boolean } = {}) => {
+      const profile = identityProfiles.find((item) => item.vaultId === vaultId);
+      if (!profile) return;
+      const wasActive = activeProfileId === vaultId;
+      await clearOutboxNode(profile.homeNode.baseUrl);
+      if (options.destroyVault) await deleteForumIdentityVault(vaultId);
+      await removeIdentityProfile(vaultId);
+      const remaining = await loadIdentityProfiles();
+      setIdentityProfiles(remaining);
+      if (!wasActive) return;
+
+      const next = remaining[0];
+      if (!next) {
+        await forgetHomeNode();
+        queryClient.clear();
+        setActiveProfileIdState(null);
+        setHomeNode(null);
+        setSession(await forumSessionSummary());
+        return;
+      }
+      await setActiveProfileId(next.vaultId);
+      await saveHomeNode(next.homeNode);
+      selectForumIdentityVault(next.vaultId);
+      configureClientTransport(next.homeNode.transport);
+      queryClient.clear();
+      setActiveProfileIdState(next.vaultId);
+      setHomeNode(next.homeNode);
+      setSession(
+        await restoreForumSession(
+          next.homeNode.baseUrl,
+          next.homeNode.discovery.services.auditLogs,
+        ),
+      );
+    },
+    [activeProfileId, identityProfiles],
+  );
 
   const switchIdentity = useCallback(async (vaultId: string) => {
     const profile = identityProfiles.find((item) => item.vaultId === vaultId);
@@ -399,6 +464,7 @@ function AppStateProvider({ children }: PropsWithChildren) {
       colors,
       connectHomeNode,
       disconnectHomeNode,
+      forgetIdentityProfile,
       homeNode,
       identityProfiles,
       locale,
@@ -419,6 +485,7 @@ function AppStateProvider({ children }: PropsWithChildren) {
       activeProfileId,
       connectHomeNode,
       disconnectHomeNode,
+      forgetIdentityProfile,
       homeNode,
       identityProfiles,
       locale,

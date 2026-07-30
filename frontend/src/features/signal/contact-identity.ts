@@ -98,6 +98,27 @@ export function verifySignalIdentity(material: SignalIdentityMaterial): SignalId
     return { ok: false, reason: 'The identity ID does not match the identity key it claims.' };
   }
 
+  /**
+   * The mesh binding is optional, and its absence is not a failure.
+   *
+   * This must mirror `SignalDirectoryProfileHandler.validate` exactly: either all three
+   * fields are present and the signature verifies, or all three are absent. Treating an
+   * absent binding as a verification failure would mark every profile published without a
+   * running Reticulum stack — which is nearly all of them, since RNS is Android-dev-build
+   * only — as unverified. That is worse than useless: a warning that fires on the normal
+   * case is a warning people learn to click past, including on the day it is real.
+   *
+   * What is checked without a binding is still the thing that matters: that the identity ID
+   * is genuinely derived from the key. The binding, when present, additionally proves the
+   * key signed its own mesh delivery address.
+   */
+  const bound = [
+    material.rnsPublicKey,
+    material.lxmfDestinationHash,
+    material.transportBindingSignature,
+  ];
+  if (bound.every((field) => !field)) return { ok: true };
+
   const rnsPublicKey = base64Bytes(material.rnsPublicKey, RNS_PUBLIC_KEY_BYTES);
   if (!rnsPublicKey) return { ok: false, reason: 'The mesh transport key is malformed.' };
 

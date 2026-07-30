@@ -247,6 +247,49 @@ export class SecureSignalSigner implements SignalSigner {
     return (await SecureStore.getItemAsync(ROOT_KEY, storeOptions)) !== null;
   }
 
+  /**
+   * Decrypt and return the stored mnemonic, for showing a backup the user still owes.
+   *
+   * Deliberately not a method on an unlocked instance: an instance holds a root seed, not a
+   * mnemonic, and adding one would mean keeping the mnemonic alive for the session. The
+   * wrapping key is zeroed on every path out of here, success included.
+   */
+  static async recoveryPhrase(lockPassphrase: string, recoveryPassphrase = ''): Promise<string> {
+    const encoded = await SecureStore.getItemAsync(ROOT_KEY, storeOptions);
+    if (!encoded) throw new Error('Signal identity is not configured');
+    const payload = JSON.parse(encoded) as VaultPayload;
+    if (payload.version !== 1) throw new Error('unsupported Signal vault version');
+    const wrappingKey = cryptoBackend().scrypt(
+      text.encode(lockPassphrase),
+      unbase64(payload.salt),
+      { N: 1 << 16, r: 8, p: 1, dkLen: 32 },
+    );
+    try {
+      const mnemonic = new TextDecoder().decode(
+        cryptoBackend().xchacha20poly1305Open(
+          wrappingKey,
+          unbase64(payload.nonce),
+          unbase64(payload.ciphertext),
+          new Uint8Array(),
+        ),
+      );
+      if (!isValidMnemonic(mnemonic)) throw new Error('invalid recovered mnemonic');
+      // Same guard as `unlock`: a wrong recovery salt otherwise yields a perfectly valid
+      // phrase for a DIFFERENT identity, which someone would then write down as theirs.
+      const rootSeed = mnemonicToSeed(mnemonic, recoveryPassphrase);
+      const check = payload.seedCheck && payload.seedCheck !== seedCheckOf(rootSeed);
+      rootSeed.fill(0);
+      if (check) throw new Error('recovery salt is incorrect for this vault');
+      return mnemonic;
+    } catch (error) {
+      throw error instanceof Error && /recovery salt/.test(error.message)
+        ? error
+        : new Error('app passphrase is incorrect');
+    } finally {
+      wrappingKey.fill(0);
+    }
+  }
+
   /** CRS-19: available before unlock and deletes only the Signal-plane vault. */
   static async panicConfiguredVault(): Promise<void> {
     await Promise.all([
@@ -692,6 +735,25 @@ export async function unlockSignalIdentity(
   return (await activeSigner.identity({ kind: 'device' })).id;
 }
 
+/**
+ * Read the Signal recovery phrase back out of the vault, for the backup onboarding deferred.
+ *
+ * The passphrase is required again rather than the phrase being kept in memory after
+ * unlock. Only the root SEED is memoised for an unlocked signer (and zeroed on lock or
+ * panic); holding the mnemonic — from which every future key can be re-derived, and which
+ * a person could be compelled to reveal — for the whole life of a session would be a
+ * strictly larger secret held strictly longer, to save one prompt. For a device-lock vault
+ * the passphrase is the empty string, so there is no prompt to save.
+ *
+ * The phrase is returned, never logged and never persisted anywhere by this function.
+ */
+export async function revealSignalRecoveryPhrase(
+  lockPassphrase = '',
+  recoverySalt = '',
+): Promise<string> {
+  return SecureSignalSigner.recoveryPhrase(lockPassphrase, recoverySalt);
+}
+
 export function lockSignalIdentity(): void {
   activeSigner?.lock();
   activeSigner = null;
@@ -795,19 +857,42 @@ export interface SignalDirectoryProfileInput {
   readonly languages?: readonly string[];
   readonly discoverable: boolean;
   readonly revision: bigint;
-  readonly lxmfDestinationHash: Uint8Array;
+  /**
+   * Optional. Present only when a Reticulum stack is running and has announced a
+   * destination; the profile is complete and searchable without it.
+   *
+   * It used to be required, which made claiming a username a Reticulum feature by
+   * accident: the hash can only come from a live RNS stack, RNS runs on an Android
+   * development build and nowhere else, and so nobody on iOS could be found by name at all
+   * — while the search that finds them and the messaging that reaches them need no radio.
+   */
+  readonly lxmfDestinationHash?: Uint8Array;
 }
 
-/** Publish the searchable Signal-only profile and bind it to the local LXMF destination. */
+/** Publish the searchable Signal-only profile, binding it to LXMF when one is running. */
 export async function publishSignalDirectoryProfile(
   baseUrl: string,
   input: SignalDirectoryProfileInput,
   auditServices: readonly DiscoveredService[] = [],
 ): Promise<string> {
   if (!activeSigner) throw new Error('Unlock your Signal identity first');
-  const transport = await activeSigner.rnsTransportIdentity();
+  const signer = activeSigner;
+  const destination = input.lxmfDestinationHash;
+  // The RNS transport key is derived from the Signal seed and needs no running stack, but
+  // deriving it at all is pointless with no destination to bind it to — and an unbound key
+  // in the envelope is a partial binding, which the node rejects.
+  const transport = destination ? await signer.rnsTransportIdentity() : null;
   try {
-    const binding = concat(RNS_BINDING_PREFIX, transport.publicKey, input.lxmfDestinationHash);
+    const bound = transport && destination
+      ? {
+          rns_public_key: transport.publicKey,
+          lxmf_destination_hash: destination,
+          transport_binding_sig: await signer.sign(
+            { kind: 'device' },
+            concat(RNS_BINDING_PREFIX, transport.publicKey, destination),
+          ),
+        }
+      : {};
     const body = SignalDirectoryProfile.encode(
       SignalDirectoryProfile.fromPartial({
         display_name: input.displayName,
@@ -818,9 +903,7 @@ export async function publishSignalDirectoryProfile(
           proof: claim.proof ?? '',
           asserted_at_ms: claim.assertedAtMs ?? 0n,
         })) ?? [],
-        rns_public_key: transport.publicKey,
-        lxmf_destination_hash: input.lxmfDestinationHash,
-        transport_binding_sig: await activeSigner.sign({ kind: 'device' }, binding),
+        ...bound,
         languages: [...(input.languages ?? [])],
         discoverable: input.discoverable,
         revision: input.revision,
@@ -834,8 +917,8 @@ export async function publishSignalDirectoryProfile(
       )
     ).contentId;
   } finally {
-    transport.privateKey.fill(0);
-    transport.publicKey.fill(0);
+    transport?.privateKey.fill(0);
+    transport?.publicKey.fill(0);
   }
 }
 

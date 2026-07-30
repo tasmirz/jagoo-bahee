@@ -291,6 +291,22 @@ export class MongoProjectionStore extends ProjectionStore {
     super();
   }
 
+  /**
+   * Indexes for projections whose handlers query a field other than `id`.
+   *
+   * `SignalDirectoryProfileHandler.authorize` looks a name up by `nameSkeleton` on every
+   * publish, and the read API searches on it. Without an index that is a collection scan
+   * on the hot path of the feature people use to find each other.
+   *
+   * NOT declared unique. Uniqueness is decided by `authorize` against the replayed log, so
+   * a unique index would add a second, differently-ordered arbiter — and during
+   * `rebuild-projections`, where documents are rewritten rather than inserted in log order,
+   * that is exactly how a rebuild starts failing on data the log says is valid.
+   */
+  async ensureIndexes(): Promise<void> {
+    await this.db.collection('signal_directory_profiles').createIndex({ nameSkeleton: 1 });
+  }
+
   collection<T>(name: string): Collection<T> {
     const collection: MongoCollection<ProjectionDocument> = this.db.collection(name);
     return {

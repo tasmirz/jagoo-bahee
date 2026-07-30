@@ -1602,3 +1602,133 @@ sides apart from the pre-existing `load-env.ts` dotenv error; `eslint` 0 errors 
 **Not claimed:** none of this has been re-run on a device. The four fixes are pinned by unit
 tests and by the compiler, but "upload works" and "the indicator now reads correctly" are
 device observations that have not been repeated since the change.
+
+## Post-P2 — Client repair: splash, servers, advertisement, link scope, Signal onboarding
+
+Five device-reported defects. Four share one shape: **a value the client displayed was
+assumed rather than measured, or a capability the backend already had was unreachable from
+the UI.** Almost nothing here needed new backend capability — the directory search, the QR
+scanner, the contact store, `removeIdentityProfile` and the probe adapter all existed and
+were wired to nothing a user could reach.
+
+**(i) the splash had three different faces.** The OS splash drew the app icon; the font gate
+in `app/_layout.tsx` drew the icon and the name; `AppLoading` then replaced both with a 32 pt
+abstract ring and a pulsing `WorkProgress` bar. One `SplashScreen` component now serves all
+three, taking raw colours rather than an `AppPalette` because the font gate runs before
+`AppProvider` exists and has no palette. The bar is gone on purpose: it covers indeterminate
+work — session restore can sit on a dead link for a full HTTP timeout — and a
+determinate-looking bar over that misreports progress.
+
+**(ii) "not advertised" was three unrelated faults wearing one label.** `AUDIT_LOG_SERVICES`
+was set only on the `node` compose service, never in `backend/.env`, never in `.env.example`,
+and never on `node-a`/`node-b` — so under `pnpm dev:backend` the audit log did not exist as
+far as any client was concerned, and every certificate the app tried to store-and-forward was
+a silent no-op over an empty array. mCaptcha was worse: `MCAPTCHA_SERVICES` is assigned
+nowhere in the repository, there is no container, no verifier and no solver. It is a reserved
+slot, and "not advertised" was the only truthful output it could ever produce — so the row now
+states the mechanism the node actually uses (argon2id PoW plus blind credentials) instead of
+reporting an absent optional extra as a broken dependency.
+
+The third fault was real and would have broken mCaptcha even on a node that advertised one:
+`registerForumIdentity(baseUrl, auditServices, mcaptchaServices = [])` — and **not one of its
+seven call sites passed the third argument**. The default made it a type-checked lie. Fixed by
+configuring the services once beside `configureAuditIssueReporting` rather than threading a
+second array through thirty publishing signatures that have no interest in it.
+
+**(iii) the network indicator answered a different question than the one it asked.** TP-20
+requires the client to show which scope it is currently connected on — the client-to-node
+LINK. `/v1/transport/scope` reported `UplinkManager.currentScope()`, the node's own onward
+reach, and **the controller never read the request**: no `req.ip`, no `X-Forwarded-For`. "Is
+this phone on the same network as this server?" was computed nowhere in the codebase.
+
+Underneath that, the value was also constant. `transport.runtime.ts` gated the probe loop on
+`config.configured` (`uplinks.length > 0`), which `backend/.env` never satisfies, so
+`probeAll()` had no production caller; `configured-uplinks.ts` seeds every uplink `UP` with
+every declared scope `live`, so that initial optimistic map was permanent. `currentScope()` =
+`narrowest([ISP_LOCAL, NATIONAL, GLOBAL])`, invariant. Before `4d16c3d` the list included
+`LAN`, which is exactly the reported symptom — that commit changed the constant without making
+the value dynamic, which is why the same bug was reported twice.
+
+Now: a pure `classifyLink(callerAddress, nodeAddresses)` in `core/domain/transport/`, fed by
+the caller address the anti-abuse interceptor already derives (shared `callerAddress`, so the
+rate limiter and the indicator cannot disagree about who is calling); the pill renders the
+link, the sheet shows the node's reach separately; `measured` — which the node had been
+sending and the client had been discarding — now renders as "assumed" in words, not a tint;
+and the probe loop is gated on having probe targets rather than on `UPLINKS`.
+
+**(iv) servers could be added but never removed.** `removeIdentityProfile` had existed since
+profiles did and was called from nothing but its own test, so the only way to change server
+was `disconnectHomeNode` — a wipe-and-restart presented as a settings action. Now: per-row
+delete with vault destruction as a *separate* checkbox (forgetting an address is reversible by
+typing it again; destroying a vault is only reversible with 24 words), switching by tapping a
+row, and the add flow relabelled and given `identityProfiles` so restoring a known phrase stops
+writing a duplicate vault. The outbox needed no fix — each record already carries the `baseUrl`
+it was signed for — but removal now counts and reports what it discards.
+
+**(v) a username required a radio.** `SignalDirectoryProfileHandler.validate` hard-required
+`rns_public_key`, `lxmf_destination_hash` and `transport_binding_sig`. The destination hash can
+only come from a running Reticulum stack, and RNS is an Android-development-build feature — so
+**nobody on iOS could be found by name at all**, while the directory search that finds people
+and the IP messaging that reaches them need no radio whatsoever. The binding is now optional
+(all three absent, or all three present and verifying — partial stays rejected, because a
+destination nobody signed for routes to a lie). Strictly a loosening: every previously valid
+profile still validates. `SignalDirectoryProfile` appears nowhere in `Plans/04`, having been
+added post-freeze as a registry row, so this is a defect fix and not a frozen-contract change.
+
+The client verifier had to move in lockstep. `verifySignalIdentity` treated an absent binding
+as a verification failure, which after the loosening would have marked *nearly every* profile
+unverified — and a warning that fires on the normal case is one people learn to click past,
+including on the day it is real.
+
+`display_name` is now the handle, first-come per node via the `nameSkeleton` that had been
+computed and stored on every row since the projection existed and never once read. Uniqueness
+is node-local by construction and cannot be otherwise without a naming authority this project
+rejects, so every surface shows the handle beside its fingerprint. The Mongo index is
+deliberately **not** unique: `authorize` decides uniqueness against the replayed log, and a
+second differently-ordered arbiter is how `rebuild-projections` starts failing on data the log
+says is valid.
+
+**(vi) messaging was two disjoint halves, neither usable.** IP sessions took a recipient as 64
+hexadecimal characters (`recipient.length !== 64`) and labelled threads by content-ID prefix;
+LXMF had real people, search and verification badges but only sent over a mesh most devices
+cannot run. A contact saved in one could not be selected in the other, and reaching a first
+message took eleven steps. Signal identity creation now happens in onboarding (two independent
+mnemonics, separate SecureStore roots, nothing persisting them together — ADR-012 constrains
+storage and linkage, not sequencing), followed by a username step. A `PeoplePicker` replaces
+the hex field with saved contacts, federated directory search and a QR scan. The QR generator
+and scanner were lifted from mesh pairing, where they already worked and had simply never been
+pointed at an identity. The in-person verification screen no longer asks someone to *type* a
+base64 fingerprint next to a camera the app already knows how to open.
+
+The Signal recovery phrase is deferred, not skipped: two 24-word grids back to back is how
+people stop reading either, and the Forum phrase is the one that must land. `markSignalBackupOwed`
+records the debt so the prompt returns, and it clears only once the words have actually been on
+screen — not when the card was dismissed, because dismissing is what people do to a prompt they
+intend to ignore. `revealSignalRecoveryPhrase` re-derives from the vault rather than holding the
+mnemonic in memory for the session, which would be a strictly larger secret held strictly longer
+to save one prompt.
+
+**Lesson (L-…):** an optional positional parameter with a safe-looking default is not a
+default, it is a silent failure mode. `mcaptchaServices = []` type-checked at seven call sites
+that all omitted it and produced a confident, wrong answer at every one. When a value has
+exactly one correct source, configure it once at the seam where that source is known — the way
+the audit services already were — rather than asking thirty signatures to carry it.
+
+**Second lesson:** when a displayed value and a measured value answer different questions, the
+bug survives being fixed. The LAN indicator was reported, diagnosed, and "fixed" in `4d16c3d`
+by removing `LAN` from the assumable list — which changed the constant from `LAN` to
+`ISP_LOCAL` and left it a constant. Ask what question the UI string makes a claim about, then
+check whether anything computes *that*.
+
+**Verified:** `pnpm vectors` → 3 implementations agree on 16 vectors, `expected.json` matches;
+`proto:check` in sync (50 domains); backend 41 files / **513 passing**, 3 files skipped without
+Mongo/Redis, including the P0-G6 import-boundary gate and FG-01…FG-10; frontend 32 suites /
+**172 passing**; `pnpm lint` 0 errors both sides; typecheck clean both sides.
+
+**Not claimed:** none of this has been run on a device. In particular the network indicator's
+whole point is that it now differs between a phone on the node's Wi-Fi and the same phone on
+cellular, and that is a two-network observation no unit test can stand in for — the previous
+attempt at this bug was also green on unit tests and shipped still wrong. The Signal onboarding
+path (create identity, register, authenticate, publish prekeys, claim username) has been
+exercised only by the compiler and by the handler tests behind it, not end to end against a
+running node.

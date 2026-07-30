@@ -64,6 +64,16 @@ export interface TunnelConfig {
 export interface TransportConfig {
   /** True when anything beyond the implicit single uplink is configured. */
   readonly configured: boolean;
+  /**
+   * True when there is anything to measure.
+   *
+   * Separate from `configured` because the probe loop used to be gated on the latter, so a
+   * node that set `PROBE_TARGETS` but not `UPLINKS` never probed at all: `lastProbedAtMs`
+   * stayed null, the constructor's optimistic "every declared scope is live" was never
+   * revised, and the node reported an assumed scope with the confidence of a measured one.
+   * Configuring targets is an explicit request to measure and is now honoured on its own.
+   */
+  readonly probing: boolean;
   readonly uplinks: readonly UplinkConfig[];
   readonly probe: ProbeConfig;
   readonly bridge: BridgeConfig;
@@ -247,6 +257,7 @@ export function loadTransportConfig(env: NodeJS.ProcessEnv): TransportConfig {
 
   return {
     configured: uplinks.length > 0,
+    probing: uplinks.length > 0 || Object.keys(targets).length > 0,
     // AR-12 — the implicit uplink is not a fallback, it is the default deployment.
     uplinks: uplinks.length > 0 ? uplinks : [IMPLICIT_UPLINK],
     probe: {

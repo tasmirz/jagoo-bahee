@@ -18,14 +18,44 @@ import {
   registerForumIdentity,
   signInForumIdentity,
 } from '../../signer';
+import {
+  authenticateSignalIdentity,
+  createSignalIdentity,
+  publishSignalDirectoryProfile,
+  publishSignalPrekeys,
+  registerSignalIdentity,
+  signalSessionSummary,
+} from '../../signer/signal';
+import { markSignalBackupOwed } from '../../features/signal/storage';
 import type { IdentityProfile } from '../../data/identity-profiles';
 import { radius, spacing, type as typography, type AppPalette } from '../../design-system';
 
-type Step = 'welcome' | 'server' | 'confirm' | 'identity' | 'protection' | 'backup' | 'register' | 'ready';
+type Step =
+  | 'welcome'
+  | 'server'
+  | 'confirm'
+  | 'identity'
+  | 'protection'
+  | 'backup'
+  | 'register'
+  | 'messaging'
+  | 'username'
+  | 'ready';
 type IdentityMode = 'create' | 'restore';
 type Protection = 'device' | 'password' | 'salt';
 
-const steps: readonly Step[] = ['welcome', 'server', 'confirm', 'identity', 'protection', 'backup', 'register', 'ready'];
+const steps: readonly Step[] = [
+  'welcome',
+  'server',
+  'confirm',
+  'identity',
+  'protection',
+  'backup',
+  'register',
+  'messaging',
+  'username',
+  'ready',
+];
 
 export function WelcomeFlow({
   colors,
@@ -64,11 +94,16 @@ export function WelcomeFlow({
   const [password, setPassword] = useState('');
   const [recoverySalt, setRecoverySalt] = useState('');
   const [identityId, setIdentityId] = useState('');
+  const [signalIdentityId, setSignalIdentityId] = useState('');
+  const [username, setUsername] = useState('');
   const [wordCheck, setWordCheck] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const stepNumber = Math.max(1, steps.indexOf(step));
+  // `welcome` is not a numbered step — it is the cover — so the dots and the count both
+  // run over `steps.slice(1)`. The label used to say "of 7" against an 8-entry array.
+  const numberedSteps = steps.slice(1);
+  const stepNumber = Math.max(1, numberedSteps.indexOf(step) + 1);
   const backupWords = useMemo(() => phrase.trim().split(/\s+/), [phrase]);
   const confirmIndex = backupWords.length === 24 ? 6 : 0;
   const requiresPassword = protection !== 'device';
@@ -129,7 +164,7 @@ export function WelcomeFlow({
       try {
         await signInForumIdentity(candidate.baseUrl, candidate.discovery.services.auditLogs);
         setPhrase('');
-        setStep('ready');
+        setStep('messaging');
       } catch {
         setStep('register');
       }
@@ -143,6 +178,60 @@ export function WelcomeFlow({
       } else {
         await signInForumIdentity(candidate.baseUrl, candidate.discovery.services.auditLogs);
       }
+      setStep('messaging');
+    });
+
+  /**
+   * Create the SIGNAL identity, here, in the same flow — and keep it a separate secret.
+   *
+   * Messaging used to require finding "Signal identity" three taps into a tab most people
+   * never opened, then five more manual steps before anyone could reach you. Doing it here
+   * is a sequencing change, not a linkage: ADR-012 requires two independent mnemonics
+   * (`bip85.ts` deliberately exposes no function that takes one seed and yields both), a
+   * separate SecureStore root, and no record that stores the two together. Nothing written
+   * here associates this key with the Forum key — they are created one after the other, in
+   * the same minute, and that is all.
+   *
+   * Prekeys matter as much as the key: without them nobody can open a conversation with
+   * you, so an identity published without them is discoverable and unreachable.
+   */
+  const createMessaging = () =>
+    run(async () => {
+      if (!candidate) throw new Error('Choose a home server first.');
+      const audits = candidate.discovery.services.auditLogs;
+      const existing = await signalSessionSummary();
+      if (!existing.configured) {
+        // The Signal vault takes the same protection choice as the Forum one, but its
+        // passphrase policy differs — empty is allowed, 1 to 7 characters is refused
+        // (`signer/signal.ts`), where Forum requires 8 or more. Passing the Forum password
+        // through satisfies both; device-lock passes an empty string, which is valid here.
+        const created = await createSignalIdentity(requiresPassword ? password : '', protection === 'salt' ? recoverySalt : '');
+        setSignalIdentityId(created.identityId);
+        await markSignalBackupOwed();
+      } else {
+        setSignalIdentityId(existing.identityId ?? '');
+      }
+      await registerSignalIdentity(candidate.baseUrl, audits);
+      await authenticateSignalIdentity(candidate.baseUrl);
+      await publishSignalPrekeys(candidate.baseUrl, audits);
+      setStep('username');
+    });
+
+  const claimUsername = () =>
+    run(async () => {
+      if (!candidate) throw new Error('Choose a home server first.');
+      const name = username.trim();
+      if (!name) throw new Error('Choose a name people can search for.');
+      await publishSignalDirectoryProfile(
+        candidate.baseUrl,
+        {
+          displayName: name,
+          discoverable: true,
+          languages: ['bn', 'en'],
+          revision: BigInt(Date.now()),
+        },
+        candidate.discovery.services.auditLogs,
+      );
       setStep('ready');
     });
 
@@ -167,8 +256,8 @@ export function WelcomeFlow({
         <Text style={[typography.bodyLarge, { color: colors.onAccent }]}>A local identity, a server you choose, and proof you can carry.</Text>
       </LinearGradient>
 
-      <View style={styles.progress} accessibilityLabel={`Step ${stepNumber} of 7`}>
-        {steps.slice(1).map((item, index) => <View key={item} style={[styles.progressDot, { backgroundColor: index < stepNumber ? colors.ember : colors.border }]} />)}
+      <View style={styles.progress} accessibilityLabel={`Step ${stepNumber} of ${numberedSteps.length}`}>
+        {numberedSteps.map((item, index) => <View key={item} style={[styles.progressDot, { backgroundColor: index < stepNumber ? colors.ember : colors.border }]} />)}
       </View>
       <View style={styles.content}>
         {error ? <StatusBanner colors={colors} icon="alert-circle-outline" title="Try again" body={error} tone="danger" /> : null}
@@ -179,7 +268,9 @@ export function WelcomeFlow({
         {step === 'identity' ? <IdentityStep colors={colors} mode={mode} phrase={phrase} onPhrase={setPhrase} onContinue={() => setStep('protection')} onChangeMode={() => { setMode(mode === 'create' ? 'restore' : 'create'); setPhrase(''); }} /> : null}
         {step === 'protection' ? <ProtectionStep colors={colors} protection={protection} password={password} salt={recoverySalt} onProtection={setProtection} onPassword={setPassword} onSalt={setRecoverySalt} onContinue={createOrRestore} busy={busy} /> : null}
         {step === 'backup' ? <BackupStep colors={colors} phrase={phrase} confirmIndex={confirmIndex} wordCheck={wordCheck} onWordCheck={setWordCheck} onContinue={() => { setPhrase(''); setStep('register'); }} /> : null}
-        {step === 'register' ? <RegisterStep busy={busy} colors={colors} identityId={identityId} candidate={candidate} mode={mode} onRegister={register} onOffline={() => setStep('ready')} /> : null}
+        {step === 'register' ? <RegisterStep busy={busy} colors={colors} identityId={identityId} candidate={candidate} mode={mode} onRegister={register} onOffline={() => setStep('messaging')} /> : null}
+        {step === 'messaging' ? <MessagingStep busy={busy} colors={colors} signalIdentityId={signalIdentityId} onContinue={createMessaging} onSkip={() => setStep('ready')} /> : null}
+        {step === 'username' ? <UsernameStep busy={busy} colors={colors} signalIdentityId={signalIdentityId} username={username} onUsername={setUsername} onClaim={claimUsername} onSkip={() => setStep('ready')} /> : null}
         {step === 'ready' ? <ReadyStep colors={colors} candidate={candidate} identityId={identityId} mode={mode} busy={busy} onFinish={finish} /> : null}
       </View>
     </Screen>
@@ -229,8 +320,25 @@ function ServerStep({ address, busy, colors, transport, onAddress, onTransport, 
   </View>;
 }
 
+/**
+ * What this server offers, phrased as facts rather than as a count of absences.
+ *
+ * "0 anti-abuse services" read as a defect on the screen where someone decides whether to
+ * trust a server, when in truth every node protects itself with proof of work and mCaptcha
+ * is an optional extra almost nobody runs. An audit copy IS worth counting: zero of them
+ * genuinely means nothing outside this server witnesses what it publishes.
+ */
+function describeServerServices(candidate: HomeNode): string {
+  const audits = candidate.discovery.services.auditLogs.length;
+  const witness =
+    audits === 0
+      ? 'No independent audit log witnesses this server yet.'
+      : `${audits} independent audit log${audits === 1 ? '' : 's'} witness what it publishes.`;
+  return `${witness} Spam is limited by proof of work, so you never have to prove who you are.`;
+}
+
 function ConfirmStep({ candidate, colors, onContinue, onBack }: { readonly candidate: HomeNode; readonly colors: AppPalette; readonly onContinue: () => void; readonly onBack: () => void }) {
-  return <View style={styles.stack}><Text accessibilityRole="header" style={[typography.h1, { color: colors.text }]}>This server is reachable</Text><View style={[styles.detailCard, { borderColor: colors.border, backgroundColor: colors.surface }]}><Text style={[typography.overline, { color: colors.ember }]}>Home server · {candidate.transport === 'tor' ? 'via Tor' : 'direct'}</Text><Text style={[typography.h2, { color: colors.text }]}>{candidate.discovery.node.displayName}</Text><Text selectable style={[typography.mono, { color: colors.text2 }]}>{candidate.baseUrl}</Text><Text selectable style={[typography.mono, { color: colors.text2 }]}>{candidate.discovery.node.serverId}</Text></View><Text style={[typography.body, { color: colors.text2 }]}>It advertises {candidate.discovery.services.auditLogs.length} audit service{candidate.discovery.services.auditLogs.length === 1 ? '' : 's'} and {candidate.discovery.services.mcaptcha.length} anti-abuse service{candidate.discovery.services.mcaptcha.length === 1 ? '' : 's'}.</Text><Button colors={colors} label="Use this server" onPress={onContinue} /><Button colors={colors} label="Choose another" variant="ghost" onPress={onBack} /></View>;
+  return <View style={styles.stack}><Text accessibilityRole="header" style={[typography.h1, { color: colors.text }]}>This server is reachable</Text><View style={[styles.detailCard, { borderColor: colors.border, backgroundColor: colors.surface }]}><Text style={[typography.overline, { color: colors.ember }]}>Home server · {candidate.transport === 'tor' ? 'via Tor' : 'direct'}</Text><Text style={[typography.h2, { color: colors.text }]}>{candidate.discovery.node.displayName}</Text><Text selectable style={[typography.mono, { color: colors.text2 }]}>{candidate.baseUrl}</Text><Text selectable style={[typography.mono, { color: colors.text2 }]}>{candidate.discovery.node.serverId}</Text></View><Text style={[typography.body, { color: colors.text2 }]}>{describeServerServices(candidate)}</Text><Button colors={colors} label="Use this server" onPress={onContinue} /><Button colors={colors} label="Choose another" variant="ghost" onPress={onBack} /></View>;
 }
 
 function IdentityStep({ colors, mode, phrase, onPhrase, onContinue, onChangeMode }: { readonly colors: AppPalette; readonly mode: IdentityMode; readonly phrase: string; readonly onPhrase: (value: string) => void; readonly onContinue: () => void; readonly onChangeMode: () => void }) {
@@ -253,6 +361,31 @@ function BackupStep({ colors, phrase, confirmIndex, wordCheck, onWordCheck, onCo
     setCopied(true);
   };
   return <View style={styles.stack}><StatusBanner colors={colors} icon="eye-off-outline" title="Shown once" body="Jagoo Bahee and your server cannot recover this phrase. Save it somewhere private before continuing." tone="warning" /><Text accessibilityRole="header" style={[typography.h1, { color: colors.text }]}>Write down your recovery phrase</Text><Pressable accessibilityRole="button" accessibilityLabel="Copy recovery phrase" onPress={copy} style={[styles.wordGrid, { borderColor: copied ? colors.verified : colors.border, backgroundColor: colors.surface }]}>{words.map((word, index) => <Text key={`${word}-${index}`} selectable style={[typography.mono, { color: colors.text }]}>{String(index + 1).padStart(2, '0')}. {word}</Text>)}<View style={styles.copyHint}><Ionicons name={copied ? 'checkmark-circle' : 'copy-outline'} size={17} color={copied ? colors.verified : colors.ember} /><Text accessibilityLiveRegion="polite" style={[typography.caption, { color: copied ? colors.verified : colors.ember }]}>{copied ? 'Copied to clipboard' : 'Tap to copy all 24 words'}</Text></View></Pressable><Text style={[typography.label, { color: colors.text }]}>What is word {confirmIndex + 1}?</Text><TextInput accessibilityLabel={`Recovery word ${confirmIndex + 1}`} autoCapitalize="none" autoCorrect={false} style={[styles.input, typography.body, { borderColor: colors.border, backgroundColor: colors.surface, color: colors.text }]} value={wordCheck} onChangeText={onWordCheck} /><Button colors={colors} disabled={!checked} label="I saved it safely" onPress={onContinue} /></View>;
+}
+
+/**
+ * The Signal identity, created here rather than three taps into a tab nobody opened.
+ *
+ * The plane separation is stated on the screen instead of being left implicit. Someone is
+ * about to publish a name under an identity that is deliberately NOT their forum identity,
+ * and if they assume the two are connected they will make the wrong call about what to say
+ * under each. CLAUDE.md §6 forbids the UI offering plane linkage; it does not forbid
+ * explaining the separation, and explaining it is the only way the choice is informed.
+ */
+function MessagingStep({ busy, colors, signalIdentityId, onContinue, onSkip }: { readonly busy: boolean; readonly colors: AppPalette; readonly signalIdentityId: string; readonly onContinue: () => void; readonly onSkip: () => void }) {
+  return <View style={styles.stack}><Text accessibilityRole="header" style={[typography.h1, { color: colors.text }]}>Set up messaging</Text><Text style={[typography.body, { color: colors.text2 }]}>Messaging uses a second, separate identity — one people are meant to recognise. Your forum posts stay under the pseudonymous identity you just made, and nothing connects the two.</Text><View style={[styles.detailCard, { borderColor: colors.border, backgroundColor: colors.surface }]}>{['Create a separate messaging key', 'Certify it with your server', 'Publish keys so people can reach you'].map((item, index) => <View key={item} style={styles.timelineRow}><Text style={[typography.mono, { color: colors.signal }]}>{index + 1}</Text><Text style={[typography.body, { color: colors.text }]}>{item}</Text></View>)}</View>{signalIdentityId ? <Text selectable style={[typography.mono, { color: colors.text2 }]}>{signalIdentityId}</Text> : null}<Text style={[typography.caption, { color: colors.text2 }]}>This identity has its own 24-word phrase. We will ask you to write it down once you are set up — your forum phrase is the one that matters most, and two at once is two nobody reads.</Text><Button colors={colors} disabled={busy} label={busy ? 'Setting up messaging…' : 'Set up messaging'} onPress={onContinue} /><Button colors={colors} label="Skip for now" variant="ghost" onPress={onSkip} /></View>;
+}
+
+/**
+ * Claiming the name people will search for.
+ *
+ * First-come on this server only — another server in the federation can hand the same name
+ * to a different key, and no node can prevent that without a naming authority this project
+ * rejects. So the fingerprint is shown beside the name from the very first screen that
+ * mentions one, and every later surface does the same.
+ */
+function UsernameStep({ busy, colors, signalIdentityId, username, onUsername, onClaim, onSkip }: { readonly busy: boolean; readonly colors: AppPalette; readonly signalIdentityId: string; readonly username: string; readonly onUsername: (value: string) => void; readonly onClaim: () => void; readonly onSkip: () => void }) {
+  return <View style={styles.stack}><Text accessibilityRole="header" style={[typography.h1, { color: colors.text }]}>Pick a name people can find</Text><Text style={[typography.body, { color: colors.text2 }]}>People on your server — and on servers it connects to — can search for this name and start a conversation with you.</Text><TextInput accessibilityLabel="Your messaging name" autoCapitalize="words" autoCorrect={false} maxLength={80} onChangeText={onUsername} placeholder="Amina Rahman" placeholderTextColor={colors.text3} style={[styles.input, typography.bodyLarge, { borderColor: colors.border, backgroundColor: colors.surface, color: colors.text }]} value={username} />{signalIdentityId ? <View style={[styles.detailCard, { borderColor: colors.border, backgroundColor: colors.surface }]}><Text style={[typography.overline, { color: colors.signal }]}>Your messaging fingerprint</Text><Text selectable style={[typography.mono, { color: colors.text2 }]}>{signalIdentityId}</Text><Text style={[typography.caption, { color: colors.text2 }]}>Names can repeat across servers. This never does — it is what proves a person is who their name says.</Text></View> : null}<Text style={[typography.caption, { color: colors.text2 }]}>This name is public and identified. It is not connected to your forum identity, and it should not be a name you post under there.</Text><Button colors={colors} disabled={busy || !username.trim()} label={busy ? 'Publishing…' : 'Claim this name'} onPress={onClaim} /><Button colors={colors} label="Skip for now" variant="ghost" onPress={onSkip} /></View>;
 }
 
 function RegisterStep({ busy, colors, identityId, candidate, mode, onRegister, onOffline }: { readonly busy: boolean; readonly colors: AppPalette; readonly identityId: string; readonly candidate: HomeNode | null; readonly mode: IdentityMode; readonly onRegister: () => void; readonly onOffline: () => void }) {

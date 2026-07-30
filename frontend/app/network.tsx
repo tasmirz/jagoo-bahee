@@ -10,8 +10,10 @@ export default function NetworkRoute() {
     activeProfileId,
     colors,
     disconnectHomeNode,
+    forgetIdentityProfile,
     homeNode,
     identityProfiles,
+    locale,
     reach,
     switchIdentity,
   } = useApp();
@@ -24,9 +26,11 @@ export default function NetworkRoute() {
         homeNode={homeNode}
         activeProfileId={activeProfileId}
         identityProfiles={identityProfiles}
+        locale={locale}
         onBack={() => router.back()}
         onMesh={() => router.push('/mesh')}
         onAddIdentity={() => router.push('/identity/new' as never)}
+        onForgetProfile={forgetIdentityProfile}
         onSwitchIdentity={switchIdentity}
         onChangeServer={() =>
           void disconnectHomeNode().then(() => {

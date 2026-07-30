@@ -26,6 +26,7 @@
     "test:relay": "python -m pytest services/relay -q",
     "dev:backend": "pnpm --filter @jagoo/backend dev",
     "dev:audit-log": "pnpm --filter @jagoo/audit-log dev",
+    "dev:node": "pnpm --parallel --filter @jagoo/backend --filter @jagoo/audit-log dev",
     "dev:frontend": "pnpm --filter @jagoo/frontend dev",
     "seed:demo": "pnpm --filter @jagoo/backend seed:demo",
     "smoke:local": "pnpm --filter @jagoo/backend smoke:local",

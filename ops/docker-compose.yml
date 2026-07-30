@@ -249,6 +249,11 @@ services:
       S3_BUCKET: 'jagoo'
       S3_ACCESS_KEY: 'jagoo'
       S3_SECRET_KEY: 'jagoo-dev-only'
+      # The address a CLIENT dials, not one inside this network: port 3100 is published to
+      # the host by the `audit-log` service. Omitting this is why the federation harness
+      # advertised no audit log while the single-node `node` service did.
+      AUDIT_LOG_SERVICES: 'http://127.0.0.1:3100'
+      SERVICE_DISCOVERY_PROBE: 'false'
     ports:
       - '3001:3000'
       # The federation port is published so an operator can point a THIRD node at this
@@ -297,6 +302,8 @@ services:
       S3_BUCKET: 'jagoo'
       S3_ACCESS_KEY: 'jagoo'
       S3_SECRET_KEY: 'jagoo-dev-only'
+      AUDIT_LOG_SERVICES: 'http://127.0.0.1:3100'
+      SERVICE_DISCOVERY_PROBE: 'false'
     ports:
       - '3002:3000'
       - '8452:8444'

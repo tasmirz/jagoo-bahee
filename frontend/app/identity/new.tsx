@@ -5,11 +5,15 @@ import { AppScene } from '../../src/design-system';
 
 export default function NewIdentityRoute() {
   const router = useRouter();
-  const { colors, connectHomeNode } = useApp();
+  const { colors, connectHomeNode, identityProfiles } = useApp();
   return (
     <AppScene colors={colors}>
       <WelcomeFlow
         colors={colors}
+        // Without this, restoring a phrase this device already holds writes a SECOND vault
+        // for the same identity and leaves a duplicate row in the server list. The launch
+        // flow has always passed it; the add-a-server route did not.
+        identityProfiles={identityProfiles}
         onComplete={async (address, options) => {
           await connectHomeNode(address, options);
           router.dismissAll();

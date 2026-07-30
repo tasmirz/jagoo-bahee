@@ -23,6 +23,12 @@ import {
   TextField,
 } from '../../design-system';
 import { radius, spacing, type as typography } from '../../design-system';
+import QRCode from 'react-native-qrcode-svg';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { PeoplePicker } from './people-picker';
+import { loadSignalContacts, type SignalContact } from './contacts';
+import { encodeSignalIdentityCard } from './identity-card';
+import { clearSignalBackupOwed, isSignalBackupOwed } from './storage';
 import { useAsyncAction } from '../../hooks/use-async-action';
 import { useNodeDocument, type NodePage } from '../../data/node';
 import type { HomeNode } from '../../data/node-config';
@@ -54,6 +60,7 @@ import {
   updateSecureSignalGroup,
   updateOwnedSignalChannel,
   vouchSignalChannel,
+  revealSignalRecoveryPhrase,
   unlockSignalIdentity,
   verifySignalQrFingerprint,
   type SignalSessionSummary,
@@ -413,11 +420,17 @@ export function SignalHomeScreen({
           </Text>
         </View>
       </View>
+      {/*
+        Messaging is the primary action, not the third secondary button.
+        People arrive at this tab wanting to talk to someone; it used to be an equal-weight
+        chip beside "LXMF mesh", and reaching a first message meant eleven steps that began
+        with finding "Signal identity" and ended with pasting 64 hex characters.
+      */}
+      <Button colors={colors} label="Messages" icon="chatbubbles-outline" onPress={onMessages} system="signal" />
       <SignalActions colors={colors} onChannels={onChannels} onCheckIn={onCheckIn} onMap={onMap} />
       <Row gap={spacing.sm} wrap>
-        <Button colors={colors} label="Signal identity" onPress={onIdentity} variant="secondary" system="signal" />
-        <Button colors={colors} label="Private messages" onPress={onMessages} variant="secondary" system="signal" />
-        <Button colors={colors} label="LXMF mesh" onPress={onMesh} variant="secondary" system="signal" icon="radio-outline" />
+        <Button colors={colors} label="Your identity and code" onPress={onIdentity} variant="secondary" system="signal" icon="qr-code-outline" />
+        <Button colors={colors} label="Radio (LXMF)" onPress={onMesh} variant="ghost" system="signal" icon="radio-outline" />
       </Row>
       {subscriptions.length === 0 ? (
         <StatusBanner
@@ -564,6 +577,8 @@ export function SignalChannelScreen({
   const [subscribed, setSubscribed] = useState(false);
   const [personallyVerified, setPersonallyVerified] = useState(false);
   const [scannedFingerprint, setScannedFingerprint] = useState('');
+  const [verifyScanning, setVerifyScanning] = useState(false);
+  const [verifyPermission, requestVerifyPermission] = useCameraPermissions();
   const [notice, setNotice] = useState('');
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
@@ -586,9 +601,9 @@ export function SignalChannelScreen({
     void isSignalFingerprintVerified(channel.currentSigningKey).then(setPersonallyVerified);
   }, [channel]);
 
-  const verify = async () => {
+  const verify = async (scanned = scannedFingerprint) => {
     if (!channel) return;
-    if (!verifySignalQrFingerprint(Uint8Array.from(channel.currentSigningKey.match(/.{2}/g)?.map((pair) => Number.parseInt(pair, 16)) ?? []), scannedFingerprint)) {
+    if (!verifySignalQrFingerprint(Uint8Array.from(channel.currentSigningKey.match(/.{2}/g)?.map((pair) => Number.parseInt(pair, 16)) ?? []), scanned)) {
       setNotice('Fingerprint does not match this channel. Do not trust the claim.');
       return;
     }
@@ -681,14 +696,49 @@ export function SignalChannelScreen({
           />
           <SectionHeader colors={colors} title="In-person verification" />
           <Fingerprint colors={colors} full={channel.currentSigningKey} value={channel.currentSigningKey.match(/.{1,4}/g)?.join(' ') ?? channel.currentSigningKey} />
-          <Field
+          {/*
+            This asked the user to READ a base64 fingerprint off another device and TYPE it
+            in, on the screen whose entire purpose is confirming an identity in person —
+            while `verifySignalQrFingerprint` was written to receive a scan and a working
+            camera scanner already existed elsewhere in the app. Typing stays as the fallback
+            for a device with no camera, or a fingerprint that arrived on paper.
+          */}
+          <Button
             colors={colors}
-            label="Scanned QR fingerprint (base64)"
-            onChangeText={setScannedFingerprint}
-            placeholder={hexToBase64(channel.currentSigningKey)}
-            value={scannedFingerprint}
+            icon="camera-outline"
+            label={verifyScanning ? 'Stop scanning' : 'Scan their code'}
+            onPress={() =>
+              void (verifyScanning
+                ? setVerifyScanning(false)
+                : verifyPermission?.granted
+                  ? setVerifyScanning(true)
+                  : requestVerifyPermission().then((result) => setVerifyScanning(result.granted)))
+            }
+            system="signal"
           />
-          <Button colors={colors} label="Verify locally" onPress={() => void verify()} variant="secondary" system="signal" />
+          {verifyScanning ? (
+            <View style={styles.scanner}>
+              <CameraView
+                barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+                onBarcodeScanned={(result) => {
+                  setVerifyScanning(false);
+                  setScannedFingerprint(result.data);
+                  void verify(result.data);
+                }}
+                style={StyleSheet.absoluteFill}
+              />
+            </View>
+          ) : null}
+          <Disclosure colors={colors} title="Type it instead">
+            <Field
+              colors={colors}
+              label="Fingerprint from their device (base64)"
+              onChangeText={setScannedFingerprint}
+              placeholder={hexToBase64(channel.currentSigningKey)}
+              value={scannedFingerprint}
+            />
+            <Button colors={colors} label="Verify locally" onPress={() => void verify()} variant="secondary" system="signal" />
+          </Disclosure>
           <SectionHeader colors={colors} title="Trust & lifecycle" action={lifecycleOpen ? 'Close' : 'Manage'} onAction={() => setLifecycleOpen((value) => !value)} />
           {lifecycleOpen ? (
             <Card colors={colors} style={styles.lifecycle}>
@@ -1248,6 +1298,57 @@ function VaultUnlock({
   );
 }
 
+/**
+ * Your identity as something another person can point a camera at.
+ *
+ * The out-of-federation path. Directory search only reaches servers yours has heard of, and
+ * the previous answer was to read out 64 hexadecimal characters. The QR generator and the
+ * scanner both already existed in the mesh pairing screen; only the payload is new.
+ *
+ * The fingerprint is shown as text beside the code deliberately: a code scanned from a
+ * screen someone else controls proves nothing about who is holding it, and comparing the
+ * fingerprint aloud is what turns a scan into a verified contact.
+ */
+function SignalIdentityShare({
+  colors,
+  homeServer,
+  identityKeyHex,
+}: {
+  readonly colors: AppPalette;
+  readonly homeServer: string;
+  readonly identityKeyHex: string;
+}) {
+  const card = useMemo(
+    () =>
+      encodeSignalIdentityCard({
+        identityKey: Uint8Array.from(
+          identityKeyHex.match(/.{2}/g) ?? [],
+          (pair) => Number.parseInt(pair, 16),
+        ),
+        displayName: '',
+        homeServer,
+      }),
+    [homeServer, identityKeyHex],
+  );
+  return (
+    <>
+      <SectionHeader colors={colors} title="Let someone add you" />
+      <Card colors={colors} style={styles.share}>
+        {/* Fixed light background regardless of theme — a QR code needs a light quiet zone
+            to scan reliably, so this is not a themed surface. */}
+        <View style={styles.qr}>
+          <QRCode backgroundColor="#FFFFFF" quietZone={8} size={200} value={card} />
+        </View>
+        <Fingerprint colors={colors} full={identityKeyHex} value={identityKeyHex} />
+        <Text style={[typography.caption, { color: colors.text2 }]}>
+          They scan this to message you, even from a server yours has never met. Read the
+          fingerprint aloud so you both know the code came from this device.
+        </Text>
+      </Card>
+    </>
+  );
+}
+
 function VaultActions({
   colors,
   busy,
@@ -1313,12 +1414,22 @@ export function SignalIdentityScreen({ colors, mode, homeNode, reach, onNetwork,
   const [revokeConfirm, setRevokeConfirm] = useState('');
   const [done, setDone] = useState('');
   const [recoveryCopied, setRecoveryCopied] = useState(false);
+  const [backupOwed, setBackupOwed] = useState(false);
   const action = useAsyncAction();
 
-  const refresh = useCallback(async () => setSummary(await signalSessionSummary()), []);
+  const refresh = useCallback(async () => {
+    setSummary(await signalSessionSummary());
+    setBackupOwed(await isSignalBackupOwed());
+  }, []);
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // The debt is settled once the words have actually been on screen — not when the card was
+  // dismissed, because dismissing is what people do to a prompt they intend to ignore.
+  useEffect(() => {
+    if (recoveryCopied && recovery) void clearSignalBackupOwed().then(() => setBackupOwed(false));
+  }, [recovery, recoveryCopied]);
 
   const run = useCallback(
     (label: string, operation: () => Promise<unknown>) =>
@@ -1426,6 +1537,36 @@ export function SignalIdentityScreen({ colors, mode, homeNode, reach, onNetwork,
         </Pressable>
       ) : null}
 
+      {/*
+        The debt onboarding took on. Creating the Signal identity there but walking two
+        24-word grids back to back is how people stop reading either of them, so the Signal
+        phrase is owed rather than skipped — and the prompt returns until it is settled,
+        because a one-off dismissible card is a card nobody sees twice.
+      */}
+      {stage === 'unlocked' && backupOwed && !recovery ? (
+        <StatusBanner
+          action="Show my phrase"
+          onAction={() =>
+            run('Reading your recovery phrase', async () => ({
+              recoveryPhrase: await revealSignalRecoveryPhrase(),
+            }))
+          }
+          body="Your messaging identity has its own 24 words. Without them, losing this device loses this identity — your forum identity is recovered separately."
+          colors={colors}
+          icon="warning-outline"
+          title="Back up your messaging identity"
+          tone="warning"
+        />
+      ) : null}
+
+      {stage === 'unlocked' && summary.identityKeyHex ? (
+        <SignalIdentityShare
+          colors={colors}
+          homeServer={homeNode.baseUrl}
+          identityKeyHex={summary.identityKeyHex}
+        />
+      ) : null}
+
       {stage === 'unlocked' ? (
         <VaultActions
           authenticated={summary.authenticated}
@@ -1455,6 +1596,8 @@ export function SignalIdentityScreen({ colors, mode, homeNode, reach, onNetwork,
 export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach, onNetwork, onBack }: SignalScreenProps) {
   const [mode, setMode] = useState<'sessions' | 'groups'>('sessions');
   const [recipient, setRecipient] = useState('');
+  const [recipientName, setRecipientName] = useState('');
+  const [contacts, setContacts] = useState<readonly SignalContact[]>([]);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
@@ -1489,7 +1632,36 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
   };
   useEffect(() => {
     void refresh();
+    void loadSignalContacts().then(setContacts);
+    /*
+      Replies used to appear only when someone remembered to tap "Refresh encrypted inbox",
+      which makes a messaging app look like it silently drops messages. The Signal home
+      screen already polls broadcasts on this cadence; matching it keeps the two surfaces
+      consistent and does not add a second timing to reason about.
+    */
+    const timer = setInterval(() => void refresh(), 10_000);
+    return () => clearInterval(timer);
   }, [homeNode.baseUrl]);
+
+  /** The other participant's key in a session, whichever side of it this device is on. */
+  const counterpartKey = (session: DecryptedSignalSession): string =>
+    session.senderKey.toLowerCase() === identityKey.toLowerCase()
+      ? session.recipientKey
+      : session.senderKey;
+
+  /**
+   * A person's name, falling back to a short key.
+   *
+   * Threads were labelled `session.id.slice(0, 10)` — a content-ID prefix, which tells a
+   * person nothing about who they are talking to.
+   */
+  const nameFor = (key: string): string => {
+    const contact = contacts.find(
+      (item) => item.identityKey.toLowerCase() === key.toLowerCase(),
+    );
+    return contact?.displayName || `${key.slice(0, 8)}…`;
+  };
+
   const send = async () => {
     setBusy(true);
     setNotice('');
@@ -1591,11 +1763,36 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
           <Row gap={spacing.xs} wrap>
             <Pill colors={colors} label="New session" onPress={() => setActiveSession('')} selected={!activeSession} />
             {sessions.map((session) => (
-              <Pill colors={colors} key={session.id} label={session.id.slice(0, 10)} onPress={() => setActiveSession(session.id)} selected={activeSession === session.id} />
+              <Pill colors={colors} key={session.id} label={nameFor(counterpartKey(session))} onPress={() => setActiveSession(session.id)} selected={activeSession === session.id} />
             ))}
           </Row>
           {!activeSession ? (
-            <Field colors={colors} label="Recipient Signal key (hex)" onChangeText={setRecipient} placeholder="64 hexadecimal characters" value={recipient} />
+            recipientName ? (
+              <Card colors={colors} style={styles.lifecycle}>
+                <Row gap={spacing.xs}>
+                  <Ionicons color={colors.signal} name="person-circle-outline" size={20} />
+                  <View style={styles.flex}>
+                    <Text style={[typography.label, { color: colors.text }]}>{recipientName}</Text>
+                    <Fingerprint colors={colors} value={recipient} />
+                  </View>
+                  <Button colors={colors} label="Change" onPress={() => { setRecipient(''); setRecipientName(''); }} variant="ghost" />
+                </Row>
+              </Card>
+            ) : (
+              /*
+                Was a text field demanding 64 hexadecimal characters obtained out of band —
+                the single biggest reason nobody could start a conversation. Search, saved
+                contacts and QR all resolve to the same key underneath.
+              */
+              <PeoplePicker
+                baseUrl={homeNode.baseUrl}
+                colors={colors}
+                onPick={(person) => {
+                  setRecipient(person.identityKey);
+                  setRecipientName(person.displayName || person.identityId || 'Scanned identity');
+                }}
+              />
+            )
           ) : null}
           <Field colors={colors} label={activeSession ? 'Message' : 'First message'} multiline onChangeText={setMessage} value={message} />
           <Button colors={colors} disabled={busy || (!activeSession && recipient.length !== 64) || message.trim().length === 0} label={busy ? 'Encrypting…' : activeSession ? 'Send encrypted message' : 'Start encrypted session'} onPress={() => void send()} system="signal" />
@@ -1650,7 +1847,7 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
         >
           <View style={styles.flex}>
             <Text style={[typography.caption, { color: colors.text2 }]}>
-              {session.senderKey.slice(0, 16)}… · {new Date(session.createdAtMs).toLocaleString()}
+              {nameFor(session.senderKey)} · {new Date(session.createdAtMs).toLocaleString()}
             </Text>
             <Text style={[typography.body, { color: colors.text }]}>
               {session.plaintext ?? 'Ciphertext for the other participant'}
@@ -1858,5 +2055,8 @@ const styles = StyleSheet.create({
   },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   recovery: { borderRadius: radius.md, borderWidth: 1, gap: spacing.sm, padding: spacing.md },
+  share: { alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
+  scanner: { height: 280, borderRadius: radius.lg, overflow: 'hidden' },
+  qr: { backgroundColor: '#FFFFFF', borderRadius: radius.md, padding: spacing.sm },
   signalMark: { borderRadius: radius.pill, height: 12, marginTop: spacing.xs, width: 12 },
 });

@@ -1,5 +1,5 @@
 import * as mockReact from 'react';
-import { Text as mockTextComponent } from 'react-native';
+import { Image, Text, Text as mockTextComponent } from 'react-native';
 import renderer, { act } from 'react-test-renderer';
 import { QueryClientProvider } from '@tanstack/react-query';
 import BootstrapRoute from '../index';
@@ -86,6 +86,7 @@ function appValue(
     colors: palettes.light,
     connectHomeNode: jest.fn(async () => undefined),
     disconnectHomeNode: jest.fn(async () => undefined),
+    forgetIdentityProfile: jest.fn(async () => undefined),
     homeNode,
     identityProfiles: [],
     locale: 'en' as const,
@@ -138,6 +139,22 @@ describe('bootstrap route', () => {
     });
     expect(view.root.findAllByProps({ accessibilityLabel: 'Opening Jagoo Bahee' })).not.toHaveLength(0);
     expect(view.root.findAllByProps({ accessibilityLabel: 'Redirect to /(tabs)' })).toHaveLength(0);
+    act(() => view.unmount());
+  });
+
+  it('shows the mark and the app name at launch, and no progress bar', async () => {
+    mockUseApp.mockReturnValue(appValue(savedNode, null));
+    let view!: renderer.ReactTestRenderer;
+    await act(async () => {
+      view = renderer.create(<BootstrapRoute />);
+    });
+    // A determinate-looking bar over an indeterminate wait misreports progress, and the OS
+    // splash this replaces never had one.
+    expect(view.root.findAllByProps({ accessibilityRole: 'progressbar' })).toHaveLength(0);
+    expect(view.root.findAllByType(Image)).not.toHaveLength(0);
+    expect(
+      view.root.findAllByType(Text).some((node) => node.props.children === 'Jagoo Bahee'),
+    ).toBe(true);
     act(() => view.unmount());
   });
 

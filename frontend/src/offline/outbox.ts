@@ -273,6 +273,26 @@ export async function clearOutboxPlane(plane: Plane): Promise<void> {
   await write((await read()).filter((record) => record.plane !== plane));
 }
 
+const sameNode = (record: OutboxRecord, baseUrl: string): boolean =>
+  record.baseUrl === baseUrl.replace(/\/+$/, '');
+
+/**
+ * Envelopes still owed to one server.
+ *
+ * Each record carries the `baseUrl` it was signed and queued for, and `deliver` sends to
+ * that address — so switching servers never misdirects a queued envelope. Removing a
+ * server is the case that needs this: those envelopes would otherwise retry forever
+ * against an address the person has deleted, so the count is shown before they confirm.
+ */
+export async function countOutboxForNode(baseUrl: string): Promise<number> {
+  return (await listOutbox()).filter((record) => sameNode(record, baseUrl)).length;
+}
+
+/** Drop everything queued for one server. Only ever called with explicit confirmation. */
+export async function clearOutboxNode(baseUrl: string): Promise<void> {
+  await write((await read()).filter((record) => !sameNode(record, baseUrl)));
+}
+
 export function envelopeBytes(record: OutboxRecord): Uint8Array {
   return unbase64(record.envelope);
 }

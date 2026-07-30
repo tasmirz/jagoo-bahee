@@ -80,11 +80,11 @@ export class TransportRuntime
     // TP-01 in practice: probe once at boot so the FIRST dial already prefers the narrowest
     // working scope. Waiting a full interval would mean every node spends its first thirty
     // seconds on whatever path the OS routing table happens to name.
-    if (this.deps.config.configured) {
+    if (this.deps.config.probing) {
       await this.deps.supervisor.tick().catch(() => undefined);
     }
 
-    if (this.deps.config.configured && this.deps.config.probe.intervalMs > 0) {
+    if (this.deps.config.probing && this.deps.config.probe.intervalMs > 0) {
       this.probeTimer = setInterval(() => {
         void this.deps.supervisor.tick().catch(() => undefined);
       }, this.deps.config.probe.intervalMs);

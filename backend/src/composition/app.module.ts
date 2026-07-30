@@ -532,8 +532,12 @@ class ReticulumLifecycle implements OnModuleInit, OnApplicationShutdown {
 
     {
       provide: ProjectionStore,
-      useFactory: (mongo: MongoRuntime | null) =>
-        mongo ? new MongoProjectionStore(mongo.db, mongo.client) : new InMemoryProjectionStore(),
+      useFactory: async (mongo: MongoRuntime | null) => {
+        if (!mongo) return new InMemoryProjectionStore();
+        const store = new MongoProjectionStore(mongo.db, mongo.client);
+        await store.ensureIndexes();
+        return store;
+      },
       inject: [MONGO_RUNTIME],
     },
 

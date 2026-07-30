@@ -35,6 +35,7 @@ import {
 } from '../../../features/signal/message/signal-message.handlers.js';
 import {
   SIGNAL_DIRECTORY_PROFILES_COLLECTION,
+  signalDirectoryNameSkeleton,
   type SignalDirectoryProfileDoc,
 } from '../../../features/signal/directory/profile.handlers.js';
 
@@ -175,16 +176,36 @@ export class SignalReadController {
       .collection<SignalDirectoryProfileDoc>(SIGNAL_DIRECTORY_PROFILES_COLLECTION)
       .find({ discoverable: true }, MAX_SCAN);
     const needle = query?.trim().toLocaleLowerCase() ?? '';
-    const page = paginate(
-      rows.filter((profile) => {
-        if (!needle) return true;
-        return `${profile.displayName}\n${profile.codename || profile.id}\n${profile.bio}\n${profile.claims.map((claim) => claim.value).join('\n')}`
-          .toLocaleLowerCase()
-          .includes(needle);
-      }),
-      limit,
-      cursor,
-    );
+    /**
+     * Someone typing a name wants the person with that name first.
+     *
+     * A plain substring match returned whoever happened to be scanned first, so searching
+     * "ami" could put a stranger whose BIO mentions Amina above Amina herself. Ranking is
+     * by how directly the query matched: the exact handle, then a handle it starts, then a
+     * handle containing it, then anything else the row mentions. `nameSkeleton` — NFKC
+     * folded, marks stripped — is what makes this work in Bangla and for accented Latin,
+     * and it has been computed and stored on every row since the projection existed
+     * without ever being read.
+     */
+    const skeleton = signalDirectoryNameSkeleton(needle);
+    const scored = rows
+      .map((profile) => {
+        if (!needle) return { profile, rank: 0 };
+        const name = profile.nameSkeleton || signalDirectoryNameSkeleton(profile.displayName);
+        if (skeleton && name === skeleton) return { profile, rank: 0 };
+        if (skeleton && name.startsWith(skeleton)) return { profile, rank: 1 };
+        if (skeleton && name.includes(skeleton)) return { profile, rank: 2 };
+        const haystack = `${profile.displayName}\n${profile.codename || profile.id}\n${profile.bio}\n${profile.claims.map((claim) => claim.value).join('\n')}`;
+        return haystack.toLocaleLowerCase().includes(needle)
+          ? { profile, rank: 3 }
+          : { profile, rank: -1 };
+      })
+      .filter((row) => row.rank >= 0)
+      // Ties break on the identity ID so the page is stable across requests and the cursor
+      // does not skip or repeat a row between pages.
+      .sort((left, right) => left.rank - right.rank || left.profile.id.localeCompare(right.profile.id))
+      .map((row) => row.profile);
+    const page = paginate(scored, limit, cursor);
     return {
       items: page.items.map((profile) => ({
         ...profile,

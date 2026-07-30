@@ -36,6 +36,7 @@ import type { AppPalette } from '../../design-system';
 import { radius, spacing, type as typography } from '../../design-system';
 import { Button, EmptyState, StatusBanner } from '../../design-system';
 import { useDebouncedValue } from '../../hooks/use-debounced-value';
+import { useResolvedServices } from '../../hooks/use-resolved-services';
 import {
   changeLocalNotificationState,
   loadLocalNotificationState,
@@ -1146,8 +1147,11 @@ export function OperationsWorkspace({ colors, homeNode }: WorkspaceProps) {
     retry: 0,
   });
   const federations = useFederations(homeNode.baseUrl);
-  const auditServices = homeNode.discovery.services.auditLogs;
-  const captchaServices = homeNode.discovery.services.mcaptcha;
+  // Resolved, not raw: a manual override set in Network & services must be what this page
+  // reports too, or correcting an address here looks like it did not save.
+  const { services } = useResolvedServices(homeNode);
+  const auditServices = services.auditLogs;
+  const captchaServices = services.mcaptcha;
   return (
     <>
       <View style={[styles.metrics, { borderColor: colors.border }]}>
@@ -1185,12 +1189,26 @@ export function OperationsWorkspace({ colors, homeNode }: WorkspaceProps) {
           detail={auditServices.map((service) => service.address).join(', ') || 'Not advertised'}
           value={`${auditServices.filter((service) => service.available).length} online`}
         />
+        {/*
+          Anti-abuse on this node is argon2id proof of work plus blind credentials; mCaptcha
+          is an advertisement slot with no verifier behind it. Reporting "mCaptcha: not
+          advertised" named an absent optional extra as though it were a missing dependency,
+          on the page an operator reads to decide whether the node is healthy.
+        */}
         <DataRow
           colors={colors}
-          icon="shield-outline"
-          label="mCaptcha"
-          detail={captchaServices.map((service) => service.address).join(', ') || 'Not advertised'}
-          value={`${captchaServices.filter((service) => service.available).length} online`}
+          icon="shield-checkmark-outline"
+          label="Spam protection"
+          detail={
+            captchaServices.length > 0
+              ? captchaServices.map((service) => service.address).join(', ')
+              : 'Proof of work, built in'
+          }
+          value={
+            captchaServices.length > 0
+              ? `${captchaServices.filter((service) => service.available).length} online`
+              : 'active'
+          }
         />
         <DataRow
           colors={colors}

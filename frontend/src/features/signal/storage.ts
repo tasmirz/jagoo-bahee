@@ -7,6 +7,7 @@ const ALERT_SETTINGS_KEY = 'jb.signal.alert-settings.v1';
 const PUSH_CHANNELS_KEY = 'jb.signal.push-channels.v1';
 const INBOX_KEY = 'jb.signal.inbox.v1';
 const PREKEY_PREFIX = 'jb.signal.prekey.v1:';
+const BACKUP_OWED_KEY = 'jb.signal.backup-owed.v1';
 
 export interface SignalArea {
   readonly latE5: number;
@@ -93,6 +94,29 @@ export async function removeSignalSubscription(channel: string): Promise<void> {
     SUBSCRIPTIONS_KEY,
     JSON.stringify(current.filter((item) => item.channel !== channel)),
   );
+}
+
+/**
+ * Whether the Signal recovery phrase has been written down yet.
+ *
+ * Onboarding creates the Signal identity but does not walk its 24 words: two recovery-phrase
+ * grids back to back is how people stop reading either of them, and the Forum phrase — which
+ * carries everything a person has posted — is the one that must land. So the Signal phrase is
+ * owed rather than skipped, and the debt is recorded here so the prompt keeps returning
+ * instead of being a single dismissible card nobody sees twice.
+ *
+ * A flag, never the phrase. The phrase is only ever read back out of the unlocked vault.
+ */
+export async function markSignalBackupOwed(): Promise<void> {
+  await AsyncStorage.setItem(BACKUP_OWED_KEY, 'owed');
+}
+
+export async function clearSignalBackupOwed(): Promise<void> {
+  await AsyncStorage.removeItem(BACKUP_OWED_KEY);
+}
+
+export async function isSignalBackupOwed(): Promise<boolean> {
+  return (await AsyncStorage.getItem(BACKUP_OWED_KEY)) === 'owed';
 }
 
 export async function markSignalFingerprintVerified(fingerprint: string): Promise<void> {

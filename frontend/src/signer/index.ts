@@ -882,27 +882,37 @@ export async function restoreForumSession(
   return forumSessionSummary();
 }
 
+/**
+ * The advertised anti-abuse services, set once when a home node is selected.
+ *
+ * This is deliberately module state rather than a parameter. `registerForumIdentity` used
+ * to take `mcaptchaServices` as an optional THIRD positional argument and not one of its
+ * seven call sites passed it, so the reachability probe reported "no mCaptcha endpoint
+ * advertised" on every node including ones that advertised one — and the default made it
+ * a silent, type-checked lie. Threading it properly would mean carrying a second array
+ * through thirty publishing signatures that have no interest in it; configuring it beside
+ * `configureAuditIssueReporting` matches how the audit services are already handled.
+ */
+let mcaptchaServices: readonly DiscoveredService[] = [];
+
+export function configureAntiAbuseServices(services: readonly DiscoveredService[]): void {
+  mcaptchaServices = services;
+}
+
 export async function checkCaptchaReachability(
   baseUrl: string,
-  mcaptchaServices: readonly DiscoveredService[] = [],
+  services: readonly DiscoveredService[] = mcaptchaServices,
 ): Promise<{ reachable: boolean; statusDetails: string }> {
-  console.log('[Captcha Check] Probing captcha service reachability...', {
-    baseUrl,
-    mcaptchaServicesCount: mcaptchaServices.length,
-    services: mcaptchaServices,
-  });
-
-  if (mcaptchaServices.length === 0) {
-    console.log(
-      '[Captcha Check] No dedicated mCaptcha service advertised in node discovery. Node uses proof-of-work anti-abuse.',
-    );
+  if (services.length === 0) {
+    // Not a failure. The node's anti-abuse is argon2id proof-of-work plus blind
+    // credentials; a captcha is an optional extra that most nodes do not run.
     return {
       reachable: false,
       statusDetails: 'No mCaptcha endpoint advertised by node discovery.',
     };
   }
 
-  for (const service of mcaptchaServices) {
+  for (const service of services) {
     try {
       console.log(`[Captcha Check] Probing mCaptcha endpoint at ${service.address}...`);
       const response = await networkRequest(service.address, { method: 'GET' });
@@ -928,14 +938,13 @@ export async function checkCaptchaReachability(
 export async function registerForumIdentity(
   baseUrl: string,
   auditServices: readonly DiscoveredService[] = [],
-  mcaptchaServices: readonly DiscoveredService[] = [],
 ): Promise<string> {
   if (!activeSigner) throw new Error('Unlock your Forum identity first');
-  console.log('[Register] Starting Forum Identity registration & authentication flow...');
 
-  // Verbose logging for Captcha reachability check
-  const captchaStatus = await checkCaptchaReachability(baseUrl, mcaptchaServices);
-  console.log('[Register] Captcha Status:', captchaStatus);
+  // Reads the services configured for the active home node. An unreachable captcha is not
+  // fatal — registration proceeds on proof of work either way — so this only records why.
+  const captchaStatus = await checkCaptchaReachability(baseUrl);
+  console.log('[Register] Captcha status:', captchaStatus.statusDetails);
 
   const signer = activeSigner;
   const identity = await signer.identity({ kind: 'device' });

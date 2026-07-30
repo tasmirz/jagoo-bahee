@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import type { FastifyRequest } from 'fastify';
 
 export interface NetworkSubjects {
   readonly address: string;
@@ -40,4 +41,29 @@ export function networkSubjects(
   if (clientIndex < 0) throw new Error('X-Forwarded-For has fewer hops than configured');
   const address = chain[clientIndex] as string;
   return { address, subnet: subnetFor(address) };
+}
+
+/**
+ * The caller's address as this node observed it, resolved through exactly the same
+ * trusted-proxy rules the anti-abuse interceptor uses.
+ *
+ * Shared deliberately: the scope indicator and the rate limiter must agree on who the
+ * caller is, or a node behind a reverse proxy would rate-limit the real client while
+ * telling it it was on the proxy's network.
+ */
+export function callerAddress(request: FastifyRequest): string | null {
+  const configured = Number(process.env.TRUSTED_PROXY_HOPS ?? 0);
+  const trustedHops = Number.isSafeInteger(configured) && configured >= 0 ? configured : 0;
+  const forwarded = request.headers['x-forwarded-for'];
+  try {
+    return networkSubjects(
+      request.raw.socket.remoteAddress ?? request.ip,
+      Array.isArray(forwarded) ? forwarded[0] : forwarded,
+      trustedHops,
+    ).address;
+  } catch {
+    // An unparseable or short forwarded chain means we do not know who is calling. The
+    // caller of this function must render that as "unknown", never as a default scope.
+    return null;
+  }
 }

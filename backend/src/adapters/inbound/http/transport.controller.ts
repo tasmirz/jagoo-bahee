@@ -24,10 +24,15 @@ import {
   Inject,
   Param,
   Post,
+  Req,
 } from '@nestjs/common';
+import type { FastifyRequest } from 'fastify';
 import { identityId } from '@jagoo/sdk/core';
 import { UplinkState, liveScopes } from '../../../core/domain/transport/uplink-state.js';
 import { SCOPE_LABEL } from '../../../core/domain/transport/scope.js';
+import { classifyLink } from '../../../core/domain/transport/link-scope.js';
+import { ServiceDirectory } from '../../../core/ports/service-directory.port.js';
+import { callerAddress } from './network-subject.js';
 import { BridgeRelayService } from '../../../core/app/bridge-relay.js';
 import { ReverseTunnelExchange } from '../../../core/app/reverse-tunnel.js';
 import { SessionAuth } from '../../../core/ports/auth.port.js';
@@ -53,17 +58,31 @@ export class TransportController {
     @Inject(ReverseTunnelExchange) private readonly tunnels: ReverseTunnelExchange,
     @Inject(TRANSPORT_STATE) private readonly state: TransportState,
     @Inject(SessionAuth) private readonly auth: SessionAuth,
+    @Inject(ServiceDirectory) private readonly directory: ServiceDirectory,
   ) {}
 
   /**
    * TP-20 / TG-10 — the always-visible scope indicator's source.
    *
+   * Two different facts, deliberately reported separately because they answer different
+   * questions and were previously conflated into one:
+   *
+   *   `link`  — how THIS CALLER reached this node. What TP-20 asks for, and what the pill
+   *             must render: "same network" is a statement about the phone and the server,
+   *             so it cannot be answered without a fact about the phone.
+   *   `scope` — how far this NODE can reach onward. What the node forwards your post into.
+   *             Correct and useful, but it is not the caller's link and must not be
+   *             labelled as one.
+   *
    * `refreshAfterMs` tells the client how soon to ask again. TG-10 requires the indicator to
    * update within 30 seconds of a change, and letting the NODE state its own probe cadence
    * means a client polling on a guess cannot be systematically slower than the truth.
+   *
+   * Nothing here is stored and nothing new is read: the caller address is the one the
+   * anti-abuse interceptor already derives for every request.
    */
   @Get('scope')
-  scope(): Record<string, unknown> {
+  scope(@Req() request: FastifyRequest): Record<string, unknown> {
     const scope = this.uplinks.currentScope();
     // Whether any scope this node reports was actually probed. A node with no probe targets
     // is reporting what it was configured to assume, and a client telling someone "nothing
@@ -71,7 +90,13 @@ export class TransportController {
     const measured = this.uplinks
       .uplinks()
       .some((uplink) => uplink.health.lastProbedAtMs !== null);
+    const observed = callerAddress(request);
+    const link = observed
+      ? classifyLink(observed, this.directory.localAddresses())
+      : { scope: null, basis: 'unknown' as const };
     return {
+      link: link.scope ?? 'UNKNOWN',
+      linkBasis: link.basis,
       scope: scope ?? 'UNREACHABLE',
       label: scope ? SCOPE_LABEL[scope] : 'No working path',
       measured,

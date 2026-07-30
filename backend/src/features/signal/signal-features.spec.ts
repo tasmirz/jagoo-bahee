@@ -253,6 +253,119 @@ describe('Signal directory and LXMF binding', () => {
       ),
     ).rejects.toThrow(/revision must increase/i);
   });
+
+  /**
+   * The binding is an ADDITION to a profile, not what legitimises one.
+   *
+   * Requiring it made a searchable name a Reticulum feature by accident: the destination
+   * hash only exists while an RNS stack is running, RNS runs on an Android development
+   * build and nowhere else, so nobody on iOS could claim a username — while the directory
+   * search that finds them and the IP messaging that reaches them need no radio at all.
+   */
+  it('accepts a profile with no LXMF binding, so a username does not require Reticulum', async () => {
+    const h = await signalHarness();
+    await h.pipeline.accept(
+      signEnvelope({
+        plane: Plane.SIGNAL,
+        domain: 'jb:signal:profile:v1',
+        priority: Priority.BULK,
+        nonce: nextNonce(),
+        body: SignalDirectoryProfile.encode(
+          SignalDirectoryProfile.fromPartial({
+            display_name: 'Amina Rahman',
+            discoverable: true,
+            revision: 1n,
+          }),
+        ).finish(),
+      }),
+    );
+    expect(
+      await h.projections
+        .collection<SignalDirectoryProfileDoc>(SIGNAL_DIRECTORY_PROFILES_COLLECTION)
+        .findOne({}),
+    ).toMatchObject({ displayName: 'Amina Rahman', lxmfDestinationHash: '' });
+  });
+
+  it('still rejects a PARTIAL binding — a destination nobody signed for routes to a lie', async () => {
+    const h = await signalHarness();
+    await expect(
+      h.pipeline.accept(
+        signEnvelope({
+          plane: Plane.SIGNAL,
+          domain: 'jb:signal:profile:v1',
+          priority: Priority.BULK,
+          nonce: nextNonce(),
+          body: SignalDirectoryProfile.encode(
+            SignalDirectoryProfile.fromPartial({
+              display_name: 'Amina Rahman',
+              lxmf_destination_hash: new Uint8Array(16).fill(7),
+              discoverable: true,
+              revision: 1n,
+            }),
+          ).finish(),
+        }),
+      ),
+    ).rejects.toThrow(/rns_public_key/i);
+  });
+
+  it('gives a name to the first identity that claims it, and refuses the second', async () => {
+    const h = await signalHarness();
+    const impostorSeed = new Uint8Array(32).fill(21);
+    h.certificates.add({
+      plane: Plane.SIGNAL,
+      key: ed25519.derivePublicKey(impostorSeed),
+      issuedAtMs: 0,
+    });
+    const profile = (name: string, revision: bigint) =>
+      SignalDirectoryProfile.encode(
+        SignalDirectoryProfile.fromPartial({
+          display_name: name,
+          discoverable: true,
+          revision,
+        }),
+      ).finish();
+
+    await h.pipeline.accept(
+      signEnvelope({
+        plane: Plane.SIGNAL,
+        domain: 'jb:signal:profile:v1',
+        priority: Priority.BULK,
+        nonce: nextNonce(),
+        body: profile('Amina Rahman', 1n),
+      }),
+    );
+
+    // Confusable folding is what makes this worth having: an impostor who cannot take the
+    // name outright must not be able to take a visually identical one either.
+    await expect(
+      h.pipeline.accept(
+        signEnvelope({
+          seed: impostorSeed,
+          plane: Plane.SIGNAL,
+          domain: 'jb:signal:profile:v1',
+          priority: Priority.BULK,
+          nonce: nextNonce(),
+          body: profile('  amina rahman  ', 1n),
+        }),
+      ),
+    ).rejects.toThrow(/already taken/i);
+
+    // The holder can still edit their own profile.
+    await h.pipeline.accept(
+      signEnvelope({
+        plane: Plane.SIGNAL,
+        domain: 'jb:signal:profile:v1',
+        priority: Priority.BULK,
+        nonce: nextNonce(),
+        body: profile('Amina Rahman', 2n),
+      }),
+    );
+    expect(
+      await h.projections
+        .collection<SignalDirectoryProfileDoc>(SIGNAL_DIRECTORY_PROFILES_COLLECTION)
+        .findOne({}),
+    ).toMatchObject({ revision: '2' });
+  });
 });
 
 describe('P4 crisis and identified messaging', () => {

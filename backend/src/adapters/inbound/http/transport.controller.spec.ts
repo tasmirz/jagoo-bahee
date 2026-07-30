@@ -30,7 +30,18 @@ import type { SessionAuth } from '../../../core/ports/auth.port.js';
 import type { Observability } from '../../../core/ports/observability.port.js';
 import { ReachabilityScope } from '../../../core/ports/network.port.js';
 import type { Uplink, UplinkManager } from '../../../core/ports/transport.port.js';
+import type { ServiceDirectory } from '../../../core/ports/service-directory.port.js';
 import type { TransportState } from '../../../composition/transport.runtime.js';
+import type { FastifyRequest } from 'fastify';
+
+/** A request from `remote`, shaped the way `callerAddress` reads one. */
+function requestFrom(remote: string, forwardedFor?: string): FastifyRequest {
+  return {
+    ip: remote,
+    raw: { socket: { remoteAddress: remote } },
+    headers: forwardedFor ? { 'x-forwarded-for': forwardedFor } : {},
+  } as unknown as FastifyRequest;
+}
 
 const ADMIN_KEY = new Uint8Array(32).fill(7);
 const STRANGER_KEY = new Uint8Array(32).fill(8);
@@ -149,8 +160,12 @@ function harness(options: { readonly uplinks?: readonly Uplink[]; readonly scope
     },
   } as unknown as TransportState;
 
+  const directory = {
+    localAddresses: () => ['192.168.1.20'],
+  } as unknown as ServiceDirectory;
+
   return {
-    controller: new TransportController(uplinks, metrics, bridge, tunnels, state, auth),
+    controller: new TransportController(uplinks, metrics, bridge, tunnels, state, auth, directory),
     forced,
     reevaluated,
   };
@@ -178,7 +193,7 @@ afterEach(() => {
 describe('TP-20 — the scope route is public', () => {
   it('answers with no credential at all, because an indicator only an admin can read is not an indicator', async () => {
     const { controller } = harness();
-    expect(controller.scope()).toMatchObject({
+    expect(controller.scope(requestFrom('203.0.113.9'))).toMatchObject({
       scope: 'ISP_LOCAL',
       label: 'ISP-local',
       uplinksUp: 1,
@@ -191,7 +206,10 @@ describe('TP-20 — the scope route is public', () => {
 
   it('reports no working path rather than an empty string when nothing is reachable', () => {
     const { controller } = harness({ scope: null });
-    expect(controller.scope()).toMatchObject({ scope: 'UNREACHABLE', label: 'No working path' });
+    expect(controller.scope(requestFrom('203.0.113.9'))).toMatchObject({
+      scope: 'UNREACHABLE',
+      label: 'No working path',
+    });
   });
 
   it('counts uplinks in aggregate and names none of them', () => {
@@ -201,10 +219,72 @@ describe('TP-20 — the scope route is public', () => {
         uplink({ id: 'isp-b', sourceIp: '10.90.2.30', health: health(UplinkState.DOWN, []) }),
       ],
     });
-    const document = controller.scope();
+    const document = controller.scope(requestFrom('203.0.113.9'));
     expect(document).toMatchObject({ uplinksUp: 1, uplinksTotal: 2 });
     // The whole payload must not leak an address, an ASN or an interface id.
     expect(JSON.stringify(document)).not.toMatch(/10\.90\.|64501|isp-a/);
+  });
+});
+
+/**
+ * TP-20 asks which scope the CLIENT is connected on. The node's own onward reach is a
+ * different fact and used to be the only one reported, so a caller on the open internet was
+ * told whatever the node's uplinks claimed — including "same network".
+ */
+describe('TP-20 — the link is classified from the caller, not from the node’s uplinks', () => {
+  it('reports LAN only for a caller on one of this node’s segments', () => {
+    const { controller } = harness();
+    expect(controller.scope(requestFrom('192.168.1.77'))).toMatchObject({
+      link: 'LAN',
+      linkBasis: 'shared-subnet',
+    });
+  });
+
+  it('does not call a public caller local, whatever the node’s uplinks say', () => {
+    // The node's own scope here is ISP_LOCAL and its uplink declares reach it has not
+    // measured. Neither may promote the caller's link.
+    const { controller } = harness();
+    expect(controller.scope(requestFrom('203.0.113.9'))).toMatchObject({
+      link: 'GLOBAL',
+      linkBasis: 'public-address',
+    });
+  });
+
+  it('honours the trusted-proxy configuration the rate limiter uses', () => {
+    const previous = process.env.TRUSTED_PROXY_HOPS;
+    process.env.TRUSTED_PROXY_HOPS = '1';
+    try {
+      const { controller } = harness();
+      // The proxy sits on the LAN; the real client does not.
+      expect(
+        controller.scope(requestFrom('192.168.1.5', '203.0.113.9')),
+      ).toMatchObject({ link: 'GLOBAL' });
+    } finally {
+      if (previous === undefined) delete process.env.TRUSTED_PROXY_HOPS;
+      else process.env.TRUSTED_PROXY_HOPS = previous;
+    }
+  });
+
+  it('says UNKNOWN rather than guessing when the caller cannot be resolved', () => {
+    const { controller } = harness();
+    expect(controller.scope(requestFrom('not-an-address'))).toMatchObject({
+      link: 'UNKNOWN',
+      linkBasis: 'unknown',
+    });
+  });
+
+  it('marks a never-probed node’s own scope as assumed, and a probed one as measured', () => {
+    // `measured` is what lets the client say "assumed" instead of asserting a scope nothing
+    // ever verified. It was already computed here and silently dropped by the client.
+    // A stock node never probes — `lastProbedAtMs` stays null for its whole life — so this
+    // is the value real deployments report.
+    const unprobed = uplink({
+      health: { ...health(UplinkState.UP, [ReachabilityScope.ISP_LOCAL]), lastProbedAtMs: null },
+    });
+    expect(harness({ uplinks: [unprobed] }).controller.scope(requestFrom('203.0.113.9'))).toMatchObject({
+      measured: false,
+    });
+    expect(harness().controller.scope(requestFrom('203.0.113.9'))).toMatchObject({ measured: true });
   });
 });
 

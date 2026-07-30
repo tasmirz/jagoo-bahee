@@ -20,16 +20,14 @@ import {
   type FederationPeer,
 } from '../../data/node';
 import { translate, type Locale, type MessageKey } from '../../i18n';
-import { resolveServices, type HomeNode, type ServiceEndpoint } from '../../data/node-config';
+import type { HomeNode, ServiceEndpoint } from '../../data/node-config';
 import type { ServiceAddressSource, ServiceKind } from '../../data/service-address';
-import {
-  loadServiceOverrides,
-  setServiceOverride,
-  type ServiceOverrides,
-} from '../../data/service-overrides';
+import { setServiceOverride } from '../../data/service-overrides';
+import { useResolvedServices } from '../../hooks/use-resolved-services';
+import { countOutboxForNode } from '../../offline/outbox';
 import type { IdentityProfile } from '../../data/identity-profiles';
 import type { AppPalette, ThemeMode } from '../../design-system';
-import { radius, spacing, type as typography } from '../../design-system';
+import { radius, size, spacing, type as typography } from '../../design-system';
 import {
   Button,
   Divider,
@@ -249,6 +247,39 @@ const SOURCE_LABELS: Readonly<Record<ServiceAddressSource, MessageKey>> = {
  * settings: it is reached deliberately, by someone who already has a working connection and has
  * seen a specific service fail.
  */
+/**
+ * A capability the node HAS, rather than an address it advertises.
+ *
+ * Same shape as `ServiceRow` so the section reads as one list, but with no address, no
+ * reachability state and no edit affordance — there is nothing to dial and nothing to
+ * override. Used for built-in protections that a "not advertised" row would otherwise
+ * misreport as missing.
+ */
+function ServiceFactRow({
+  body,
+  colors,
+  label,
+  value,
+}: {
+  readonly body: string;
+  readonly colors: AppPalette;
+  readonly label: string;
+  readonly value: string;
+}) {
+  return (
+    <View style={styles.serviceRow}>
+      <View style={[styles.serviceIcon, { backgroundColor: colors.surface2 }]}>
+        <Ionicons name="shield-checkmark-outline" size={19} color={colors.verified} />
+      </View>
+      <View style={styles.flex}>
+        <Text style={[typography.label, { color: colors.text }]}>{label}</Text>
+        <Text style={[typography.body, { color: colors.text }]}>{value}</Text>
+        <Text style={[typography.caption, { color: colors.text2 }]}>{body}</Text>
+      </View>
+    </View>
+  );
+}
+
 function EditableServiceRow({
   colors,
   endpoint,
@@ -464,6 +495,7 @@ export function NetworkScreen({
   onBack,
   onAddIdentity,
   onChangeServer,
+  onForgetProfile,
   onMesh,
   mode,
   onSwitchIdentity,
@@ -479,27 +511,19 @@ export function NetworkScreen({
   readonly onBack: () => void;
   readonly onAddIdentity: () => void;
   readonly onChangeServer: () => void;
+  readonly onForgetProfile: (
+    vaultId: string,
+    options?: { readonly destroyVault?: boolean },
+  ) => Promise<void>;
   readonly onMesh: () => void;
   readonly onSwitchIdentity: (vaultId: string) => Promise<void>;
 }) {
+  const [removing, setRemoving] = useState<IdentityProfile | null>(null);
   const federations = useFederations(homeNode.baseUrl);
   const peerDirectory = useFederationPeers(homeNode.baseUrl);
   const treeHeadQuery = useNodeTreeHead(homeNode.baseUrl);
   const alertQuery = useFederationAlerts(homeNode.baseUrl);
-  // Overrides load asynchronously, so the first paint shows discovery's answer and swaps to the
-  // user's the moment it arrives. Blocking the whole screen on AsyncStorage would make the most
-  // diagnostic page in the app the slowest one to appear.
-  const [overrides, setOverrides] = useState<ServiceOverrides>({});
-  useEffect(() => {
-    let live = true;
-    void loadServiceOverrides().then((stored) => {
-      if (live) setOverrides(stored);
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
-  const services = resolveServices(homeNode, overrides);
+  const { services, setOverrides } = useResolvedServices(homeNode);
   const saveOverride = async (kind: ServiceKind, address: string | null) => {
     setOverrides(await setServiceOverride(kind, address));
   };
@@ -545,52 +569,81 @@ export function NetworkScreen({
         </View>
 
         <View style={styles.sectionHeadingRow}>
-          <Text style={[typography.h2, { color: colors.text }]}>Identities</Text>
+          <Text style={[typography.h2, { color: colors.text }]}>
+            {translate(locale, 'serversTitle')}
+          </Text>
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel={translate(locale, 'serverAdd')}
             onPress={onAddIdentity}
             style={styles.inlineAction}
           >
             <Ionicons color={colors.ember} name="add" size={18} />
-            <Text style={[typography.label, { color: colors.ember }]}>Add identity</Text>
+            <Text style={[typography.label, { color: colors.ember }]}>
+              {translate(locale, 'serverAdd')}
+            </Text>
           </Pressable>
         </View>
         <Text style={[typography.body, styles.sectionBody, { color: colors.text2 }]}>
-          Each identity keeps its own key vault and home server. Switching locks the current vault.
+          {translate(locale, 'serversBody')}
         </Text>
         <View style={[styles.serviceList, { borderColor: colors.border }]}>
           {identityProfiles.map((profile, index) => {
             const selected = profile.vaultId === activeProfileId;
             return (
               <View key={profile.vaultId}>
-                <Pressable
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  disabled={selected}
-                  onPress={() => void onSwitchIdentity(profile.vaultId)}
-                  style={styles.identityRow}
-                >
-                  <Ionicons
-                    color={selected ? colors.ember : colors.text2}
-                    name={selected ? 'radio-button-on' : 'radio-button-off'}
-                    size={20}
-                  />
-                  <View style={styles.flex}>
-                    <Text style={[typography.label, { color: colors.text }]}>{profile.label}</Text>
-                    <Text numberOfLines={1} style={[typography.mono, { color: colors.text2 }]}>
-                      {profile.identityId ?? profile.vaultId}
-                    </Text>
-                    <Text numberOfLines={1} style={[typography.caption, { color: colors.text2 }]}>
-                      {profile.homeNode.discovery.node.displayName} ·{' '}
-                      {profile.homeNode.transport === 'tor' ? 'Tor' : 'direct'}
-                    </Text>
-                  </View>
-                  {selected ? (
-                    <Text style={[typography.caption, { color: colors.verified }]}>Active</Text>
-                  ) : (
-                    <Ionicons color={colors.text2} name="swap-horizontal" size={18} />
-                  )}
-                </Pressable>
+                <View style={styles.identityRow}>
+                  <Pressable
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={translate(locale, 'serverSwitchTo', {
+                      server: profile.homeNode.discovery.node.displayName,
+                    })}
+                    disabled={selected}
+                    onPress={() => void onSwitchIdentity(profile.vaultId)}
+                    style={styles.identityRowMain}
+                  >
+                    <Ionicons
+                      color={selected ? colors.ember : colors.text2}
+                      name={selected ? 'radio-button-on' : 'radio-button-off'}
+                      size={20}
+                    />
+                    <View style={styles.flex}>
+                      <Text style={[typography.label, { color: colors.text }]}>
+                        {profile.homeNode.discovery.node.displayName}
+                      </Text>
+                      <Text numberOfLines={1} style={[typography.mono, { color: colors.text2 }]}>
+                        {profile.homeNode.baseUrl}
+                      </Text>
+                      <Text numberOfLines={1} style={[typography.caption, { color: colors.text2 }]}>
+                        {profile.label} · {profile.identityId ?? profile.vaultId}
+                      </Text>
+                    </View>
+                    {selected ? (
+                      <Text style={[typography.caption, { color: colors.verified }]}>
+                        {translate(locale, 'serverActive')}
+                      </Text>
+                    ) : (
+                      <Ionicons color={colors.text2} name="swap-horizontal" size={18} />
+                    )}
+                  </Pressable>
+                  {/*
+                    Removal is its own 44pt control rather than a swipe: a swipe is invisible
+                    to a screen reader and undiscoverable to someone who has never been told
+                    it exists, and this is the only way off a server that has stopped working.
+                  */}
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={translate(locale, 'serverRemoveOne', {
+                      server: profile.homeNode.discovery.node.displayName,
+                    })}
+                    hitSlop={8}
+                    onPress={() => setRemoving(profile)}
+                    style={styles.identityRemove}
+                  >
+                    <Ionicons color={colors.text2} name="trash-outline" size={18} />
+                  </Pressable>
+                </View>
                 {index < identityProfiles.length - 1 ? <Divider colors={colors} /> : null}
               </View>
             );
@@ -609,6 +662,25 @@ export function NetworkScreen({
                   ? services.mcaptcha
                   : services.blobs;
             const last = groupIndex === kinds.length - 1;
+            // mCaptcha is a reserved advertisement slot with nothing behind it — no verifier on
+            // this node, no solver in this app. Offering an address field for it asks the user
+            // to configure something that cannot take effect, and a permanently red "not
+            // advertised" row misreports an absent optional extra as a broken dependency. Say
+            // what the node actually uses instead. The editable row still appears if a node
+            // ever does advertise one, because then an override is meaningful.
+            if (kind === 'mcaptcha' && endpoints.length === 0) {
+              return [
+                <View key={kind}>
+                  <ServiceFactRow
+                    body={translate(locale, 'serviceAntiAbuseBody')}
+                    colors={colors}
+                    label={translate(locale, 'serviceAntiAbuse')}
+                    value={translate(locale, 'serviceAntiAbusePow')}
+                  />
+                  {last ? null : <Divider colors={colors} />}
+                </View>,
+              ];
+            }
             // A service the node never mentioned still gets a row and an edit control. Silence
             // from the node is the case where a manual address is MOST likely to be the only way
             // through, so hiding the row would remove the fix exactly when it is needed.
@@ -712,15 +784,148 @@ export function NetworkScreen({
         ) : null}
 
         <View style={styles.pageActions}>
+          {/*
+            Adding a server is the ordinary way to change one now, because switching between
+            saved servers is one tap on a row above. This button used to be the only route
+            and it FORGOT the current server on the way — a wipe-and-restart presented as a
+            settings change, and the reason there was no way back to a server you had left.
+          */}
           <Button
             colors={colors}
-            label="Change home server"
-            onPress={onChangeServer}
+            label={translate(locale, 'serverAdd')}
+            icon="add"
+            onPress={onAddIdentity}
             variant="secondary"
+          />
+          <Button
+            colors={colors}
+            label={translate(locale, 'serverDisconnect')}
+            onPress={onChangeServer}
+            variant="ghost"
           />
         </View>
       </View>
+      {removing ? (
+        <RemoveServerSheet
+          colors={colors}
+          locale={locale}
+          onCancel={() => setRemoving(null)}
+          onConfirm={async (destroyVault) => {
+            const target = removing;
+            setRemoving(null);
+            await onForgetProfile(target.vaultId, { destroyVault });
+          }}
+          profile={removing}
+        />
+      ) : null}
     </Screen>
+  );
+}
+
+/**
+ * Confirming the removal of a saved server.
+ *
+ * Two separable losses, so two separate choices. Forgetting the address is reversible by
+ * typing it again; destroying the key vault is only reversible with the 24-word phrase, and
+ * offering them as one button would make the recoverable action carry the risk of the
+ * unrecoverable one. Anything still queued for that server is counted here, because those
+ * envelopes are signed and would otherwise disappear without ever being mentioned.
+ */
+function RemoveServerSheet({
+  colors,
+  locale,
+  onCancel,
+  onConfirm,
+  profile,
+}: {
+  readonly colors: AppPalette;
+  readonly locale: Locale;
+  readonly onCancel: () => void;
+  readonly onConfirm: (destroyVault: boolean) => Promise<void>;
+  readonly profile: IdentityProfile;
+}) {
+  const [destroyVault, setDestroyVault] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [queued, setQueued] = useState(0);
+
+  useEffect(() => {
+    let live = true;
+    void countOutboxForNode(profile.homeNode.baseUrl).then((count) => {
+      if (live) setQueued(count);
+    });
+    return () => {
+      live = false;
+    };
+  }, [profile.homeNode.baseUrl]);
+
+  return (
+    <View style={[styles.removeBackdrop, { backgroundColor: colors.overlay }]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={translate(locale, 'serviceCancel')}
+        onPress={onCancel}
+        style={styles.flex}
+      />
+      <View
+        accessibilityViewIsModal
+        style={[styles.removeSheet, { backgroundColor: colors.surface, borderColor: colors.border }]}
+      >
+        <Text accessibilityRole="header" style={[typography.h2, { color: colors.text }]}>
+          {translate(locale, 'serverRemoveTitle', {
+            server: profile.homeNode.discovery.node.displayName,
+          })}
+        </Text>
+        <Text style={[typography.body, { color: colors.text2 }]}>
+          {translate(locale, 'serverRemoveBody')}
+        </Text>
+        {queued > 0 ? (
+          <StatusBanner
+            body={translate(locale, 'serverRemoveQueuedBody', { count: String(queued) })}
+            colors={colors}
+            icon="warning-outline"
+            title={translate(locale, 'serverRemoveQueued', { count: String(queued) })}
+            tone="warning"
+          />
+        ) : null}
+        <Pressable
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: destroyVault }}
+          onPress={() => setDestroyVault((value) => !value)}
+          style={styles.removeChoice}
+        >
+          <Ionicons
+            color={destroyVault ? colors.blackout : colors.text2}
+            name={destroyVault ? 'checkbox' : 'square-outline'}
+            size={22}
+          />
+          <View style={styles.flex}>
+            <Text style={[typography.label, { color: colors.text }]}>
+              {translate(locale, 'serverRemoveVault')}
+            </Text>
+            <Text style={[typography.caption, { color: colors.text2 }]}>
+              {translate(locale, 'serverRemoveVaultBody')}
+            </Text>
+          </View>
+        </Pressable>
+        <Button
+          colors={colors}
+          label={translate(locale, destroyVault ? 'serverRemoveBoth' : 'serverRemoveConfirm')}
+          loading={busy}
+          disabled={busy}
+          onPress={() => {
+            setBusy(true);
+            void onConfirm(destroyVault).finally(() => setBusy(false));
+          }}
+          variant="secondary"
+        />
+        <Button
+          colors={colors}
+          label={translate(locale, 'serviceCancel')}
+          onPress={onCancel}
+          variant="ghost"
+        />
+      </View>
+    </View>
   );
 }
 
@@ -956,6 +1161,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+  },
+  identityRowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  // NFR-A: a destructive control on a screen someone reaches while something is already
+  // broken gets the full 44pt target, not an icon-sized one.
+  identityRemove: {
+    width: size.touch,
+    height: size.touch,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  removeBackdrop: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', zIndex: 20 },
+  removeSheet: {
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  removeChoice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    minHeight: size.touch,
+    paddingVertical: spacing.xs,
   },
   sectionTitle: {
     paddingHorizontal: spacing.md,

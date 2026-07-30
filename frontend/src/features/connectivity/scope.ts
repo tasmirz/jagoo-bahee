@@ -23,9 +23,36 @@ export type ReachabilityScope =
   | 'RETICULUM'
   | 'UNREACHABLE';
 
+/** How this device reached the node. `UNKNOWN` when the node could not tell. */
+export type LinkScope = 'LAN' | 'ISP_LOCAL' | 'GLOBAL' | 'UNKNOWN';
+
+export type LinkBasis =
+  | 'loopback'
+  | 'shared-subnet'
+  | 'private-range'
+  | 'public-address'
+  | 'unknown';
+
 export interface ScopeStatus {
+  /**
+   * The client↔node link — what the pill shows.
+   *
+   * This is what TP-20 asks for and what "same network" is a claim about. It is measured
+   * from the request itself, so unlike `scope` it is never assumed.
+   */
+  readonly link: LinkScope;
+  readonly linkBasis: LinkBasis;
+  /** The node's own onward reach. A different fact; shown separately, never as the link. */
   readonly scope: ReachabilityScope;
   readonly label: string;
+  /**
+   * Whether `scope` was probed or merely declared.
+   *
+   * The node has always sent this and the client always dropped it, so an assumed scope was
+   * rendered with the same confidence as a measured one — on the sentence that tells someone
+   * whether their post leaves the building.
+   */
+  readonly measured: boolean;
   readonly uplinksUp: number;
   readonly uplinksTotal: number;
   readonly bridging: boolean;
@@ -95,15 +122,75 @@ export const SCOPE_CONSEQUENCE_KEY = {
   UNREACHABLE: 'scopeNoneBody',
 } as const;
 
+const LINK_SCOPES: readonly LinkScope[] = ['LAN', 'ISP_LOCAL', 'GLOBAL', 'UNKNOWN'];
+const LINK_BASES: readonly LinkBasis[] = [
+  'loopback',
+  'shared-subnet',
+  'private-range',
+  'public-address',
+  'unknown',
+];
+
+/**
+ * The i18n key describing the link, and what it means for what you are about to do.
+ *
+ * Deliberately separate from `SCOPE_*`: those describe the node's onward reach. Reusing
+ * them here is how "the node's uplink declares LAN" turned into "you are on the same
+ * network" for a phone on the other side of the internet.
+ */
+export const LINK_MESSAGE_KEY = {
+  LAN: 'linkLan',
+  ISP_LOCAL: 'linkNearby',
+  GLOBAL: 'linkInternet',
+  UNKNOWN: 'linkUnknown',
+} as const;
+
+export const LINK_CONSEQUENCE_KEY = {
+  LAN: 'linkLanBody',
+  ISP_LOCAL: 'linkNearbyBody',
+  GLOBAL: 'linkInternetBody',
+  UNKNOWN: 'linkUnknownBody',
+} as const;
+
+/**
+ * How alarming the link is.
+ *
+ * A LAN link is the narrow, contained case — the same reasoning as `scopeTone`: it is the
+ * most resilient and the least far-reaching, and the person needs telling.
+ */
+export function linkTone(link: LinkScope): 'ok' | 'limited' | 'critical' {
+  switch (link) {
+    case 'GLOBAL':
+      return 'ok';
+    case 'ISP_LOCAL':
+    case 'UNKNOWN':
+      return 'limited';
+    case 'LAN':
+    default:
+      return 'critical';
+  }
+}
+
 export function parseScopeStatus(payload: unknown): ScopeStatus | null {
   const document = payload as Partial<ScopeStatus> | null;
   if (!document || typeof document.scope !== 'string') return null;
   const scope = (
     document.scope in SCOPE_MESSAGE_KEY ? document.scope : 'UNREACHABLE'
   ) as ReachabilityScope;
+  // A node too old to report a link cannot have its answer inferred from `scope`, so it
+  // reads UNKNOWN. Saying "we cannot tell" is the only honest degradation here — guessing
+  // from the node's uplinks is the exact defect this field exists to remove.
+  const link = LINK_SCOPES.includes(document.link as LinkScope)
+    ? (document.link as LinkScope)
+    : 'UNKNOWN';
   return {
+    link,
+    linkBasis: LINK_BASES.includes(document.linkBasis as LinkBasis)
+      ? (document.linkBasis as LinkBasis)
+      : 'unknown',
     scope,
     label: typeof document.label === 'string' ? document.label : scope,
+    measured: document.measured === true,
     uplinksUp: Number(document.uplinksUp ?? 0),
     uplinksTotal: Number(document.uplinksTotal ?? 0),
     bridging: document.bridging === true,

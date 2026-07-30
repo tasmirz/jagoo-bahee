@@ -56,4 +56,24 @@ describe('identity profiles', () => {
 
     expect(await loadActiveProfileId()).toBe('two');
   });
+
+  it('clears the selection only when the last identity goes', async () => {
+    // Removing one of several must not read as being signed out of all of them, which is
+    // what the old "Change home server" button did to every saved server at once.
+    await saveIdentityProfile(profile('only'));
+    await setActiveProfileId('only');
+    await removeIdentityProfile('only');
+
+    expect(await loadActiveProfileId()).toBeNull();
+    expect(await loadIdentityProfiles()).toHaveLength(0);
+  });
+
+  it('leaves the selection alone when a non-active identity is removed', async () => {
+    await saveIdentityProfile(profile('one'));
+    await saveIdentityProfile(profile('two'));
+    await setActiveProfileId('one');
+    await removeIdentityProfile('two');
+
+    expect(await loadActiveProfileId()).toBe('one');
+  });
 });

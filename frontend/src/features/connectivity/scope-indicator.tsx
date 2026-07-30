@@ -28,9 +28,13 @@ import {
 } from '../../design-system';
 import { translate, type Locale } from '../../i18n';
 import {
+  LINK_CONSEQUENCE_KEY,
+  LINK_MESSAGE_KEY,
   SCOPE_CONSEQUENCE_KEY,
   SCOPE_MESSAGE_KEY,
+  linkTone,
   scopeTone,
+  type LinkScope,
   type ReachabilityScope,
   type ScopeStatus,
 } from './scope';
@@ -52,16 +56,35 @@ export const SCOPE_ICON: Readonly<Record<ReachabilityScope, IconName>> = {
   UNREACHABLE: 'cloud-offline-outline',
 };
 
+/**
+ * One glyph per link state. `LAN` keeps the building, because "same network" means the
+ * same physical place; the internet gets the globe; an unresolvable route gets a question
+ * rather than borrowing a shape that would imply an answer.
+ */
+export const LINK_ICON: Readonly<Record<LinkScope, IconName>> = {
+  LAN: 'business-outline',
+  ISP_LOCAL: 'git-network-outline',
+  GLOBAL: 'globe-outline',
+  UNKNOWN: 'help-circle-outline',
+};
+
+/**
+ * What the always-visible pill shows: the LINK, not the node's onward reach.
+ *
+ * These were the same value until now, which is how a phone on the far side of the
+ * internet was told "Same network — nothing you post leaves this building yet". The node's
+ * reach is still shown, in the sheet, labelled as what it is.
+ */
 export function scopeDisplay(
   status: ScopeStatus | null,
   locale: Locale,
 ): ReachScopeDisplay | null {
   if (!status) return null;
   return {
-    label: translate(locale, SCOPE_MESSAGE_KEY[status.scope]),
-    tone: scopeTone(status.scope),
-    icon: SCOPE_ICON[status.scope],
-    consequence: translate(locale, SCOPE_CONSEQUENCE_KEY[status.scope]),
+    label: translate(locale, LINK_MESSAGE_KEY[status.link]),
+    tone: linkTone(status.link),
+    icon: LINK_ICON[status.link],
+    consequence: translate(locale, LINK_CONSEQUENCE_KEY[status.link]),
   };
 }
 
@@ -98,9 +121,16 @@ export function ScopeSheet({
   readonly onOpenNetwork?: () => void;
 }) {
   const display = scopeDisplay(status, locale);
-  const tone = status ? scopeTone(status.scope) : 'critical';
+  const tone = status ? linkTone(status.link) : 'critical';
   const accent =
     tone === 'ok' ? colors.verified : tone === 'limited' ? colors.constrained : colors.blackout;
+  const reachTone = status ? scopeTone(status.scope) : 'critical';
+  const reachAccent =
+    reachTone === 'ok'
+      ? colors.verified
+      : reachTone === 'limited'
+        ? colors.constrained
+        : colors.blackout;
 
   return (
     <View style={[styles.backdrop, { backgroundColor: colors.overlay }]}>
@@ -119,23 +149,62 @@ export function ScopeSheet({
         </View>
 
         <Text style={[typography.overline, { color: colors.text2 }]}>
-          {translate(locale, 'scopeTitle')}
+          {translate(locale, 'linkTitle')}
         </Text>
         <View style={styles.headline}>
           <Ionicons
-            name={display?.icon ?? SCOPE_ICON.UNREACHABLE}
+            name={display?.icon ?? LINK_ICON.UNKNOWN}
             size={26}
             color={accent}
           />
           <Text accessibilityRole="header" style={[typography.h1, { color: colors.text }]}>
-            {display?.label ?? translate(locale, 'reachNone')}
+            {display?.label ?? translate(locale, 'linkUnknown')}
           </Text>
         </View>
 
         {/* Plain language, never a status code — design.md §4.1. */}
         <Text style={[typography.bodyLarge, { color: colors.text2 }]}>
-          {display?.consequence ?? translate(locale, 'scopeNoneBody')}
+          {display?.consequence ?? translate(locale, 'linkUnknownBody')}
         </Text>
+
+        <Divider colors={colors} />
+
+        {/*
+          The node's onward reach — a second, genuinely different fact. Shown here rather
+          than in the pill because "how far does this server forward my post" is not "am I
+          on the same network as it", and presenting one as the other is what made a
+          stock node tell every client it was on their LAN.
+        */}
+        <Text style={[typography.overline, { color: colors.text2 }]}>
+          {translate(locale, 'scopeReach')}
+        </Text>
+        <View style={styles.headline}>
+          <Ionicons name={SCOPE_ICON[status?.scope ?? 'UNREACHABLE']} size={20} color={reachAccent} />
+          <Text style={[typography.h2, { color: colors.text }]}>
+            {translate(locale, SCOPE_MESSAGE_KEY[status?.scope ?? 'UNREACHABLE'])}
+          </Text>
+        </View>
+        <Text style={[typography.body, { color: colors.text2 }]}>
+          {translate(locale, SCOPE_CONSEQUENCE_KEY[status?.scope ?? 'UNREACHABLE'])}
+        </Text>
+        {/*
+          Assumed vs measured carries TEXT, not a tint. A person deciding whether a post
+          leaves the building must be able to tell a configured claim from a checked one,
+          and this is exactly the row that gets read on a washed-out screen.
+        */}
+        <Text
+          style={[
+            typography.caption,
+            { color: status?.measured ? colors.verified : colors.constrained },
+          ]}
+        >
+          {translate(locale, status?.measured ? 'scopeMeasured' : 'scopeAssumed')}
+        </Text>
+        {status && !status.measured ? (
+          <Text style={[typography.caption, { color: colors.text2 }]}>
+            {translate(locale, 'scopeAssumedBody')}
+          </Text>
+        ) : null}
 
         <Divider colors={colors} />
 

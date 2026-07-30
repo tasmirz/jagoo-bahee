@@ -41,6 +41,7 @@ describe('Signal tab route', () => {
       colors: palettes.dark,
       connectHomeNode: jest.fn(),
       disconnectHomeNode: jest.fn(),
+      forgetIdentityProfile: jest.fn(),
       homeNode: {
         baseUrl: 'http://10.0.2.2:3000',
         transport: 'direct',
