@@ -1909,3 +1909,533 @@ runs — the federation FD-16 case asserts over ~24 s of wall clock and is timin
 
 **Not claimed:** not re-run on a device. The `rns_public_key` report is not closed — it was
 not reproduced, only instrumented.
+
+---
+
+## 2026-07-31 — "Declare identified channel: author key is not certified"
+
+**Reported:** Broadcast channels → create/publish → *Declare identified channel* failed with
+`could not publish: author key is not certified`.
+
+**Root cause: a channel signs with its own key, and nothing ever certified that key.**
+
+Pipeline step 10 requires the envelope's author key to hold a certificate valid at
+`created_at_ms`. `registerSignalIdentity` publishes `jb:key:certify:signal:v1` for the
+**device** key. A channel signs with a per-channel derived key — Plans/01 §4,
+`m/83696968'/21'/c'`, "an org may run several channels" — which reaches the node having never
+been seen. So `jb:channel:declare:v1` was rejected, and so would every `jb:channel:update`,
+`:rotate`, `:retire` and `jb:broadcast:emit`/`:revoke` have been after it, because all of
+those are signed by the channel key too. Only the first one was reachable, so it was the only
+one reported.
+
+`jb:key:certify:signal:v1` is the bootstrap exception for exactly this case
+(`requires_certificate: false`, ADR-004) and is safe for a channel for the same reason it is
+safe for a device: `SignalKeyCertifyHandler` re-establishes everything step 10 would have
+checked — the certificate is ABOUT the key that signed the envelope, the Ed25519
+self-signature verifies, and the ML-DSA-44 attestation verifies. It had simply never been
+pointed at a channel: `SecureSignalSigner.certificateBody()` hardcoded `{ kind: 'device' }`,
+so certifying a channel was not merely unimplemented, it was unexpressible.
+
+**Fix.** `certificateBody(ctx)` takes a context, defaulting to `device` so
+`registerSignalIdentity` is byte-for-byte unchanged. `declareSignalChannel` and
+`rotateOwnedSignalChannel` publish the channel key's own certificate first, through the new
+`certifySignalChannelKey`. Two proofs of work, because a PoW challenge is bound to one author
+key and the certificate is signed by the channel key — declaring a channel is documented as
+"one-time, expensive" (Plans/04 §5). Certifying the replacement key *before* the rotation also
+means KY-04 has no window where the channel cannot publish at all.
+
+A private `certificatePqKeyPair(ctx)` now serves both `certificateBody` and
+`channelPqPublicKey`. They must name the same ML-DSA key or a channel has two post-quantum
+identities: subscribers verify against `ChannelDeclare.pq_key`, the node stores the
+certificate's. No registry, proto or wire change — the contract already had a domain for this.
+
+**Why the backend suite was green.** `signalHarness()` seeds a certificate for `AUTHOR_KEY`
+and then declares a channel whose `signing_key` **is** `AUTHOR_KEY`. In the test the channel
+key and the certified key are the same key — the one arrangement the real client never
+produces. This is the L-… shape from the previous entry again, for the third time: a test
+written against the input the author had in hand rather than the input production supplies.
+
+**Gates.** `frontend/src/signer/channel-certificate.test.ts` — the channel certificate is
+about the channel key, its attestation and self-signature verify, and its `pq_key` equals
+`channelPqPublicKey`; per §7.4 it also asserts the failing shape, that the DEVICE certificate
+is *not* about the channel key, which is the sequence that produced the error.
+`signal-features.spec.ts` gains the two halves on the node side: a declaration by an
+uncertified key is rejected and projects nothing, and the identical declaration is accepted
+once that key holds a certificate.
+
+**Raised, not built: routing this over Reticulum.** The report asked for channel
+create/publish to go over Reticulum rather than the node. Left undone deliberately, and the
+reasoning is recorded here rather than in chat:
+
+- The feature must not choose a transport at all — that is the Liskov ban in §5.2 and the
+  reason path selection lives in the transport layer. "Send channel declarations over the
+  mesh" is a path-selection policy, not a property of the broadcast feature.
+- A declaration is BULK and up to 16 KiB; its ML-DSA key alone is 1312 B and the certificate
+  that must precede it is ~3.9 KiB. That is many minutes of LoRa airtime for one envelope,
+  which is why Plans/04 §5 classes it BULK and not BROADCAST. The 512 B class-0 envelope that
+  genuinely belongs on the radio is `jb:broadcast:emit:v1`.
+- It cannot be Reticulum-only in any case: the declaration has to reach a node to be
+  projected, searchable, subscribable and receipted, and the key certificate has to arrive
+  ahead of it or step 10 rejects the declaration wherever it lands.
+- The client has no outbound transport port. `offline/outbox.ts` has exactly one submitter,
+  `defaultSubmit` → `POST /v1/envelopes`, and `ClientTransport` is `'direct' | 'tor'` — both
+  IP. `features/signal/rns-broadcast.ts` is inbound admission only. Making any envelope
+  mesh-deliverable means adding a `Transport` port to the outbox and an LXMF adapter behind
+  it, which is P5/P6 work (AR-12: Reticulum is an optional adapter and must never become a
+  dependency), not an edit to this screen.
+
+**Verified:** frontend 35 suites / 186 tests; `signal-features.spec.ts` 13 tests; frontend and
+backend `tsc --noEmit` clean apart from the pre-existing `load-env.ts` dotenv error; `pnpm
+lint` 0 errors workspace-wide.
+
+**Not claimed:** not exercised on a device, and not exercised end to end against a running
+node — the certify-then-declare sequence is asserted in two halves (the client produces an
+acceptable certificate; the node accepts a declaration once the key is certified), not as one
+live round trip.
+
+---
+
+## 2026-07-31 — Signal plane unusable after a cold start; own broadcasts invisible
+
+**Reported:** emitting a broadcast did not work, subscribers did not receive broadcasts, and
+sending a message failed with *"signal identity is not there, unlock it first"*.
+
+### 1. The Signal vault had no launch restore at all
+
+`activeSigner` in `signer/signal.ts` is module state and starts every launch empty. The Forum
+plane has always had `restoreForumSession`, called on launch, on foreground and on reconnect.
+The Signal plane had **nothing** — `unlockSignalIdentity` was only ever called by hand, from
+the Signal identity screen.
+
+So after any process death — a reload, a swipe-away, an OS kill — every Signal action threw
+`Unlock your Signal identity first`, which is one string from one guard in
+`publishSignalEnvelope`. Sending a message, emitting a broadcast, declaring a channel and
+publishing prekeys all pass through it. That is why this arrived as three separate bug
+reports: each surface named its own failure and none of them said "signed out", and the only
+way back was to find Signal → "Your identity and code" and unlock manually, which nothing on
+the failing screens told you.
+
+`restoreSignalSession(baseUrl, auditServices)` mirrors the Forum one: reopen the vault,
+authenticate, and — because a certificate is the precondition for authenticating at all —
+re-certify once if authentication fails against a node that has never seen the key. It tries
+**the empty passphrase and only the empty passphrase**, so a device-lock vault reopens
+silently and a passphrase- or salt-protected vault stays shut. Wired into the launch effect
+and into the existing foreground/reconnect `attempt`.
+
+The other half: onboarding creates BOTH vaults from one protection choice (`welcome-flow.tsx`
+passes the same password and salt to `createSignalIdentity` deliberately), so for anyone who
+set a password the silent path can never help. `SignInScreen.finish` now also tries the Signal
+vault with the secret already in hand. That is not plane linkage — no record associates the
+two identities, nothing is published together, no key material crosses, and a wrong guess just
+leaves the vault locked. It is one person entering one secret they already chose for both.
+
+### 2. The author of a channel could not see their own broadcasts
+
+There is no server-side subscription table, by design: during a shutdown a list of who follows
+which channel is a list of targets. Broadcasts flood and `subscriptionAllows` filters locally.
+The consequence nobody had closed is that **nothing** enters the Signal inbox until a local
+follow matches it — and declaring a channel created no follow. So the author emitted a
+broadcast, went to look for it, and found an empty inbox: the one person who must be able to
+confirm the message went out was the one person who could not see it.
+
+`SignalStudioScreen` now saves `defaultSubscription(channelId)` when a declaration succeeds.
+Local record, same as any other follow, never sent anywhere.
+
+### 3. Ruled out: the class size budget
+
+Worth recording because it was the obvious suspect and it is wrong. `jb:broadcast:emit:v1`
+carries `max_bytes: 512` in the registry, `sealEnvelope` already enforces `spec.maxBytes`, and
+the node enforces `min(maxBytes, CLASS_SIZE_BUDGET[BROADCAST])` — the same 512. Measured
+against the real encoder: 290 B for an empty broadcast, 342 B with a Bangla headline, 425 B
+with a Bangla headline and detail, 413 B with a 120-character ASCII headline. Real Bangla
+content fits with room to spare, so no size fix was made and none is needed.
+
+**Gate:** `frontend/src/signer/signal-session-restore.test.ts` — no vault reports
+not-configured rather than inventing a session; a device-lock vault reopens as the SAME
+identity after the signer is dropped; and, per §7.4 as the failing half, a
+passphrase-protected vault stays locked. Its scrypt stub is cheap but still a function of the
+passphrase, because a constant stub would make the third case pass for the wrong reason — the
+vault would open with any secret at all.
+
+**Lesson (L-…):** the two planes are deliberately independent, and that independence silently
+became "one of them has a session lifecycle and the other does not". When a subsystem is
+duplicated for isolation, every lifecycle hook the original has is a checklist item for the
+copy — `restoreForumSession` had four call sites and its Signal counterpart had zero.
+
+**Verified:** frontend 36 suites / 189 tests; `tsc --noEmit` clean; `pnpm lint` 0 errors
+workspace-wide.
+
+**Not claimed:** the broadcast-emit and subscriber reports were not reproduced with an error
+message in hand. Both are explained by the missing restore (`publishSignalBroadcast` goes
+through the same guard that produced the message-sending error the user did quote) and by the
+missing self-follow, and the size hypothesis was measured and rejected — but neither was
+observed failing and then observed passing.
+
+**Also, unrelated cause, now resolved:** the `RNSVGLinearGradient` redbox on the Signal
+identity screen was not a code fault. `react-native-svg` had been declared a direct dependency
+earlier the same day and Gradle had built an APK containing `SvgPackage`, but that APK was
+never installed — the device was still running a 02:35 build. The install had been failing
+because the shell's default JDK is 25, which cannot resolve `com.facebook.react.settings`;
+building with the installed JDK 17 works. Worth pinning `JAVA_HOME` in the shell profile.
+
+---
+
+## 2026-07-31 — Private messages were copied to audit logs; a stale token was never refreshed
+
+**Reported:** "Start encrypted session" answered *Could not send — access token is invalid*,
+and messages should not be sent to the audit log service.
+
+### 1. Every DIRECT envelope was being copied to every advertised audit log
+
+`createAuditCertificate` embeds the ENTIRE request body — the complete signed envelope — in
+`request.body_base64`. That is deliberate and correct: it is what makes a node's refusal to
+publish provable rather than deniable. `outbox.deliver` then POSTed that certificate to every
+service in `record.auditServices`, for every envelope, with no distinction by class.
+
+For a `SignalSessionInit` or `SignalMessage` that envelope carries `recipient_key` in the
+clear, wrapped in an envelope carrying the sender's identified Signal key and a timestamp. So
+starting a conversation handed every advertised audit log a timestamped edge in a social
+graph, on the plane whose entire premise is that the speaker is identifiable. This project
+already refuses to build that structure server-side — "a list of who follows which channel is
+a list of targets" — and shipping it to a third party is strictly worse. A message nobody else
+can read also has no censorship claim to prove, so nothing is lost by withholding it.
+
+`auditServicesFor(record)` returns `[]` for `Priority.DIRECT` and `record.auditServices`
+otherwise. Keyed on the priority CLASS, not a list of domains: DIRECT is exactly "addressed to
+one recipient, end-to-end encrypted" (Plans/04 §5), so a future private domain inherits this
+instead of needing someone to remember. Placed in `deliver` because that is the single
+chokepoint every envelope passes through — putting it in each `publishSignal*` helper would be
+one forgotten call site away from leaking again. The certificate is still written to local
+storage; only the copies are withheld.
+
+**Gate:** two halves in `outbox.test.ts` — a DIRECT envelope produces no POST to the audit
+service and `auditCopies === 0` while still being stored locally, AND a BULK forum post still
+produces exactly one. Without the second, the test would pass just as well if forwarding were
+broken outright.
+
+### 2. A rejected access token was never refreshed
+
+Access tokens are HMACed with `AUTH_ACCESS_SECRET`; a node started without one mints a fresh
+random key per boot (`backend/.env.example` says so), so every node restart invalidates every
+outstanding token. Nothing recovered from that. The vault stayed unlocked, `activeAccessToken`
+stayed set, and the only code that mints a token runs when there is NO token — so every
+guarded read answered `access token is invalid` for ever. Re-authenticating needs nothing from
+the person: it is a signature over a challenge with a key already held unlocked.
+
+`signalSessionRequest` and `forumSessionRequest` now clear the token and re-authenticate once
+on that specific rejection, then retry. Exactly once — a node that rejects a freshly minted
+token is saying something real (uncertified, revoked) and that must surface rather than spin.
+
+### 3. …and the message had actually been sent
+
+The reported error was not even the send's. `send()` ends with `await refresh()`, and
+`refresh()` also runs on a 10-second interval; both wrote into `notice`, the same state the
+send outcome uses, rendered under the heading **"Could not send"**. So a message that was
+signed, queued and receipted announced itself for a fraction of a second and was then
+overwritten by whatever the inbox poll happened to hit. `refresh` now writes to its own
+`readError`, rendered as "Inbox may be out of date" with a warning tone, because a stale inbox
+is the ordinary state offline and is not a claim about a message you just sent.
+
+**Lesson (L-…):** two states rendered through one variable is the same defect as two layers
+owning one value (the gutter entry above) — the later writer wins and the symptom is attached
+to the wrong action. A success and a background failure must not share a channel, and a banner
+whose title is a guess from `notice.startsWith('Encrypted')` is the tell.
+
+**Verified:** frontend 36 suites / 191 tests; `tsc --noEmit` clean; `pnpm lint` 0 errors
+workspace-wide.
+
+**Not claimed:** not re-run on the device. Whether the node's token was stale for the reason
+above (no `backend/.env`, so `AUTH_ACCESS_SECRET` is regenerated per boot) was inferred from
+configuration, not observed in a log.
+
+---
+
+## 2026-07-31 — Signal studio: channel is a choice, not a 56-character paste
+
+**Reported:** "Emit to publish. Signal Studio > Broadcast the channel id is a text box rather
+than a dropdown, so fix it."
+
+**The field was free text for a value with a small closed set of valid answers.** Both the
+Broadcast and Retract tabs asked you to type a channel ID — `jbc1` plus 52 base32 characters.
+One wrong character came back as `channel is not known here`; a right-looking one for a
+channel this vault has no key for came back from the SIGNER as `channel signing key is not
+present in this vault`, which is not a sentence anyone should have to read to learn they
+picked the wrong channel.
+
+**`Select` now exists in the design system.** `SelectField` was already there with **zero**
+callers, because it is only the closed state — a chevron and an `onPress` — so every screen
+needing one choice from a known list reached for a free-text `Field` instead. `Select` is the
+whole control: trigger, options, selection state. Options expand INLINE rather than in a modal
+or a native picker, so it behaves identically from a 320 pt phone to a tablet in split screen,
+needs no platform branch, and cannot be the thing that fails when everything else is failing.
+Selection carries a check glyph as well as a tint (NFR-A06) and rows clear 44 pt.
+
+**Where the list comes from, and why not from the node.** `SecureSignalSigner.ownedChannelIds`
+exposes the vault's channel map — IDs only, no key material leaves the signer. That set, not
+`/v1/signal/channels`, is authoritative: `contextSeed` throws for anything absent from it, so
+offering a channel the node knows but this device cannot sign for would offer a choice that
+always fails. The node's list supplies human names and nothing else, and a channel with no row
+is still offered labelled by ID — a channel operator during a blackout is precisely who must
+still be able to publish.
+
+**Two things fixed alongside, because the picker made them derivable.**
+
+- *Sequence.* It defaulted to `"1"` for ever, so the first emit worked and every later one was
+  denied with `broadcast sequence must increase monotonically`. The selected channel row
+  carries `lastSequence`; the field is now prefilled with the next value and stays editable
+  for a deliberate gap.
+- *The button.* "Emit broadcast" → "Publish broadcast", and it is disabled with no channel
+  chosen rather than failing on tap.
+
+**Gate:** `src/design-system/select.test.tsx` — the placeholder shows until something is
+chosen and the LABEL after; choosing reports the VALUE, not the label, and closes the list;
+exactly one checkmark marks the selected row; and an empty list says so instead of rendering a
+dead control. That last case is the one a screen-local implementation would have skipped, and
+it is the state a new device is in.
+
+**Lesson (L-…):** a design-system component with zero callers is not "available", it is
+unfinished. `SelectField` looked like the app had a select control, so nobody wrote one — and
+the gap showed up as a free-text field for an opaque identifier, three screens away from the
+component that was supposed to prevent exactly that.
+
+**Verified:** frontend 37 suites / 195 tests; `tsc --noEmit` clean; `pnpm lint` 0 errors
+workspace-wide.
+
+**Not claimed:** not re-run on the device — the picker's behaviour is asserted by
+`select.test.tsx` against the real component, but the studio screen itself has no render test.
+
+---
+
+## 2026-07-31 — Signal broadcast: publish/receive redesigned around what a person came for
+
+**Reported:** "one should only be allowed to publish in the channels they created, and the
+user experience is very bad for broadcast and receive broadcast — streamline, that scattered
+cards, make design for people."
+
+### Publishing to a channel you do not own was already impossible
+
+Recorded because it was asked and the answer is layered, not a UI rule. The picker offers only
+`SecureSignalSigner.ownedChannelIds` — the vault's channel map. Below that, `contextSeed`
+throws `channel signing key is not present in this vault` for anything absent from it, so the
+envelope cannot be signed at all. Below THAT, `BroadcastEmitHandler.authorize` denies unless
+`channel.currentSigningKey === hex(env.authorKey)`, which holds for a federated peer's
+envelope too since it re-runs the same 19 steps. Three independent layers; the UI is the
+convenience, not the control.
+
+### "Scattered cards" — the receive side
+
+`SignalHomeScreen` opened with five navigation surfaces and a sentence of product copy before
+the first alert: a hero mark plus "Know who is speaking." and a paragraph, a full-width
+Messages button, a three-tile rail, a two-button row, and a banner about filters. On a 320 pt
+phone that is a full screen of scrolling to answer "is anything wrong?". Then each alert was a
+bordered `Card` containing *nested* `StatusBanner`s for a sequence gap and a retraction —
+cards inside cards inside a list of cards, with nothing establishing which box was the alert
+and which was a note about it. That is the "scattered" reading.
+
+Now the order of the screen is the design:
+
+- **One line that answers the question.** A status strip: "2 critical alerts need you" or
+  "No alerts right now", with what it is listening on, and Messages beside it so the other
+  reason people open this tab stays one tap away.
+- **The alerts.** Straight after, nothing between.
+- **Everything else, last.** The three shapes of navigation collapsed into one wrapping grid
+  of five equal tiles — they are peers and none of them is why you came.
+- **One empty state** instead of an empty state plus a separate filters banner. Which of the
+  two reasons applies picks the words AND the action, so a person is told what to do rather
+  than shown two boxes and left to work out which is theirs.
+
+`AlertCard` was rebuilt around what a person judges an alert by. It led with
+`SEVERITY  #17  14:32:07` — a sequence number and a wall clock to the second, which is
+broadcaster bookkeeping — and the headline came third. Now: severity, **channel name** and age
+("4m ago") on one quiet meta line, headline dominant, detail under it. The channel name is
+newly resolved from `/v1/signal/channels`; a broadcast carries only an ID, and an ID is not
+who is speaking, which is the one thing this plane exists to make legible. Gap and retraction
+became inline rows on the card's own surface, so the card stays one object. The whole card
+opens the channel, which removes the "View channel" button that competed with the only action
+that ever matters — acknowledging a critical alert.
+
+### The publish side
+
+`SignalStudioScreen` opened on "Declare" for everyone for ever, so an operator sending their
+fourth alert of the night landed on a form for creating a channel they already have. The
+landing tab now follows what the device can do: publish when it can sign for something,
+declare when it cannot yet. A single owned channel is preselected. Declaring lands on
+Broadcast with "\"X\" is live. Write its first broadcast below.", because the reason to
+declare a channel is to publish on it.
+
+Its result banner also decided success by `notice.includes('accepted')` — string sniffing, so
+rewording a success message silently turned it red, which is exactly what rewording it did.
+`notice` is now `{ text, ok }`. Same defect as the messages screen mixing a poll failure into
+the send result, two entries above: state that is read as a status has to be stored as one.
+
+**Lesson (L-…):** the fix for "scattered" was not styling, it was ordering. Every block on that
+screen was individually reasonable and the screen was unusable, because the sequence encoded
+no judgement about why anyone opened it. Ask what question the screen answers, put that first,
+and let everything else be below the fold.
+
+**Verified:** frontend 37 suites / 195 tests; `tsc --noEmit` clean; `pnpm lint` 0 errors
+workspace-wide.
+
+**Not claimed:** not viewed on a device, and neither screen has a render test — the reordering
+is asserted by nothing but review. The new strings are English-only, matching the file's
+existing state; these Signal screens are still outside the i18n catalogue and that debt is
+unchanged, not increased.
+
+---
+
+## 2026-07-31 — `JagooRns.start` rejected its own caller: a Uint8Array in an untyped map
+
+**Reported:** "Start RNS" and "Start BLE RNode" both failed with
+`Call to function 'JagooRns.start' has been rejected — identityPrivateKey is required`.
+
+**The caller was passing it. The module could not see it.**
+
+```kotlin
+AsyncFunction("start") { config: Map<String, Any?> ->
+  val privateKey = config["identityPrivateKey"] as? ByteArray
+    ?: throw IllegalArgumentException("identityPrivateKey is required")
+```
+
+Expo converts a JS `Uint8Array` into a Kotlin `ByteArray` only when the signature names the
+type to convert toward. Inside `Map<String, Any?>` there is no target type, so the value
+arrived as something else, the `as?` cast produced null, and the module raised its own
+"required" error against a caller that had supplied exactly that field. The message named the
+right field and the wrong cause, which is why it reads as a client bug.
+
+`JagooCryptoModule` never hit this and moves far more bytes across the same bridge, because
+every one of its functions declares `ByteArray` parameters directly. Same framework, same JS
+value, different signature — the difference is entirely whether the type is written down.
+
+**Fix.** `start(config, identityPrivateKey: ByteArray)` — the key is a declared parameter and
+the config map keeps only strings and the interface list, which is what an untyped map does
+convert. `RnsBootstrapConfig` no longer carries the key. Nothing past the Kotlin boundary
+changed: it still base64-encodes into the JSON that `jagoo_rns.runtime.start` already expects,
+and the Python side still checks the 64-byte length itself.
+
+The native copy is now zeroed in a `finally` once the base64 form has been handed on. The
+base64 `String` is immutable and survives until GC — unavoidable when the Chaquopy boundary
+takes JSON — so it is deliberately the only copy that outlives the call.
+
+**Lesson (L-…):** an untyped `Map<String, Any?>` across a native bridge silently drops the
+types the bridge exists to preserve, and the failure surfaces as a validation error inside the
+module rather than as a conversion error at the boundary. When a native function takes bytes,
+name `ByteArray` in the signature; a config bag is for strings and numbers.
+
+**Verified:** frontend `tsc --noEmit` clean. The Kotlin change requires a native rebuild to
+take effect and cannot be exercised by the JS test suite.
+
+**Not claimed:** whether RNS then starts is unproven. This unblocks the argument check only;
+the next thing `start` touches is the embedded Python runtime (Chaquopy, `rns==1.4.2`,
+`lxmf==1.1.0`), which has never run in this app because nothing has reached it before.
+
+---
+
+## 2026-07-31 — RNS reached Python; messages became a conversation; channels split by ownership
+
+### 1. `No module named jagoo_rns` — Chaquopy packages Python from the APP module only
+
+With the `ByteArray` fix in place `start` finally reached `runtime()`, and Chaquopy could not
+import the package. Chaquopy was applied twice: to `:app`, which owns the runtime and the pip
+packages, and to `:jagoo-rns`, whose build file explains it is only there to put `Python.java`
+on that module's compile classpath. But `jagoo_rns/` lives in the MODULE's
+`src/main/python`, and Chaquopy supports Python sources in an application module only. So the
+interpreter started with `rns` and `lxmf` on its path and nothing else.
+
+Fixed by pointing the app's source set at the module's directory —
+`python.srcDirs += ['../../modules/jagoo-rns/android/src/main/python']` — rather than moving
+the Python out of the feature directory. The library module now sets `python.srcDirs = []`,
+because a library that also compiles them emits a second `assets/chaquopy/app.imy` that
+collides with the app's at merge time. Both edits are mirrored into
+`plugins/with-jagoo-rns.js` so a `prebuild` cannot silently drop them.
+
+**Verified by artefact, not by log:** `assets/chaquopy/app.imy` in the installed APK now
+contains `jagoo_rns/__init__.py` and `jagoo_rns/runtime.py`.
+
+The interim `"Received 2 arguments but 1 was expected"` was the window between Metro serving
+the two-argument JS and Gradle finishing the install — not a defect.
+
+### 2. Messages read as logs because half the conversation was unreadable
+
+A Signal message is sealed to the recipient, so `loadSignalMessages` returns `plaintext: null`
+for everything THIS device sent, which the screen rendered literally as "Encrypted message
+sent from this device". On top of that it drew two independent flat lists of hairline rows —
+sessions and messages — each line labelled `Message 3 · 7/31/2026, 8:12:04 AM`, with no
+ordering between the lists and no indication of who spoke. No amount of styling fixes that;
+the data had to be joined first.
+
+`features/signal/outgoing.ts` keeps what we sent — content ID, session, counter, plaintext,
+recipient. It costs nothing in confidentiality (the device typed it) and it is the only way
+our own half of a thread can ever be shown. It is also the record of what has NOT gone out:
+the outbox holds opaque signed bytes and cannot know an envelope was a message, so joining on
+content ID is what lets a queued message keep its place in the thread marked "Queued" instead
+of vanishing until the network returns. Wiped by `clearSignalLocalData` like every other
+Signal-plane local record.
+
+The screen is now a conversation list and a thread: ours right on the accent surface, theirs
+left on the neutral one, oldest first, time and delivery state (Queued / Sent / Read) as a
+word plus a glyph. Conversation rows show a preview and "N waiting to send". Its result banner
+also stopped sniffing its own tone from `notice.startsWith('Encrypted')`.
+
+### 3. Channels mixed two different relationships into one list
+
+"Create or publish" was a single primary button doing three jobs, sitting under a search box,
+above one list that mixed the channels you speak FOR with the channels you listen TO — so the
+screen answered neither "where do I publish?" nor "who else is out there?".
+
+Split into **Your channels** (each row carrying its own "Publish", which opens the studio
+already on that channel) and **Discover** (the search and everyone else). Declaring is a
+once-per-channel act, so it is the empty state's call to action when you own nothing and a
+ghost "Create another channel" when you do — not the primary button for everyone for ever.
+
+**Lesson (L-…):** three of these were the same shape as the entry above — a screen whose
+ordering encoded no judgement about why anyone opened it. The other, `srcDirs`, is the
+recurring one: a plugin applied in two places where only one of them does the packaging.
+
+**Verified:** frontend 37 suites / 195 tests; `tsc --noEmit` clean; `pnpm lint` 0 errors;
+Android `installDebug` succeeded and the Python asset was inspected inside the APK.
+
+**Not claimed:** RNS has still never been observed to START. The import now resolves, which is
+strictly further than before; whether `RNS.Reticulum` then initialises on this device is
+unknown. `runtime.py` catches its own exceptions and returns `{state: "failed", error}`, so a
+failure will surface as text in the banner rather than a crash.
+
+---
+
+## 2026-07-31 — `Read-only file system: 'file:'` — a URI handed to an OS call
+
+**Reported:** Start RNS failed with `read only file system 'file:'`.
+
+**A URI is not a path.** `startSignalRns` built its storage root from
+`FileSystem.documentDirectory`, which Expo returns as a URI —
+`file:///data/user/0/com.jagoobahee.app/files/` — and passed it through Kotlin to Python
+unchanged. `os.makedirs("file:///data/…")` does not recognise a scheme. It sees a RELATIVE
+path whose first component is literally `file:`, resolves it against the process working
+directory (`/` on Android), and fails with `[Errno 30] Read-only file system: 'file:'`.
+
+That message is why this looked like a permissions problem: it names the root filesystem, for
+a directory inside the app's own private storage, which the app can obviously write to.
+
+**Fix.** `fileSystemPath()` in `rns.ts` strips the scheme and percent-decodes, and it is the
+single owner of the conversion: JavaScript produces a filesystem path, Python consumes one.
+`runtime.py` now *asserts* that shape — `"://" in root or not root.startswith("/")` raises
+with the offending value — rather than re-deriving it. A check, not a second owner: a
+regression fails loudly at the boundary instead of creating a directory called `file:`
+wherever the working directory happens to be.
+
+**Gate:** five cases in `rns.test.ts` — the scheme is stripped, the result is absolute and
+scheme-free (the property Python checks), `%20` is decoded rather than reaching the
+filesystem, a plain path is unchanged so the conversion is idempotent, and malformed
+percent-encoding returns the raw path instead of throwing on the one call that decides
+whether the mesh transport can start at all.
+
+**Lesson (L-…):** the same shape as `localAddresses()` returning URLs into `classifyLink` —
+a value crossing a boundary in the producer's notation rather than the consumer's, where both
+are strings so nothing complains until an OS call does. Three boundaries in this feature have
+now failed this way (URI vs path, Uint8Array vs ByteArray, library vs app source set); the
+common factor is that every one of them was typed as "string" or "Any" somewhere in the
+middle.
+
+**Verified:** frontend 37 suites / 200 tests; `tsc --noEmit` clean; `pnpm lint` 0 errors.
+
+**Not claimed:** RNS still has not been observed to reach `running`. This clears the directory
+creation; `RNS.Reticulum(configdir=root)` and the LXMF router have not run yet on this device.

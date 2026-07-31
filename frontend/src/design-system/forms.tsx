@@ -341,6 +341,118 @@ export function SelectField({
   );
 }
 
+/**
+ * A complete single-choice control: the `SelectField` trigger plus the options it opens.
+ *
+ * `SelectField` alone had no callers because it is only the closed state — it renders a
+ * chevron and calls `onPress`, and every screen that needed a choice from a known list fell
+ * back to a free-text field instead. That is how "Channel ID" in the Signal studio became a
+ * box you had to paste 56 characters into, for a value that can only ever be one of the
+ * channels this device holds a key for.
+ *
+ * Options expand INLINE rather than in a modal or a native picker: it behaves identically
+ * from a 320 pt phone to a tablet in split screen, it needs no platform-specific branch, and
+ * it cannot be the thing that fails when everything else is failing. Selection state carries
+ * a check glyph as well as a tint, because colour is never the sole carrier of meaning
+ * (NFR-A06), and every row clears the 44 pt touch target.
+ */
+export function Select<T extends string>({
+  colors,
+  label,
+  hint,
+  placeholder,
+  value,
+  options,
+  onChange,
+  emptyLabel = 'Nothing to choose from yet',
+}: {
+  readonly colors: AppPalette;
+  readonly label?: string;
+  readonly hint?: string;
+  readonly placeholder: string;
+  readonly value: T | null;
+  readonly options: readonly {
+    readonly value: T;
+    readonly label: string;
+    readonly detail?: string;
+  }[];
+  readonly onChange: (value: T) => void;
+  readonly emptyLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.value === value);
+  return (
+    <View style={styles.field}>
+      <SelectField
+        colors={colors}
+        {...(label ? { label } : {})}
+        onPress={() => setOpen((current) => !current)}
+        placeholder={placeholder}
+        value={selected ? selected.label : null}
+      />
+      {hint && !open ? (
+        <Text
+          maxFontSizeMultiplier={maxFontScale.caption}
+          style={[typography.caption, { color: colors.text2 }]}
+        >
+          {hint}
+        </Text>
+      ) : null}
+      {open ? (
+        <View style={[styles.options, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          {options.length === 0 ? (
+            <Text
+              maxFontSizeMultiplier={maxFontScale.caption}
+              style={[typography.caption, styles.optionEmpty, { color: colors.text2 }]}
+            >
+              {emptyLabel}
+            </Text>
+          ) : (
+            options.map((option) => {
+              const isSelected = option.value === value;
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  key={option.value}
+                  onPress={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                  }}
+                  style={[styles.option, { borderTopColor: colors.border }]}
+                >
+                  <View style={styles.optionText}>
+                    <Text
+                      maxFontSizeMultiplier={maxFontScale.label}
+                      numberOfLines={1}
+                      style={[typography.label, { color: colors.text }]}
+                    >
+                      {option.label}
+                    </Text>
+                    {option.detail ? (
+                      <Text
+                        maxFontSizeMultiplier={maxFontScale.caption}
+                        numberOfLines={1}
+                        style={[typography.mono, { color: colors.text3 }]}
+                      >
+                        {option.detail}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {/* Shape as well as tint — NFR-A06. */}
+                  {isSelected ? (
+                    <Ionicons color={colors.ember} name="checkmark" size={18} />
+                  ) : null}
+                </Pressable>
+              );
+            })
+          )}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export function Disclosure({
   colors,
   title,
@@ -413,6 +525,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.xs,
   },
+  options: {
+    borderWidth: 1,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+  },
+  option: {
+    // 44 pt is the floor; these rows carry two lines, so they land above it.
+    minHeight: 52,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  optionText: { flex: 1, minWidth: 0 },
+  optionEmpty: { padding: spacing.sm },
   disclosureHeader: {
     minHeight: 44,
     flexDirection: 'row',

@@ -19,6 +19,30 @@ export interface SignalRnsBootstrap {
   readonly lxmfPropagationDestination: string | null;
 }
 
+/**
+ * Turn Expo's `file://` directory URI into a path an OS call can use.
+ *
+ * ── The failure this removes ────────────────────────────────────────────────────────
+ * `FileSystem.documentDirectory` is a URI — `file:///data/user/0/<pkg>/files/` — and it was
+ * handed to Python unchanged. `os.makedirs("file:///data/…")` does not see a scheme; it sees
+ * a RELATIVE path whose first component is `file:`, resolves it against the process working
+ * directory (`/` on Android), and fails with `[Errno 30] Read-only file system: 'file:'`.
+ * An error naming the root filesystem, for a path under the app's own private storage.
+ *
+ * One owner: JavaScript produces a filesystem path, Python consumes a filesystem path.
+ * `runtime.py` asserts the shape it was given rather than re-deriving it, so a regression
+ * here fails loudly at the boundary instead of creating a directory called `file:`.
+ */
+export function fileSystemPath(uri: string): string {
+  const withoutScheme = uri.startsWith('file://') ? uri.slice('file://'.length) : uri;
+  // Expo percent-encodes the URI; a path with a space must not arrive as "%20".
+  try {
+    return decodeURIComponent(withoutScheme);
+  } catch {
+    return withoutScheme;
+  }
+}
+
 export function parseRnsTcpEndpoints(endpoints: readonly string[]): readonly RnsInterfaceConfig[] {
   return endpoints.flatMap((endpoint) => {
     try {
@@ -65,12 +89,13 @@ export async function startSignalRns(
       ...(options.rnode ? [options.rnode] : []),
     ];
     const config: RnsBootstrapConfig = {
-      storagePath: `${FileSystem.documentDirectory ?? ''}jagoo-signal-rns`,
-      identityPrivateKey: identity.privateKey,
+      storagePath: fileSystemPath(`${FileSystem.documentDirectory ?? ''}jagoo-signal-rns`),
       interfaces,
       propagationDestination: bootstrap.lxmfPropagationDestination,
     };
-    return await RnsNative.start(config);
+    // Second argument, not a config field — see `RnsBootstrapConfig`. The native side zeroes
+    // its own copy; this one is zeroed below whether the start succeeded or threw.
+    return await RnsNative.start(config, identity.privateKey);
   } finally {
     identity.privateKey.fill(0);
     identity.publicKey.fill(0);

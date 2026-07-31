@@ -18,7 +18,12 @@ export default function SignalChannelsRoute() {
         }
         onBack={() => router.back()}
         onNetwork={() => router.push('/network')}
-        onStudio={() => router.push('/signal/studio')}
+        onStudio={(options) =>
+          router.push({
+            pathname: '/signal/studio',
+            ...(options?.channel ? { params: { channel: options.channel } } : {}),
+          })
+        }
         reach={reach}
       />
     </AppScene>

@@ -619,13 +619,37 @@ export async function forumSessionRequest<T>(
   if (!activeAccessToken) {
     throw new Error('Register and authenticate this Forum identity first');
   }
-  return requestJson<T>(baseUrl, path, {
-    ...init,
-    headers: {
-      ...init.headers,
-      Authorization: `Bearer ${activeAccessToken}`,
-    },
-  });
+  const send = () =>
+    requestJson<T>(baseUrl, path, {
+      ...init,
+      headers: {
+        ...init.headers,
+        Authorization: `Bearer ${activeAccessToken}`,
+      },
+    });
+  try {
+    return await send();
+  } catch (error) {
+    /*
+      One silent re-authentication on a rejected token — the same gap as the Signal plane's.
+
+      Access tokens are HMACed with `AUTH_ACCESS_SECRET`, and a node with none configured
+      mints a fresh random key per boot, so every node restart invalidates every outstanding
+      token. Nothing recovered: the vault stayed unlocked, the token stayed set, and the only
+      code that mints one runs when there is NO token. Re-authenticating is a signature over
+      a challenge with a key already held unlocked, so it needs nothing from the person.
+
+      Exactly one retry — a node that rejects a freshly minted token is saying something
+      real, and that must surface rather than spin.
+    */
+    const detail = error instanceof Error ? error.message.toLowerCase() : '';
+    if (!detail.includes('access token is invalid') && !detail.includes('token has expired')) {
+      throw error;
+    }
+    activeAccessToken = null;
+    await authenticateForumIdentity(baseUrl);
+    return send();
+  }
 }
 
 /**

@@ -18,18 +18,28 @@ import {
   Row,
   SectionHeader,
   SegmentedControl,
+  Select,
   Skeleton,
   StatusBanner,
   TextAreaField,
   TextField,
 } from '../../design-system';
-import { radius, spacing, type as typography } from '../../design-system';
+import { maxFontScale, radius, spacing, type as typography } from '../../design-system';
+import type { ComponentProps } from 'react';
+
+type IconName = ComponentProps<typeof Ionicons>['name'];
 import QRCode from 'react-native-qrcode-svg';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { PeoplePicker } from './people-picker';
 import { loadSignalContacts, type SignalContact } from './contacts';
 import { encodeSignalIdentityCard } from './identity-card';
 import { clearSignalBackupOwed, isSignalBackupOwed } from './storage';
+import {
+  loadOutgoingSignalMessages,
+  recordOutgoingSignalMessage,
+  type OutgoingSignalMessage,
+} from './outgoing';
+import { listOutbox } from '../../offline/outbox';
 import { useAsyncAction } from '../../hooks/use-async-action';
 import { useNodeDocument, type NodePage } from '../../data/node';
 import type { HomeNode } from '../../data/node-config';
@@ -44,6 +54,7 @@ import {
   loadSignalInbox,
   loadSignalMessages,
   publishMissingPerson,
+  ownedSignalChannels,
   publishSignalBroadcast,
   publishSignalCheckIn,
   publishSignalPrekeys,
@@ -240,35 +251,50 @@ function Field({
   );
 }
 
+/**
+ * Every secondary Signal destination, as one grid.
+ *
+ * They used to be three different shapes in three places — a full-width button, a three-tile
+ * rail and a two-button row — which is most of what "scattered" meant. One grid of equal
+ * tiles says these are peers and none of them is the reason you came. Tiles wrap, so the
+ * layout is the same at any width and at any font scale.
+ */
 function SignalActions({
   colors,
   onChannels,
   onCheckIn,
   onMap,
+  onIdentity,
+  onMesh,
 }: {
   readonly colors: AppPalette;
   readonly onChannels: () => void;
   readonly onCheckIn: () => void;
   readonly onMap: () => void;
+  readonly onIdentity: () => void;
+  readonly onMesh: () => void;
 }) {
+  const tiles: readonly [IconName, string, () => void][] = [
+    ['people-outline', 'Channels', onChannels],
+    ['hand-left-outline', 'Check in', onCheckIn],
+    ['map-outline', 'Area map', onMap],
+    ['qr-code-outline', 'Your code', onIdentity],
+    ['radio-outline', 'Radio (LXMF)', onMesh],
+  ];
   return (
-    <View style={styles.actionRail}>
-      {[
-        ['people-outline', 'Channels', onChannels],
-        ['hand-left-outline', 'Check in', onCheckIn],
-        ['map-outline', 'Area map', onMap],
-      ].map(([icon, label, action]) => (
+    <View style={styles.actionGrid}>
+      {tiles.map(([icon, label, action]) => (
         <Pressable
-          accessibilityLabel={label as string}
+          accessibilityLabel={label}
           accessibilityRole="button"
-          key={label as string}
-          onPress={action as () => void}
+          key={label}
+          onPress={action}
           style={({ pressed }) => [
             styles.action,
             { backgroundColor: colors.surface, borderColor: colors.border, opacity: pressed ? 0.7 : 1 },
           ]}
         >
-          <Ionicons name={icon as 'people-outline'} color={colors.signal} size={22} />
+          <Ionicons name={icon} color={colors.signal} size={22} />
           <Text
             adjustsFontSizeToFit
             maxFontSizeMultiplier={1.15}
@@ -276,7 +302,7 @@ function SignalActions({
             numberOfLines={2}
             style={[typography.label, styles.actionLabel, { color: colors.text }]}
           >
-            {label as string}
+            {label}
           </Text>
         </Pressable>
       ))}
@@ -284,14 +310,45 @@ function SignalActions({
   );
 }
 
+/** "4m ago" / "2h ago" — an alert's age is what a person judges it by, not a wall clock. */
+function ago(atMs: number, nowMs = Date.now()): string {
+  const minutes = Math.max(0, Math.round((nowMs - atMs) / 60_000));
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  return hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
+}
+
+/**
+ * One alert, readable at a glance.
+ *
+ * ── What was wrong ─────────────────────────────────────────────────────────────────
+ * The card led with `SEVERITY  #17  14:32:07` — a sequence number and a wall-clock time to
+ * the second, which is broadcaster bookkeeping, not what someone deciding whether to move
+ * their family needs. The headline came third. Below it, a sequence gap and a retraction were
+ * each rendered as a nested `StatusBanner`: a bordered card inside a bordered card inside a
+ * scrolling list of bordered cards, which is the "scattered" reading — nothing established
+ * which box was the alert and which was a note about it.
+ *
+ * ── What it is now ─────────────────────────────────────────────────────────────────
+ * Severity, channel and age on one quiet meta line; the headline dominant; the detail under
+ * it. Notes about the alert are inline rows sharing the card's surface, so the card stays one
+ * object. The whole card opens the channel, so "View channel" stops competing with the only
+ * action that ever matters here — acknowledging a critical alert.
+ *
+ * Severity carries its word AND its glyph, never colour alone (NFR-A06), and the left edge
+ * repeats it so a column of alerts is scannable without reading any of them.
+ */
 function AlertCard({
   broadcast,
+  channelName,
   colors,
   acknowledged,
   onAcknowledge,
   onChannel,
 }: {
   readonly broadcast: SignalBroadcast;
+  readonly channelName?: string;
   readonly colors: AppPalette;
   readonly acknowledged: boolean;
   readonly onAcknowledge: () => void;
@@ -304,43 +361,65 @@ function AlertCard({
       : setting.tone === 'warning'
         ? colors.constrained
         : colors.signal;
+  const needsAcknowledgement = broadcast.severity === 4 && !acknowledged;
   return (
-    <Card colors={colors} style={{ ...styles.alert, borderColor: accent }}>
-      <View style={styles.alertHeading}>
-        <View style={styles.alertTitle}>
-          <Ionicons name={setting.icon} size={22} color={accent} />
-          <Text style={[typography.label, { color: accent }]}>{setting.label.toUpperCase()}</Text>
-          <Text style={[typography.mono, { color: colors.text3 }]}>#{broadcast.sequence}</Text>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${setting.label} from ${channelName ?? 'a channel'}: ${broadcast.headline}`}
+      accessibilityHint="Opens the channel that published this"
+      onPress={onChannel}
+      style={({ pressed }) => [styles.alertPress, { opacity: pressed ? 0.7 : 1 }]}
+    >
+      <Card colors={colors} style={{ ...styles.alert, borderLeftColor: accent }}>
+        <View style={styles.alertMeta}>
+          <Ionicons name={setting.icon} size={16} color={accent} />
+          <Text maxFontSizeMultiplier={maxFontScale.caption} style={[typography.caption, { color: accent }]}>
+            {setting.label}
+          </Text>
+          <Text style={[typography.caption, { color: colors.text3 }]}>·</Text>
+          <Text
+            numberOfLines={1}
+            maxFontSizeMultiplier={maxFontScale.caption}
+            style={[typography.caption, styles.flex, { color: colors.text2 }]}
+          >
+            {channelName ?? `${broadcast.channel.slice(0, 14)}…`}
+          </Text>
+          <Text maxFontSizeMultiplier={maxFontScale.caption} style={[typography.caption, { color: colors.text3 }]}>
+            {ago(broadcast.createdAtMs)}
+          </Text>
         </View>
-        <Text style={[typography.caption, { color: colors.text3 }]}>
-          {new Date(broadcast.createdAtMs).toLocaleTimeString()}
+
+        <Text maxFontSizeMultiplier={maxFontScale.h2} style={[typography.h2, { color: colors.text }]}>
+          {broadcast.headline}
         </Text>
-      </View>
-      <Text style={[typography.h2, { color: colors.text }]}>{broadcast.headline}</Text>
-      {broadcast.detail ? (
-        <Text style={[typography.body, { color: colors.text2 }]}>{broadcast.detail}</Text>
-      ) : null}
-      {broadcast.gap ? (
-        <StatusBanner
-          colors={colors}
-          icon="cut-outline"
-          title={`Broadcasts ${broadcast.gap.from}–${broadcast.gap.to} did not reach you`}
-          body="The sequence gap is visible evidence of missing delivery."
-          tone="warning"
-        />
-      ) : null}
-      {broadcast.revokedAtMs ? (
-        <StatusBanner
-          colors={colors}
-          icon="return-down-back-outline"
-          title="Retracted — retained for safety"
-          body={broadcast.revokeNote || 'The broadcaster revoked this alert.'}
-          tone="danger"
-        />
-      ) : null}
-      <Row gap={spacing.sm} wrap>
-        <Button colors={colors} label="View channel" onPress={onChannel} variant="ghost" system="signal" />
-        {broadcast.severity === 4 && !acknowledged ? (
+        {broadcast.detail ? (
+          <Text maxFontSizeMultiplier={maxFontScale.body} style={[typography.body, { color: colors.text2 }]}>
+            {broadcast.detail}
+          </Text>
+        ) : null}
+
+        {/* Notes ABOUT the alert, on the alert's own surface — not cards within a card. */}
+        {broadcast.revokedAtMs ? (
+          <View style={styles.alertNote}>
+            <Ionicons name="return-down-back-outline" size={15} color={colors.blackout} />
+            <Text style={[typography.caption, styles.flex, { color: colors.blackout }]}>
+              Retracted by the broadcaster — kept visible.{' '}
+              {broadcast.revokeNote || 'No reason was given.'}
+            </Text>
+          </View>
+        ) : null}
+        {broadcast.gap ? (
+          <View style={styles.alertNote}>
+            <Ionicons name="cut-outline" size={15} color={colors.constrained} />
+            <Text style={[typography.caption, styles.flex, { color: colors.constrained }]}>
+              {broadcast.gap.from === broadcast.gap.to
+                ? `Broadcast ${broadcast.gap.from} never reached you.`
+                : `Broadcasts ${broadcast.gap.from}–${broadcast.gap.to} never reached you.`}
+            </Text>
+          </View>
+        ) : null}
+
+        {needsAcknowledgement ? (
           <Button
             colors={colors}
             icon="checkmark-circle-outline"
@@ -349,8 +428,8 @@ function AlertCard({
             system="signal"
           />
         ) : null}
-      </Row>
-    </Card>
+      </Card>
+    </Pressable>
   );
 }
 
@@ -408,42 +487,75 @@ export function SignalHomeScreen({
     setAcknowledged(new Set([...acknowledged, id]));
   };
 
+  // Channel names for the alert meta line. The broadcast carries only an ID, and an ID is
+  // not who is speaking — which is the one thing this plane exists to make legible.
+  const channelQuery = useNodeDocument<NodePage<SignalChannel>>(
+    homeNode.baseUrl,
+    '/v1/signal/channels?limit=200',
+  );
+  const channelNames = useMemo(
+    () =>
+      new Map((channelQuery.data?.value.items ?? []).map((item) => [item.id, item.name] as const)),
+    [channelQuery.data],
+  );
+
+  const urgent = ordered.filter(
+    (item) => item.severity === 4 && !acknowledged.has(item.id),
+  ).length;
+
   return (
     <View style={styles.page}>
       <PageHeader colors={colors} mode={mode} reach={reach} title="Signal" onReach={onNetwork} />
       <Page colors={colors}>
-        <View style={styles.hero}>
-          <View style={[styles.signalMark, { backgroundColor: colors.signal }]} />
-          <View style={styles.heroText}>
-            <Text style={[typography.h1, { color: colors.text }]}>Know who is speaking.</Text>
-            <Text style={[typography.body, { color: colors.text2 }]}>
-              Identified crisis broadcasts and private coordination, isolated from your Forum identity.
+        {/*
+          ── The order of this screen is the design ────────────────────────────────────
+          Alerts used to begin below a hero paragraph, a full-width Messages button, a
+          three-tile rail and two more buttons: five navigation surfaces and a sentence of
+          product copy before the first thing anyone opened this tab to see. On a 320 pt
+          phone that is a full screen of scrolling to answer "is anything wrong?".
+
+          Now: one line that answers that question, then the alerts, then everywhere else.
+          The hero is gone — the header already says "Signal", and a person under a shutdown
+          does not need to be told what the app is every time they check it.
+        */}
+        <View style={[styles.pulse, { borderColor: urgent > 0 ? colors.blackout : colors.border }]}>
+          <Ionicons
+            color={urgent > 0 ? colors.blackout : colors.signal}
+            name={urgent > 0 ? 'alert-circle' : 'radio-outline'}
+            size={22}
+          />
+          <View style={styles.flex}>
+            <Text
+              accessibilityRole="header"
+              maxFontSizeMultiplier={maxFontScale.label}
+              style={[typography.label, { color: urgent > 0 ? colors.blackout : colors.text }]}
+            >
+              {urgent > 0
+                ? `${urgent} critical alert${urgent === 1 ? '' : 's'} need you`
+                : ordered.length > 0
+                  ? `${ordered.length} alert${ordered.length === 1 ? '' : 's'}`
+                  : 'No alerts right now'}
+            </Text>
+            <Text
+              maxFontSizeMultiplier={maxFontScale.caption}
+              style={[typography.caption, { color: colors.text2 }]}
+            >
+              {subscriptions.length === 0
+                ? 'You are following no channels yet.'
+                : `Listening on ${subscriptions.length} channel${subscriptions.length === 1 ? '' : 's'}.`}
             </Text>
           </View>
-        </View>
-        {/*
-          Messaging is the primary action, not the third secondary button.
-          People arrive at this tab wanting to talk to someone; it used to be an equal-weight
-          chip beside "LXMF mesh", and reaching a first message meant eleven steps that began
-          with finding "Signal identity" and ended with pasting 64 hex characters.
-        */}
-        <Button colors={colors} label="Messages" icon="chatbubbles-outline" onPress={onMessages} system="signal" />
-        <SignalActions colors={colors} onChannels={onChannels} onCheckIn={onCheckIn} onMap={onMap} />
-        <Row gap={spacing.sm} wrap>
-          <Button colors={colors} label="Your identity and code" onPress={onIdentity} variant="secondary" system="signal" icon="qr-code-outline" />
-          <Button colors={colors} label="Radio (LXMF)" onPress={onMesh} variant="ghost" system="signal" icon="radio-outline" />
-        </Row>
-        {subscriptions.length === 0 ? (
-          <StatusBanner
-            action="Choose channels"
-            body="No broadcast enters this inbox until you follow its channel. Discovery remains available without exposing your follow list."
+          {/* Messaging stays reachable in one tap from the top of the tab. */}
+          <Button
             colors={colors}
-            icon="options-outline"
-            onAction={onChannels}
-            title="Filters stay on this device"
+            icon="chatbubbles-outline"
+            label="Messages"
+            onPress={onMessages}
+            system="signal"
+            variant="secondary"
           />
-        ) : null}
-        <SectionHeader colors={colors} title="Received alerts" />
+        </View>
+
         {query.isError ? (
           <StatusBanner
             action="Retry"
@@ -461,18 +573,32 @@ export function SignalHomeScreen({
             <Skeleton colors={colors} height={92} />
           </View>
         ) : ordered.length === 0 ? (
+          /*
+            One empty state, not an empty state plus a separate banner about filters. Which
+            of the two reasons applies decides the words and the action, so a person is told
+            what to do rather than shown two boxes and left to work out which is theirs.
+          */
           <EmptyState
-            body={subscriptions.length === 0 ? 'Follow a channel to receive its signed broadcasts.' : 'No alert matching your local subscription filters has arrived yet.'}
+            action={subscriptions.length === 0 ? 'Find channels' : undefined}
+            body={
+              subscriptions.length === 0
+                ? 'Follow a channel and its signed broadcasts arrive here. Who you follow is stored only on this device.'
+                : 'Nothing has matched your filters yet. This screen keeps working with the network gone.'
+            }
             colors={colors}
             icon="radio-outline"
+            onAction={subscriptions.length === 0 ? onChannels : undefined}
             system="signal"
-            title="Listening quietly"
+            title={subscriptions.length === 0 ? 'Follow a channel to begin' : 'Listening quietly'}
           />
         ) : (
           ordered.map((broadcast) => (
             <AlertCard
               acknowledged={acknowledged.has(broadcast.id)}
               broadcast={broadcast}
+              {...(channelNames.get(broadcast.channel)
+                ? { channelName: channelNames.get(broadcast.channel) }
+                : {})}
               colors={colors}
               key={broadcast.id}
               onAcknowledge={() => void acknowledge(broadcast.id)}
@@ -480,6 +606,17 @@ export function SignalHomeScreen({
             />
           ))
         )}
+
+        {/* Everything else, below the content it used to sit on top of. */}
+        <SectionHeader colors={colors} title="Signal tools" />
+        <SignalActions
+          colors={colors}
+          onChannels={onChannels}
+          onCheckIn={onCheckIn}
+          onIdentity={onIdentity}
+          onMap={onMap}
+          onMesh={onMesh}
+        />
       </Page>
     </View>
   );
@@ -496,23 +633,102 @@ export function SignalChannelsScreen({
   onStudio,
 }: SignalScreenProps & {
   readonly onChannel: (channel: string) => void;
-  readonly onStudio: () => void;
+  readonly onStudio: (options?: { readonly channel?: string }) => void;
 }) {
   const [queryText, setQueryText] = useState('');
   const query = useNodeDocument<NodePage<SignalChannel>>(
     homeNode.baseUrl,
     `/v1/signal/channels?q=${encodeURIComponent(queryText)}&limit=100`,
   );
+  /*
+    Two different relationships to a channel, which the screen used to flatten into one.
+
+    "Create or publish" sat under the search box as a single primary button doing three jobs
+    behind it, and the list below mixed the channels you speak FOR with the channels you
+    listen TO — so the screen could not answer either "where do I publish?" or "who else is
+    out there?". Ownership is local knowledge: the vault's channel map is exactly the set
+    this device can sign for, and it is the same set the node enforces.
+  */
+  const [owned, setOwned] = useState<readonly string[]>([]);
+  useEffect(() => {
+    void ownedSignalChannels().then(setOwned);
+  }, []);
   const rows = query.data?.value.items ?? [];
+  const yours = rows.filter((channel) => owned.includes(channel.id));
+  const discovered = rows.filter((channel) => !owned.includes(channel.id));
   return (
     <View style={styles.page}>
       <PageHeader colors={colors} mode={mode} reach={reach} title="Channels" onBack={onBack} onReach={onNetwork} />
       <Page colors={colors}>
+        {/* ── Yours: the publishing surface ─────────────────────────────────────── */}
+        <SectionHeader colors={colors} title="Your channels" />
+        {yours.length === 0 ? (
+          <EmptyState
+            action="Create a channel"
+            body="A channel is declared once. After that you publish to it from here, and only this device can sign for it."
+            colors={colors}
+            icon="megaphone-outline"
+            onAction={() => onStudio()}
+            system="signal"
+            title="You broadcast on no channel yet"
+          />
+        ) : (
+          <>
+            <View style={styles.rowGroup}>
+              {yours.map((channel) => (
+                <View key={channel.id} style={[styles.listRow, { borderBottomColor: colors.border }]}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${channel.name}`}
+                    onPress={() => onChannel(channel.id)}
+                    style={styles.listRowMain}
+                  >
+                    <View style={[styles.channelAvatar, { backgroundColor: colors.surface2 }]}>
+                      <Ionicons name="megaphone-outline" color={colors.signal} size={22} />
+                    </View>
+                    <View style={styles.listRowBody}>
+                      <Text numberOfLines={1} style={[typography.label, { color: colors.text }]}>
+                        {channel.name}
+                      </Text>
+                      <Text style={[typography.caption, { color: colors.text2 }]}>
+                        {channel.lastSequence === '0'
+                          ? 'Nothing published yet'
+                          : `${channel.lastSequence} published`}
+                      </Text>
+                    </View>
+                  </Pressable>
+                  {/* The repeat action, on the thing it acts on. */}
+                  <Button
+                    colors={colors}
+                    icon="send-outline"
+                    label="Publish"
+                    onPress={() => onStudio({ channel: channel.id })}
+                    system="signal"
+                  />
+                </View>
+              ))}
+            </View>
+            {/*
+              Declaring is a once-per-channel act, so it is a quiet secondary control here
+              rather than the primary button it used to be for everyone for ever.
+            */}
+            <Button
+              colors={colors}
+              icon="add-circle-outline"
+              label="Create another channel"
+              onPress={() => onStudio()}
+              variant="ghost"
+              system="signal"
+            />
+          </>
+        )}
+
+        {/* ── Everyone else: the listening surface ──────────────────────────────── */}
+        <SectionHeader colors={colors} title="Discover" />
         <Field colors={colors} label="Find a broadcaster" onChangeText={setQueryText} value={queryText} />
-        <Button colors={colors} icon="add-circle-outline" label="Create or publish" onPress={onStudio} system="signal" />
-        {rows.length > 0 ? (
+        {discovered.length > 0 ? (
           <View style={styles.rowGroup}>
-            {rows.map((channel) => (
+            {discovered.map((channel) => (
               <Pressable
                 accessibilityRole="button"
                 key={channel.id}
@@ -527,10 +743,12 @@ export function SignalChannelsScreen({
                 </View>
                 <View style={styles.listRowBody}>
                   <Row gap={spacing.xs} wrap>
-                    <Text style={[typography.h2, { color: colors.text }]}>{channel.name}</Text>
+                    <Text numberOfLines={1} style={[typography.label, { color: colors.text }]}>
+                      {channel.name}
+                    </Text>
                     <Pill colors={colors} label={channel.verification} />
                   </Row>
-                  <Text numberOfLines={2} style={[typography.body, { color: colors.text2 }]}>
+                  <Text numberOfLines={2} style={[typography.caption, { color: colors.text2 }]}>
                     {channel.description}
                   </Text>
                   {channel.confusableWith.length > 0 ? (
@@ -544,13 +762,17 @@ export function SignalChannelsScreen({
             ))}
           </View>
         ) : null}
-        {!query.isLoading && rows.length === 0 ? (
+        {!query.isLoading && discovered.length === 0 ? (
           <EmptyState
-            body="Connected nodes have not announced a matching identified channel."
+            body={
+              queryText.trim()
+                ? 'No channel here matches that. Discovery only reaches servers yours has heard of.'
+                : 'Connected nodes have not announced an identified channel yet.'
+            }
             colors={colors}
             icon="search-outline"
             system="signal"
-            title="No channel found"
+            title="Nothing to follow yet"
           />
         ) : null}
       </Page>
@@ -1632,6 +1854,11 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
   const [selectedGroup, setSelectedGroup] = useState('');
   const [addMembers, setAddMembers] = useState('');
   const [removeMembers, setRemoveMembers] = useState('');
+  /** Kept apart from `notice`: a background poll must never speak for a send. */
+  const [readError, setReadError] = useState('');
+  const [outgoing, setOutgoing] = useState<readonly OutgoingSignalMessage[]>([]);
+  /** Content IDs the outbox still owes the node — everything else has a receipt. */
+  const [undelivered, setUndelivered] = useState<ReadonlySet<string>>(new Set());
   const memberKeys = (value: string) =>
     value.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
   const refresh = async () => {
@@ -1647,12 +1874,38 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
         readonly items: readonly SignalGroupDocument[];
       }>(homeNode.baseUrl, '/v1/signal/me/groups');
       setGroups(groupResponse.items);
+      setReadError('');
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not read Signal inbox');
+      /*
+        A failed READ is not a failed SEND, and it must not be reported as one.
+
+        `send()` ends with `await refresh()`, and `refresh()` also runs every ten seconds.
+        Both used to write into `notice` — the same state the send outcome uses, rendered
+        under the heading "Could not send". So a message that was signed, queued and
+        receipted announced itself for a fraction of a second and was then overwritten by
+        whatever the inbox poll happened to hit. "Start encrypted session" reporting
+        "access token is invalid" was exactly that: the session had gone out, and the poll
+        behind it was what failed.
+      */
+      setReadError(error instanceof Error ? error.message : 'Could not read Signal inbox');
     }
   };
+  /**
+   * Local state that needs no network: what we said, and what has not gone out yet.
+   *
+   * The outbox holds opaque signed bytes and cannot know an envelope was a message — the join
+   * is by content ID, which both sides have. Polled on the same cadence as the inbox so a
+   * queued message flips to sent on its own when connectivity returns.
+   */
+  const refreshLocal = useCallback(async () => {
+    const [sent, queued] = await Promise.all([loadOutgoingSignalMessages(), listOutbox()]);
+    setOutgoing(sent);
+    setUndelivered(new Set(queued.map((record) => record.contentId)));
+  }, []);
+
   useEffect(() => {
     void refresh();
+    void refreshLocal();
     void loadSignalContacts().then(setContacts);
     /*
       Replies used to appear only when someone remembered to tap "Refresh encrypted inbox",
@@ -1660,9 +1913,12 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
       screen already polls broadcasts on this cadence; matching it keeps the two surfaces
       consistent and does not add a second timing to reason about.
     */
-    const timer = setInterval(() => void refresh(), 10_000);
+    const timer = setInterval(() => {
+      void refresh();
+      void refreshLocal();
+    }, 10_000);
     return () => clearInterval(timer);
-  }, [homeNode.baseUrl]);
+  }, [homeNode.baseUrl, refreshLocal]);
 
   /** The other participant's key in a session, whichever side of it this device is on. */
   const counterpartKey = (session: DecryptedSignalSession): string =>
@@ -1683,28 +1939,136 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
     return contact?.displayName || `${key.slice(0, 8)}…`;
   };
 
+  /**
+   * One conversation, in order, from three sources that each hold part of it.
+   *
+   * ── Why a merge is unavoidable ─────────────────────────────────────────────────────
+   *   · the node holds every envelope, but everything WE sent comes back `plaintext: null`,
+   *     because it was sealed to the other person's keys and we cannot open it again;
+   *   · `outgoing.ts` holds our plaintext, and nothing else knows it;
+   *   · the outbox holds what has not reached the node at all, as opaque signed bytes.
+   *
+   * Joined on content ID, ordered by counter — the session opener is counter 0, which is what
+   * the node assigns it too. The screen used to render the node's sessions and the node's
+   * messages as two separate flat lists of hairline rows, each labelled "Message 3 ·
+   * 7/31/2026, 8:12:04 AM", with no ordering between them and no indication of who said what.
+   * That is the "random logs" reading, and no styling fixes it — the data had to be joined
+   * first.
+   */
+  const thread = useMemo((): readonly ThreadEntry[] => {
+    if (!activeSession) return [];
+    const mine = new Map(
+      outgoing
+        .filter((item) => item.session === activeSession)
+        .map((item) => [item.contentId, item] as const),
+    );
+    const entries: ThreadEntry[] = [];
+
+    const opener = sessions.find((item) => item.id === activeSession);
+    if (opener) {
+      const local = mine.get(opener.id);
+      entries.push({
+        id: opener.id,
+        counter: 0,
+        outbound: opener.senderKey.toLowerCase() === identityKey.toLowerCase(),
+        text: local?.plaintext ?? opener.plaintext,
+        atMs: opener.createdAtMs,
+        state: undelivered.has(opener.id) ? 'queued' : 'sent',
+      });
+    }
+
+    for (const item of messages.filter((row) => row.session === activeSession)) {
+      const local = mine.get(item.id);
+      entries.push({
+        id: item.id,
+        counter: Number(item.counter),
+        outbound: item.recipientKey.toLowerCase() !== identityKey.toLowerCase(),
+        text: local?.plaintext ?? item.plaintext,
+        atMs: item.createdAtMs,
+        state: undelivered.has(item.id)
+          ? 'queued'
+          : item.deliveryState >= DeliveryState.DELIVERY_STATE_READ
+            ? 'read'
+            : 'sent',
+        deliveryState: item.deliveryState,
+        readable: item.recipientKey.toLowerCase() === identityKey.toLowerCase(),
+      });
+    }
+
+    // Anything the node has never seen — it exists only here and in the outbox.
+    for (const item of mine.values()) {
+      if (entries.some((entry) => entry.id === item.contentId)) continue;
+      entries.push({
+        id: item.contentId,
+        counter: item.counter,
+        outbound: true,
+        text: item.plaintext,
+        atMs: item.sentAtMs,
+        state: undelivered.has(item.contentId) ? 'queued' : 'sent',
+      });
+    }
+
+    return entries.sort((left, right) => left.counter - right.counter || left.atMs - right.atMs);
+  }, [activeSession, messages, sessions, outgoing, undelivered, identityKey]);
+
+  /** Threads, newest first, with the preview a person actually recognises them by. */
+  const threads = useMemo(() => {
+    const rows = sessions.map((session) => {
+      const key = counterpartKey(session);
+      const own = outgoing.filter((item) => item.session === session.id);
+      const theirs = messages.filter((item) => item.session === session.id);
+      const lastAtMs = Math.max(
+        session.createdAtMs,
+        ...own.map((item) => item.sentAtMs),
+        ...theirs.map((item) => item.createdAtMs),
+      );
+      const latestOwn = own.reduce<OutgoingSignalMessage | null>(
+        (best, item) => (!best || item.sentAtMs > best.sentAtMs ? item : best),
+        null,
+      );
+      const latestTheirs = theirs
+        .filter((item) => item.plaintext)
+        .reduce<DecryptedSignalMessage | null>(
+          (best, item) => (!best || item.createdAtMs > best.createdAtMs ? item : best),
+          null,
+        );
+      const preview =
+        latestOwn && (!latestTheirs || latestOwn.sentAtMs >= latestTheirs.createdAtMs)
+          ? `You: ${latestOwn.plaintext}`
+          : (latestTheirs?.plaintext ?? session.plaintext ?? 'Encrypted');
+      const waiting =
+        own.filter((item) => undelivered.has(item.contentId)).length +
+        (undelivered.has(session.id) ? 1 : 0);
+      return { session, key, lastAtMs, preview, waiting };
+    });
+    return rows.sort((left, right) => right.lastAtMs - left.lastAtMs);
+  }, [sessions, messages, outgoing, undelivered, identityKey]);
+
   const send = async () => {
     setBusy(true);
     setNotice('');
     try {
+      const body = message;
       let id: string;
+      let session = activeSession;
+      let counter = 0;
+      let recipientKey = recipient;
       if (activeSession) {
-        const session = sessions.find((item) => item.id === activeSession);
-        if (!session) throw new Error('Choose a valid session.');
-        const recipientKey =
-          session.senderKey.toLowerCase() === identityKey.toLowerCase()
-            ? session.recipientKey
-            : session.senderKey;
-        const latest = messages
-          .filter((item) => item.session === activeSession)
-          .reduce((value, item) => Math.max(value, Number(item.counter)), 0);
+        const current = sessions.find((item) => item.id === activeSession);
+        if (!current) throw new Error('Choose a valid session.');
+        recipientKey =
+          current.senderKey.toLowerCase() === identityKey.toLowerCase()
+            ? current.recipientKey
+            : current.senderKey;
+        const latest = thread.reduce((value, item) => Math.max(value, item.counter), 0);
+        counter = latest + 1;
         id = await continueSignalSession(
           homeNode.baseUrl,
           {
             session: activeSession,
             recipientKey,
-            counter: BigInt(latest + 1),
-            plaintext: message,
+            counter: BigInt(counter),
+            plaintext: body,
           },
           homeNode.discovery.services.auditLogs,
         );
@@ -1712,12 +2076,33 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
         id = await startSignalSession(
           homeNode.baseUrl,
           recipient,
-          message,
+          body,
           homeNode.discovery.services.auditLogs,
         );
+        // A session opener names its own session: the node keys the session by this envelope.
+        session = id;
       }
-      setNotice(`Encrypted message queued as ${id}`);
+      /*
+        Keep what we said. A Signal message is sealed to the recipient, so this device can
+        never open it again — `loadSignalMessages` returns `plaintext: null` for everything we
+        sent, which the thread used to render as "Encrypted message sent from this device".
+        Recording it locally is what makes our own half of the conversation readable, and it
+        is what lets an undelivered message keep its place in the thread instead of vanishing
+        until the network comes back.
+      */
+      setOutgoing(
+        await recordOutgoingSignalMessage({
+          contentId: id,
+          session,
+          recipientKey: recipientKey.toLowerCase(),
+          counter,
+          plaintext: body,
+          sentAtMs: Date.now(),
+        }),
+      );
+      if (!activeSession) setActiveSession(session);
       setMessage('');
+      setNotice(SEND_OK);
       await refresh();
     } catch (error) {
       setNotice((error as Error).message);
@@ -1767,13 +2152,6 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
     <View style={styles.page}>
       <PageHeader colors={colors} mode={themeMode} reach={reach} title="Private Signal" onBack={onBack} onReach={onNetwork} />
       <Page colors={colors}>
-      <StatusBanner
-        body="The node receives the recipient key and authenticated ciphertext only. Session initiation combines X25519 and ML-KEM-768."
-        colors={colors}
-        icon="lock-closed-outline"
-        title="End-to-end encrypted"
-        tone="verified"
-      />
       <SegmentedControl
         colors={colors}
         onChange={setMode}
@@ -1784,16 +2162,131 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
         value={mode}
       />
       {mode === 'sessions' ? (
-        <Card colors={colors} style={styles.lifecycle}>
-          <Text style={[typography.label, { color: colors.text }]}>Continue a conversation</Text>
-          <Row gap={spacing.xs} wrap>
-            <Pill colors={colors} label="New session" onPress={() => setActiveSession('')} selected={!activeSession} />
-            {sessions.map((session) => (
-              <Pill colors={colors} key={session.id} label={nameFor(counterpartKey(session))} onPress={() => setActiveSession(session.id)} selected={activeSession === session.id} />
-            ))}
-          </Row>
-          {!activeSession ? (
-            recipientName ? (
+        activeSession ? (
+          /*
+            ── One conversation ────────────────────────────────────────────────────────
+            A thread, oldest at the top, ours on the right and theirs on the left, with the
+            composer under it — the shape every messaging app has, because it is the shape
+            that makes a sequence of messages legible without labelling each line.
+
+            What was here instead: a pill rail of every session, then two independent flat
+            lists of hairline rows ("Message 3 · 7/31/2026, 8:12:04 AM"), one for sessions and
+            one for messages, with no ordering between them and no indication of who spoke.
+          */
+          <>
+            <Row gap={spacing.xs}>
+              <Button
+                colors={colors}
+                icon="chevron-back"
+                label="All conversations"
+                onPress={() => setActiveSession('')}
+                variant="ghost"
+              />
+              <View style={styles.flex}>
+                <Text numberOfLines={1} style={[typography.label, { color: colors.text }]}>
+                  {nameFor(
+                    counterpartKey(
+                      sessions.find((item) => item.id === activeSession) ?? sessions[0]!,
+                    ),
+                  )}
+                </Text>
+              </View>
+            </Row>
+            <View style={styles.thread}>
+              {thread.length === 0 ? (
+                <Text style={[typography.caption, { color: colors.text2 }]}>
+                  No messages in this conversation yet.
+                </Text>
+              ) : (
+                thread.map((entry) => (
+                  <MessageBubble
+                    colors={colors}
+                    entry={entry}
+                    key={entry.id}
+                    {...(entry.readable &&
+                    (entry.deliveryState ?? 0) < DeliveryState.DELIVERY_STATE_READ
+                      ? {
+                          onMarkRead: () => {
+                            void publishSignalDeliveryReceipt(
+                              homeNode.baseUrl,
+                              { message: entry.id, state: DeliveryState.DELIVERY_STATE_READ },
+                              homeNode.discovery.services.auditLogs,
+                            )
+                              .then(() => refresh())
+                              .catch((error: Error) =>
+                                setReadError(error.message),
+                              );
+                          },
+                        }
+                      : {})}
+                  />
+                ))
+              )}
+            </View>
+            <Card colors={colors} style={styles.lifecycle}>
+              <Field colors={colors} label="Message" multiline onChangeText={setMessage} value={message} />
+              <Button
+                colors={colors}
+                disabled={busy || message.trim().length === 0}
+                icon="send-outline"
+                label={busy ? 'Encrypting…' : 'Send'}
+                onPress={() => void send()}
+                system="signal"
+              />
+            </Card>
+          </>
+        ) : (
+          /* ── The conversation list ──────────────────────────────────────────────── */
+          <>
+            {threads.length > 0 ? (
+              <View style={styles.rowGroup}>
+                {threads.map(({ session, key, lastAtMs, preview, waiting }) => (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Conversation with ${nameFor(key)}`}
+                    key={session.id}
+                    onPress={() => setActiveSession(session.id)}
+                    style={({ pressed }) => [
+                      styles.listRow,
+                      { borderBottomColor: colors.border, opacity: pressed ? 0.65 : 1 },
+                    ]}
+                  >
+                    <View style={[styles.channelAvatar, { backgroundColor: colors.surface2 }]}>
+                      <Ionicons color={colors.signal} name="person-circle-outline" size={24} />
+                    </View>
+                    <View style={styles.listRowBody}>
+                      <Row gap={spacing.xs}>
+                        <Text
+                          numberOfLines={1}
+                          style={[typography.label, styles.flex, { color: colors.text }]}
+                        >
+                          {nameFor(key)}
+                        </Text>
+                        <Text style={[typography.caption, { color: colors.text3 }]}>
+                          {ago(lastAtMs)}
+                        </Text>
+                      </Row>
+                      <Text numberOfLines={1} style={[typography.caption, { color: colors.text2 }]}>
+                        {preview}
+                      </Text>
+                      {/* Undelivered is a fact about the conversation, so it is on the row. */}
+                      {waiting > 0 ? (
+                        <Row gap={spacing.xxs}>
+                          <Ionicons color={colors.constrained} name="time-outline" size={13} />
+                          <Text style={[typography.caption, { color: colors.constrained }]}>
+                            {waiting} waiting to send
+                          </Text>
+                        </Row>
+                      ) : null}
+                    </View>
+                    <Ionicons color={colors.text2} name="chevron-forward" size={18} />
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+
+            <SectionHeader colors={colors} title="Start a conversation" />
+            {recipientName ? (
               <Card colors={colors} style={styles.lifecycle}>
                 <Row gap={spacing.xs}>
                   <Ionicons color={colors.signal} name="person-circle-outline" size={20} />
@@ -1803,6 +2296,15 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
                   </View>
                   <Button colors={colors} label="Change" onPress={() => { setRecipient(''); setRecipientName(''); }} variant="ghost" />
                 </Row>
+                <Field colors={colors} label="First message" multiline onChangeText={setMessage} value={message} />
+                <Button
+                  colors={colors}
+                  disabled={busy || recipient.length !== 64 || message.trim().length === 0}
+                  icon="send-outline"
+                  label={busy ? 'Encrypting…' : 'Send first message'}
+                  onPress={() => void send()}
+                  system="signal"
+                />
               </Card>
             ) : (
               /*
@@ -1818,11 +2320,9 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
                   setRecipientName(person.displayName || person.identityId || 'Scanned identity');
                 }}
               />
-            )
-          ) : null}
-          <Field colors={colors} label={activeSession ? 'Message' : 'First message'} multiline onChangeText={setMessage} value={message} />
-          <Button colors={colors} disabled={busy || (!activeSession && recipient.length !== 64) || message.trim().length === 0} label={busy ? 'Encrypting…' : activeSession ? 'Send encrypted message' : 'Start encrypted session'} onPress={() => void send()} system="signal" />
-        </Card>
+            )}
+          </>
+        )
       ) : (
         <>
           <SectionHeader colors={colors} title="Create a coordination group" />
@@ -1864,67 +2364,195 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
           ) : null}
         </>
       )}
+      {/*
+        Success is stated, not sniffed from the wording. The banner used to decide its own
+        tone with `notice.startsWith('Encrypted')`, so rewording a message changed whether it
+        rendered as a success or a failure.
+      */}
       {notice ? (
         <StatusBanner
           body={notice}
           colors={colors}
-          icon={notice.startsWith('Encrypted') ? 'checkmark-circle-outline' : 'warning-outline'}
-          title={notice.startsWith('Encrypted') ? 'Message stored for delivery' : 'Could not send'}
-          tone={notice.startsWith('Encrypted') ? 'verified' : 'danger'}
+          icon={notice === SEND_OK ? 'checkmark-circle-outline' : 'warning-outline'}
+          title={notice === SEND_OK ? 'Encrypted and queued' : 'Could not send'}
+          tone={notice === SEND_OK ? 'verified' : 'danger'}
+        />
+      ) : null}
+      {/*
+        Its own banner, and a warning rather than a failure: the inbox is stale, which is the
+        ordinary state offline. Nothing here claims anything about a message you just sent.
+      */}
+      {readError ? (
+        <StatusBanner
+          body={readError}
+          colors={colors}
+          icon="cloud-offline-outline"
+          title="Inbox may be out of date"
+          tone="warning"
         />
       ) : null}
       <Button colors={colors} icon="refresh-outline" label="Refresh encrypted inbox" onPress={() => void refresh()} variant="ghost" />
-      {mode === 'sessions' && (sessions.length > 0 || messages.length > 0) ? (
-        <>
-          <SectionHeader colors={colors} title="Decrypted on this device" />
-          <View style={styles.rowGroup}>
-            {sessions.map((session) => (
-              <View key={session.id} style={[styles.listRow, { borderBottomColor: colors.border }]}>
-                <View style={styles.listRowBody}>
-                  <Text style={[typography.caption, { color: colors.text2 }]}>
-                    {session.senderKey.slice(0, 16)}… · {new Date(session.createdAtMs).toLocaleString()}
-                  </Text>
-                  <Text style={[typography.body, { color: colors.text }]}>
-                    {session.plaintext ?? 'Ciphertext for the other participant'}
-                  </Text>
-                </View>
-              </View>
-            ))}
-            {messages.map((item) => (
-              <View key={item.id} style={[styles.listRow, { borderBottomColor: colors.border }]}>
-                <View style={styles.listRowBody}>
-                  <Text style={[typography.caption, { color: colors.text2 }]}>
-                    Message {item.counter} · {new Date(item.createdAtMs).toLocaleString()}
-                  </Text>
-                  <Text style={[typography.body, { color: colors.text }]}>
-                    {item.plaintext ?? 'Encrypted message sent from this device'}
-                  </Text>
-                </View>
-                {item.recipientKey.toLowerCase() === identityKey.toLowerCase() ? (
-                  <Button
-                    colors={colors}
-                    label={item.deliveryState >= DeliveryState.DELIVERY_STATE_READ ? 'Read' : 'Mark read'}
-                    onPress={() => {
-                      void publishSignalDeliveryReceipt(homeNode.baseUrl, { message: item.id, state: DeliveryState.DELIVERY_STATE_READ }, homeNode.discovery.services.auditLogs)
-                        .then(() => setNotice('Signed read receipt queued.'))
-                        .catch((error: Error) => setNotice(error.message));
-                    }}
-                    system="signal"
-                    variant="ghost"
-                  />
-                ) : null}
-              </View>
-            ))}
-          </View>
-        </>
-      ) : null}
       </Page>
     </View>
   );
 }
 
-export function SignalStudioScreen({ colors, mode: themeMode, homeNode, reach, onNetwork, onBack }: SignalScreenProps) {
-  const [mode, setMode] = useState<'channel' | 'broadcast' | 'revoke'>('channel');
+/** The one success value `notice` can hold, so the banner compares rather than guesses. */
+const SEND_OK = 'Your message is signed and on its way.';
+
+/** One rendered line of a conversation, whatever source it came from. */
+interface ThreadEntry {
+  readonly id: string;
+  readonly counter: number;
+  /** True when this device sent it — decides which side of the thread it sits on. */
+  readonly outbound: boolean;
+  /** Null when it is genuinely unreadable here: someone else's ciphertext. */
+  readonly text: string | null;
+  readonly atMs: number;
+  readonly state: 'queued' | 'sent' | 'read';
+  readonly deliveryState?: number;
+  /** True when this device is the recipient, so a read receipt is ours to send. */
+  readonly readable?: boolean;
+}
+
+/**
+ * A message bubble.
+ *
+ * Ours on the right on the accent surface, theirs on the left on the neutral one — the
+ * oldest and most legible convention there is, and it removes the need to label every line
+ * with a key prefix. Delivery state is a word plus a glyph, never a tint alone (NFR-A06),
+ * and "Queued" is stated plainly because a message waiting for a network is the ordinary
+ * case here, not an error.
+ */
+function MessageBubble({
+  colors,
+  entry,
+  onMarkRead,
+}: {
+  readonly colors: AppPalette;
+  readonly entry: ThreadEntry;
+  readonly onMarkRead?: () => void;
+}) {
+  const surface = entry.outbound ? colors.surface2 : colors.surface;
+  return (
+    <View style={[styles.bubbleRow, entry.outbound ? styles.bubbleMine : styles.bubbleTheirs]}>
+      <View style={[styles.bubble, { backgroundColor: surface, borderColor: colors.border }]}>
+        <Text
+          maxFontSizeMultiplier={maxFontScale.body}
+          style={[typography.body, { color: entry.text ? colors.text : colors.text3 }]}
+        >
+          {entry.text ?? 'Encrypted for the other participant'}
+        </Text>
+        <View style={styles.bubbleMeta}>
+          <Text
+            maxFontSizeMultiplier={maxFontScale.caption}
+            style={[typography.caption, { color: colors.text3 }]}
+          >
+            {new Date(entry.atMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </Text>
+          {entry.outbound ? (
+            <>
+              <Ionicons
+                color={entry.state === 'queued' ? colors.constrained : colors.text3}
+                name={
+                  entry.state === 'queued'
+                    ? 'time-outline'
+                    : entry.state === 'read'
+                      ? 'checkmark-done-outline'
+                      : 'checkmark-outline'
+                }
+                size={13}
+              />
+              <Text
+                maxFontSizeMultiplier={maxFontScale.caption}
+                style={[
+                  typography.caption,
+                  { color: entry.state === 'queued' ? colors.constrained : colors.text3 },
+                ]}
+              >
+                {entry.state === 'queued' ? 'Queued' : entry.state === 'read' ? 'Read' : 'Sent'}
+              </Text>
+            </>
+          ) : null}
+          {onMarkRead ? (
+            <Pressable accessibilityRole="button" onPress={onMarkRead} hitSlop={8}>
+              <Text
+                maxFontSizeMultiplier={maxFontScale.caption}
+                style={[typography.caption, { color: colors.signal }]}
+              >
+                Mark read
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Pick which channel to publish as. Used by both Broadcast and Retract, which had two
+ * independent free-text copies of the same 56-character paste.
+ *
+ * A channel with no row from the node is still offered, labelled by its ID: the vault knows
+ * it can sign for it, and that is the fact that decides whether publishing can work. Hiding
+ * it while the node is unreachable would take the control away from an operator during
+ * exactly the outage it exists for.
+ */
+function ChannelSelect({
+  colors,
+  channels,
+  value,
+  onChange,
+}: {
+  readonly colors: AppPalette;
+  readonly channels: readonly { readonly id: string; readonly row: SignalChannel | null }[];
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+}) {
+  return (
+    <Select
+      colors={colors}
+      emptyLabel="No channels on this device yet — declare one first."
+      hint={
+        channels.length > 0
+          ? 'Only channels this device holds a signing key for.'
+          : undefined
+      }
+      label="Publish as"
+      onChange={onChange}
+      options={channels.map(({ id, row }) => ({
+        value: id,
+        label: row?.name || id,
+        detail: row ? `${id.slice(0, 18)}… · last #${row.lastSequence}` : `${id.slice(0, 18)}…`,
+      }))}
+      placeholder="Choose a channel"
+      value={value || null}
+    />
+  );
+}
+
+export function SignalStudioScreen({
+  colors,
+  mode: themeMode,
+  homeNode,
+  reach,
+  onNetwork,
+  onBack,
+  initialChannel,
+}: SignalScreenProps & {
+  /** Arrives from "Publish" on a channel row, so the studio opens on the right one. */
+  readonly initialChannel?: string;
+}) {
+  /*
+    Publishing is the repeat job; declaring a channel happens once, years ago.
+
+    The screen opened on "Declare" for everyone for ever, so an operator sending their
+    fourth alert of the night landed on a form for creating a channel they already have.
+    The landing tab follows what the device can do: publish if it can sign for anything,
+    declare if it cannot yet.
+  */
+  const [mode, setMode] = useState<'channel' | 'broadcast' | 'revoke'>('broadcast');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [channel, setChannel] = useState('');
@@ -1934,11 +2562,68 @@ export function SignalStudioScreen({ colors, mode: themeMode, homeNode, reach, o
   const [severityValue, setSeverityValue] = useState(3);
   const [revokeTarget, setRevokeTarget] = useState('');
   const [revokeNote, setRevokeNote] = useState('');
-  const [notice, setNotice] = useState('');
+  /*
+    An explicit outcome, not a guess from the words.
+
+    The banner used to decide success by `notice.includes('accepted')`, so its tone depended
+    on the phrasing of a message rather than on what happened — rewording a success string
+    silently turned it red. Same defect as the messages screen mixing a poll failure into the
+    send result: state that is read as a status must be stored as one.
+  */
+  const [notice, setNotice] = useState<{ readonly text: string; readonly ok: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+
+  /*
+    The channel to publish as is a CHOICE, not free text.
+
+    It used to be a `Field` you pasted 56 characters into, and every wrong character came back
+    as "channel is not known here" or, worse, as "channel signing key is not present in this
+    vault" from the signer. The set of valid answers is small, closed, and already on the
+    device: the vault's channel map is exactly the channels this key can sign for.
+
+    The node's channel list supplies the human names, and only that. Anything the node knows
+    but this vault has no key for is filtered out rather than offered — it would be a choice
+    that always fails. When the node is unreachable the owned IDs still populate the list
+    (labelled by ID), because a channel operator during a blackout is precisely who must
+    still be able to publish.
+  */
+  const [owned, setOwned] = useState<readonly string[] | null>(null);
+  useEffect(() => {
+    void ownedSignalChannels().then((ids) => {
+      setOwned(ids);
+      // Only before the person has touched the control: landing on "Declare" is right for a
+      // device with nothing to publish as, and wrong for every visit after that.
+      if (ids.length === 0) setMode('channel');
+      else if (initialChannel && ids.includes(initialChannel)) setChannel(initialChannel);
+      else if (ids.length === 1) setChannel(ids[0]!);
+    });
+  }, [initialChannel]);
+  const channelQuery = useNodeDocument<NodePage<SignalChannel>>(
+    homeNode.baseUrl,
+    '/v1/signal/channels?limit=200',
+  );
+  const ownedChannels = useMemo(() => {
+    const known = new Map(
+      (channelQuery.data?.value.items ?? []).map((item) => [item.id, item] as const),
+    );
+    return (owned ?? []).map((id) => ({ id, row: known.get(id) ?? null }));
+  }, [owned, channelQuery.data]);
+  const selectedChannel = ownedChannels.find((item) => item.id === channel)?.row ?? null;
+
+  /*
+    Sequence must increase monotonically or the node denies the broadcast, and the previous
+    field defaulted to "1" for ever — so the first emit worked and every later one was
+    refused. The channel row already carries `lastSequence`; the next one is derivable, and
+    the field stays editable for a deliberate gap.
+  */
+  useEffect(() => {
+    if (!selectedChannel) return;
+    setSequence((BigInt(selectedChannel.lastSequence) + 1n).toString());
+  }, [selectedChannel?.id, selectedChannel?.lastSequence]);
+
   const publish = async () => {
     setBusy(true);
-    setNotice('');
+    setNotice(null);
     try {
       if (mode === 'channel') {
         const result = await declareSignalChannel(
@@ -1946,8 +2631,26 @@ export function SignalStudioScreen({ colors, mode: themeMode, homeNode, reach, o
           { name, description, language: 'bn' },
           homeNode.discovery.services.auditLogs,
         );
+        /*
+          Follow your own channel, on this device only.
+
+          Broadcasts flood and the client filters locally — there is no server-side
+          subscription table, because during a shutdown a list of who follows which channel
+          is a list of targets. The consequence is that nothing reaches the Signal inbox
+          until a LOCAL follow matches it, and declaring a channel created no such follow.
+          So the author emitted a broadcast, went to look for it, and found an empty inbox:
+          the one person who must be able to confirm the message went out was the one person
+          who could not see it. This is a local record like any other follow and is never
+          sent anywhere.
+        */
+        await saveSignalSubscription(defaultSubscription(result.channelId));
         setChannel(result.channelId);
-        setNotice(`Channel declared: ${result.channelId}`);
+        // Newly signable, so it has to appear in the picker without a screen reload — and
+        // the reason to declare a channel is to publish on it, so land there.
+        setOwned(await ownedSignalChannels());
+        void channelQuery.refetch();
+        setMode('broadcast');
+        setNotice({ text: `"${name}" is live. Write its first broadcast below.`, ok: true });
       } else if (mode === 'broadcast') {
         const id = await publishSignalBroadcast(
           homeNode.baseUrl,
@@ -1963,13 +2666,13 @@ export function SignalStudioScreen({ colors, mode: themeMode, homeNode, reach, o
           },
           homeNode.discovery.services.auditLogs,
         );
-        setNotice(`Broadcast accepted: ${id}`);
+        setNotice({ text: `Sent to your subscribers. Receipt ${id.slice(0, 14)}…`, ok: true });
       } else {
         const id = await revokeSignalBroadcast(homeNode.baseUrl, { channelId: channel, target: revokeTarget, reason: 3, note: revokeNote }, homeNode.discovery.services.auditLogs);
-        setNotice(`Broadcast retraction accepted: ${id}`);
+        setNotice({ text: `Retraction published. Receipt ${id.slice(0, 14)}…`, ok: true });
       }
     } catch (error) {
-      setNotice((error as Error).message);
+      setNotice({ text: (error as Error).message, ok: false });
     } finally {
       setBusy(false);
     }
@@ -1995,8 +2698,20 @@ export function SignalStudioScreen({ colors, mode: themeMode, homeNode, reach, o
         </Card>
       ) : mode === 'broadcast' ? (
         <Card colors={colors} style={styles.formCard}>
-          <Field colors={colors} label="Channel ID" onChangeText={setChannel} value={channel} />
-          <Field colors={colors} keyboardType="number-pad" label="Sequence" onChangeText={setSequence} value={sequence} />
+          <ChannelSelect
+            channels={ownedChannels}
+            colors={colors}
+            onChange={setChannel}
+            value={channel}
+          />
+          <Field
+            colors={colors}
+            hint="Set from the channel's last published broadcast. It must increase, and a gap tells subscribers a broadcast is missing."
+            keyboardType="number-pad"
+            label="Sequence"
+            onChangeText={setSequence}
+            value={sequence}
+          />
           <Text style={[typography.label, { color: colors.text }]}>Severity</Text>
           <Row gap={spacing.xs} wrap>
             {[1, 2, 3, 4].map((value) => (
@@ -2015,7 +2730,12 @@ export function SignalStudioScreen({ colors, mode: themeMode, homeNode, reach, o
       ) : (
         <>
           <Card colors={colors} style={styles.formCard}>
-            <Field colors={colors} label="Channel ID" onChangeText={setChannel} value={channel} />
+            <ChannelSelect
+              channels={ownedChannels}
+              colors={colors}
+              onChange={setChannel}
+              value={channel}
+            />
             <Field colors={colors} label="Broadcast receipt ID" onChangeText={setRevokeTarget} value={revokeTarget} />
             <Field colors={colors} label="Why is this being retracted?" multiline onChangeText={setRevokeNote} value={revokeNote} />
           </Card>
@@ -2024,18 +2744,19 @@ export function SignalStudioScreen({ colors, mode: themeMode, homeNode, reach, o
       )}
       <Button
         colors={colors}
-        disabled={busy}
-        label={busy ? 'Signing…' : mode === 'channel' ? 'Declare identified channel' : mode === 'broadcast' ? 'Emit broadcast' : 'Retract broadcast'}
+        // Nothing to publish as, so the control says why instead of failing on tap.
+        disabled={busy || (mode !== 'channel' && !channel)}
+        label={busy ? 'Signing…' : mode === 'channel' ? 'Declare identified channel' : mode === 'broadcast' ? 'Publish broadcast' : 'Retract broadcast'}
         onPress={() => void publish()}
         system="signal"
       />
       {notice ? (
         <StatusBanner
-          body={notice}
+          body={notice.text}
           colors={colors}
-          icon={notice.includes('accepted') || notice.includes('declared') ? 'shield-checkmark-outline' : 'warning-outline'}
-          title={notice.includes('accepted') || notice.includes('declared') ? 'Published' : 'Could not publish'}
-          tone={notice.includes('accepted') || notice.includes('declared') ? 'verified' : 'danger'}
+          icon={notice.ok ? 'shield-checkmark-outline' : 'warning-outline'}
+          title={notice.ok ? 'Published' : 'Could not publish'}
+          tone={notice.ok ? 'verified' : 'danger'}
         />
       ) : null}
       </Page>
@@ -2050,7 +2771,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
-    flex: 1,
+    /*
+      Basis-plus-grow, not `flex: 1`. With `flex: 1` in a wrapping row all five tiles fight
+      onto one line and each ends up ~60 pt wide; a basis lets three sit per row on a phone,
+      more on a tablet, and lets them wrap instead of crush at large font scales.
+    */
+    flexBasis: '30%',
+    flexGrow: 1,
+    minWidth: 96,
     gap: spacing.xs,
     minHeight: 72,
     justifyContent: 'center',
@@ -2058,15 +2786,31 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   actionLabel: { textAlign: 'center' },
-  actionRail: { flexDirection: 'row', gap: spacing.sm },
+  /** Wraps rather than dividing by a fixed column count, so it holds at any width. */
+  actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  /**
+   * The severity edge and the press wrapper. `Card` still supplies surface, border, radius,
+   * padding and gap — repeating those is what made these sit unlike every other card.
+   */
+  alertPress: { borderRadius: radius.lg },
+  alertMeta: { alignItems: 'center', flexDirection: 'row', gap: spacing.xxs },
+  alertNote: { alignItems: 'flex-start', flexDirection: 'row', gap: spacing.xs },
+  pulse: {
+    alignItems: 'center',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: spacing.sm,
+    minHeight: 64,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
   /**
    * Card supplies surface, border, radius, padding and gap. Only the severity edge is local —
    * repeating the rest is what made these cards sit differently from every other card in the
    * app, and the horizontal margin they used to carry is now `Page`'s gutter.
    */
   alert: { borderLeftWidth: 4 },
-  alertHeading: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
-  alertTitle: { alignItems: 'center', flexDirection: 'row', gap: spacing.xs },
   channelAvatar: {
     alignItems: 'center',
     borderRadius: radius.md,
@@ -2098,7 +2842,24 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   listRowBody: { flex: 1, minWidth: 0, gap: spacing.xxs },
+  /** The tappable part of a row that also carries its own trailing action. */
+  listRowMain: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: spacing.sm, minWidth: 0 },
   lifecycle: { gap: spacing.md },
+  /** A conversation reads top-down; the bubbles carry the sides. */
+  thread: { gap: spacing.xs },
+  bubbleRow: { flexDirection: 'row' },
+  bubbleMine: { justifyContent: 'flex-end' },
+  bubbleTheirs: { justifyContent: 'flex-start' },
+  bubble: {
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: spacing.xxs,
+    /* Never full width: the gap on the other side is what signals which side spoke. */
+    maxWidth: '85%',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  bubbleMeta: { alignItems: 'center', flexDirection: 'row', gap: spacing.xxs },
   map: {
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,

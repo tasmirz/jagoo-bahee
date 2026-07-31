@@ -97,6 +97,90 @@ async function declareChannel(harness: Awaited<ReturnType<typeof signalHarness>>
 }
 
 describe('P4 channels and broadcasts', () => {
+  /**
+   * Step 10 gates a channel declaration like everything else, and a channel signs with its
+   * OWN derived key (Plans/01 §4) — not the device key `registerSignalIdentity` certified.
+   *
+   * The client used to declare without certifying that key first and got
+   * `author key is not certified`. Nothing here caught it because `declareChannel` above
+   * declares a channel whose `signing_key` IS the pre-certified `AUTHOR_KEY`: in the test
+   * the channel key and the certified key are the same key, which is the one case the real
+   * client never produces. This asserts the gate on a key the store does not hold.
+   */
+  it('refuses a channel declared by a key that has no certificate', async () => {
+    const h = await signalHarness();
+    const seed = new Uint8Array(32).fill(0x4c);
+    const key = ed25519.derivePublicKey(seed);
+    const body = ChannelDeclare.encode(
+      ChannelDeclare.fromPartial({
+        channel_name: 'Uncertified Relief',
+        description: 'Declared by a key nothing certified',
+        kind: 2,
+        signing_key: key,
+        kem_public_key: new Uint8Array(1_184).fill(7),
+        pq_key: new Uint8Array(1_312).fill(8),
+        language: 'bn',
+        valid_from: BigInt(NOW_MS),
+      }),
+    ).finish();
+    await expect(
+      h.pipeline.accept(
+        signEnvelope({
+          plane: Plane.SIGNAL,
+          domain: 'jb:channel:declare:v1',
+          scope: '',
+          priority: Priority.BULK,
+          seed,
+          body,
+          pow: new Uint8Array([1]),
+          nonce: nextNonce(),
+        }),
+      ),
+    ).rejects.toThrow(/not certified/i);
+    expect(
+      await h.projections
+        .collection<SignalChannelDoc>(SIGNAL_CHANNELS_COLLECTION)
+        .findOne({ id: channelId(key) }),
+    ).toBeNull();
+  });
+
+  it('accepts the same declaration once that key is certified', async () => {
+    const h = await signalHarness();
+    const seed = new Uint8Array(32).fill(0x4c);
+    const key = ed25519.derivePublicKey(seed);
+    // What `certifySignalChannelKey` publishes on the client, before the declaration.
+    h.certificates.add({ plane: Plane.SIGNAL, key, issuedAtMs: 0 });
+    const body = ChannelDeclare.encode(
+      ChannelDeclare.fromPartial({
+        channel_name: 'Certified Relief',
+        description: 'Declared by a key that certified itself first',
+        kind: 2,
+        signing_key: key,
+        kem_public_key: new Uint8Array(1_184).fill(7),
+        pq_key: new Uint8Array(1_312).fill(8),
+        language: 'bn',
+        valid_from: BigInt(NOW_MS),
+      }),
+    ).finish();
+    await h.pipeline.accept(
+      signEnvelope({
+        plane: Plane.SIGNAL,
+        domain: 'jb:channel:declare:v1',
+        scope: '',
+        priority: Priority.BULK,
+        seed,
+        body,
+        pow: new Uint8Array([1]),
+        nonce: nextNonce(),
+      }),
+    );
+    expect(
+      await h.projections
+        .collection<SignalChannelDoc>(SIGNAL_CHANNELS_COLLECTION)
+        .findOne({ id: channelId(key) }),
+    ).toMatchObject({ name: 'Certified Relief' });
+  });
+
   it('SB-02 stores a signed push subscription locally and never federates its token', async () => {
     const h = await signalHarness();
     const channel = await declareChannel(h);

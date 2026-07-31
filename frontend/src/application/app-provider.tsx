@@ -61,6 +61,12 @@ import {
   signOutForumIdentity,
   type ForumSessionSummary,
 } from '../signer';
+/*
+  ADR-012 keeps the two vaults independent, and this import does not weaken that: it reopens
+  the Signal vault on the same triggers as the Forum one and reads nothing from it. Nothing
+  here records the two identities together, and neither plane's key material crosses.
+*/
+import { restoreSignalSession } from '../signer/signal';
 
 const THEME_KEY = 'jb.theme-preference.v1';
 const LOCALE_KEY = 'jb.locale.v1';
@@ -195,6 +201,14 @@ function AppStateProvider({ children }: PropsWithChildren) {
           node?.discovery.services.auditLogs ?? [],
         );
         if (active) setSession(restored);
+        // Signal has its own vault and its own module state, and it had no restore at all —
+        // so after any process death every Signal action threw "Unlock your Signal identity
+        // first" until someone found the identity screen. Awaited separately and never
+        // allowed to fail the Forum restore: the two planes stay independent (ADR-012).
+        void restoreSignalSession(
+          node?.baseUrl ?? null,
+          node?.discovery.services.auditLogs ?? [],
+        ).catch(() => undefined);
       })
       .catch(async () => {
         if (!active) return;
@@ -396,6 +410,13 @@ function AppStateProvider({ children }: PropsWithChildren) {
     let active = true;
 
     const attempt = async () => {
+      // The Signal plane gets the same second chance, for the same reason and on the same
+      // triggers. It is idempotent and returns immediately once its token exists.
+      void restoreSignalSession(
+        homeNode.baseUrl,
+        homeNode.discovery.services.auditLogs,
+      ).catch(() => undefined);
+
       const current = await forumSessionSummary();
       if (!current.unlocked || current.authenticated || current.signedOut) return;
       try {

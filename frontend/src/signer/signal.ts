@@ -324,6 +324,18 @@ export class SecureSignalSigner implements SignalSigner {
     }
   }
 
+  /**
+   * The channels this vault can sign for. IDs only — no key material leaves the signer.
+   *
+   * This, not the node's channel list, is the authoritative set for any "which channel am I
+   * publishing as" control: `contextSeed` throws `channel signing key is not present in this
+   * vault` for anything absent here, so offering a channel the node knows but this device
+   * cannot sign for would offer a choice that always fails.
+   */
+  async ownedChannelIds(): Promise<readonly string[]> {
+    return Object.keys(await this.channelMap());
+  }
+
   async createChannelIdentity(index?: number): Promise<PublicIdentity & { readonly channelId: string }> {
     const mapping = await this.channelMap();
     const nextIndex = index ?? Math.max(-1, ...Object.values(mapping)) + 1;
@@ -397,16 +409,45 @@ export class SecureSignalSigner implements SignalSigner {
     return sealEnvelope(unsigned, await this.sign(ctx, canonicalBytes(unsigned)));
   }
 
+  /**
+   * The ML-DSA-44 key a context certifies itself with.
+   *
+   * One derivation, two callers, deliberately: `ChannelDeclare.pq_key` and the channel's
+   * certificate MUST name the same post-quantum key, or a subscriber verifying against the
+   * declaration and a node verifying against the certificate hold two different PQ
+   * identities for one channel. The separators differ per context and are unchanged from
+   * where each used to live.
+   */
+  private async certificatePqKeyPair(ctx: ContextOf<Plane.SIGNAL>) {
+    const seed = await this.contextSeed(ctx);
+    try {
+      const separator =
+        ctx.kind === 'channel' ? 'jb:signal:channel:pq:v1\0' : 'jb:signal:certificate:pq:v1\0';
+      return mldsa.generateKeyPair(await digest(concat(text.encode(separator), seed)));
+    } finally {
+      seed.fill(0);
+    }
+  }
+
+  /**
+   * A self-signed certificate for ANY Signal context, not only the device.
+   *
+   * A channel's signing key is derived per channel (`m/83696968'/21'/c'`, Plans/01 §4) and
+   * arrives at the node having never been seen. Pipeline step 10 rejects it — "author key is
+   * not certified" — so `jb:channel:declare:v1` could not be published at all, and neither
+   * could any broadcast, update, rotation or retirement, because every one of those is
+   * signed by the channel key too. The bootstrap exception `jb:key:certify:signal:v1` exists
+   * for exactly this and was simply never pointed at a channel.
+   */
   async certificateBody(
+    ctx: ContextOf<Plane.SIGNAL> = { kind: 'device' },
     validFromMs = BigInt(Date.now() - 60_000),
     validUntilMs = BigInt(Date.now() + 365 * 24 * 60 * 60 * 1000),
   ): Promise<Uint8Array> {
-    const seed = await this.contextSeed({ kind: 'device' });
+    const seed = await this.contextSeed(ctx);
     try {
       const deviceKey = ed25519.derivePublicKey(seed);
-      const pq = mldsa.generateKeyPair(
-        await digest(concat(text.encode('jb:signal:certificate:pq:v1\0'), seed)),
-      );
+      const pq = await this.certificatePqKeyPair(ctx);
       try {
         const fields = {
           plane: Plane.SIGNAL,
@@ -498,18 +539,13 @@ export class SecureSignalSigner implements SignalSigner {
   }
 
   async channelPqPublicKey(channel: string): Promise<Uint8Array> {
-    const seed = await this.contextSeed({ kind: 'channel', channelId: channel });
+    // Shares `certificatePqKeyPair` so the key in `ChannelDeclare.pq_key` is the same one
+    // the channel's certificate attests. Two derivations here would be two PQ identities.
+    const pq = await this.certificatePqKeyPair({ kind: 'channel', channelId: channel });
     try {
-      const pq = mldsa.generateKeyPair(
-        await digest(concat(text.encode('jb:signal:channel:pq:v1\0'), seed)),
-      );
-      try {
-        return Uint8Array.from(pq.publicKey);
-      } finally {
-        pq.secretKey.fill(0);
-      }
+      return Uint8Array.from(pq.publicKey);
     } finally {
-      seed.fill(0);
+      pq.secretKey.fill(0);
     }
   }
 
@@ -672,6 +708,62 @@ async function submit(
   };
 }
 
+/**
+ * Reopen the Signal vault after a cold start. The Forum plane has always had this; Signal
+ * never did, and that asymmetry is the whole bug.
+ *
+ * ── What it looked like ─────────────────────────────────────────────────────────────
+ * `activeSigner` is module state and starts every launch empty, so after the process died
+ * — a reload, a swipe-away, an OS kill — every Signal action threw
+ * `Unlock your Signal identity first`: sending a message, emitting a broadcast, declaring a
+ * channel, publishing prekeys. Nothing said "signed out"; each surface reported its own
+ * failure, so one missing restore read as several unrelated broken features. The only way
+ * back was to find Signal → "Your identity and code" and unlock by hand, which nothing on
+ * the failing screens told you.
+ *
+ * ── Why it opens silently, and when it must not ─────────────────────────────────────
+ * The empty passphrase is tried and ONLY the empty passphrase. A vault created with
+ * device-lock protection is wrapped under it and reopens with no prompt, exactly as
+ * `restoreForumSession` does for its plane. A vault the person put a passphrase on throws
+ * here and stays locked — that is the protection they asked for, and the Signal identity
+ * screen prompts for it. A recovery salt likewise cannot be guessed, so a salted vault
+ * stays locked too.
+ *
+ * Every failure is swallowed and reported through the summary. Being offline, or having a
+ * passphrase, is the ordinary case and must not surface as an error.
+ */
+export async function restoreSignalSession(
+  baseUrl: string | null,
+  auditServices: readonly DiscoveredService[] = [],
+): Promise<SignalSessionSummary> {
+  if (!(await SecureSignalSigner.exists())) return signalSessionSummary();
+  if (!activeSigner) {
+    try {
+      activeSigner = await SecureSignalSigner.unlock('');
+    } catch {
+      // Passphrase- or salt-protected. The identity screen asks; nothing else may.
+      return signalSessionSummary();
+    }
+  }
+  if (baseUrl && !activeAccessToken) {
+    try {
+      await authenticateSignalIdentity(baseUrl);
+    } catch {
+      // The node has never seen this key, or it is unreachable. Certifying is the one
+      // recovery that is safe to attempt unprompted: it is idempotent, it publishes only
+      // this key's own self-signed certificate, and without it authentication can never
+      // succeed on a node that was reinstalled or switched.
+      try {
+        await registerSignalIdentity(baseUrl, auditServices);
+        await authenticateSignalIdentity(baseUrl);
+      } catch {
+        // Offline. The vault is open, which is what the local screens need.
+      }
+    }
+  }
+  return signalSessionSummary();
+}
+
 export async function signalSessionSummary(): Promise<SignalSessionSummary> {
   const configured = await SecureSignalSigner.exists();
   const identity = activeSigner ? await activeSigner.identity({ kind: 'device' }) : null;
@@ -763,17 +855,27 @@ export function lockSignalIdentity(): void {
   activeAccessToken = null;
 }
 
+/**
+ * A proof-of-work challenge for one author key. Each is bound to the key that will sign, so
+ * an envelope signed by a channel key cannot reuse the device key's challenge.
+ */
+async function powChallengeFor(baseUrl: string, authorKey: Uint8Array): Promise<PowChallengeJson> {
+  return requestJson<PowChallengeJson>(baseUrl, '/v1/credits/challenge', {
+    method: 'POST',
+    body: JSON.stringify({ author_key: base64(authorKey) }),
+  });
+}
+
 export async function registerSignalIdentity(
   baseUrl: string,
   auditServices: readonly DiscoveredService[] = [],
 ): Promise<string> {
   if (!activeSigner) throw new Error('Unlock your Signal identity first');
   const identity = await activeSigner.identity({ kind: 'device' });
-  const challenge = await requestJson<PowChallengeJson>(baseUrl, '/v1/credits/challenge', {
-    method: 'POST',
-    body: JSON.stringify({ author_key: base64(identity.publicKey) }),
-  });
-  const pow = await solvePow(challenge, identity.publicKey);
+  const pow = await solvePow(
+    await powChallengeFor(baseUrl, identity.publicKey),
+    identity.publicKey,
+  );
   const certificate = await activeSigner.seal(
     { kind: 'device' },
     {
@@ -818,11 +920,48 @@ export async function authenticateSignalIdentity(baseUrl: string): Promise<void>
   activeAccessToken = tokens.accessToken;
 }
 
+/**
+ * An authenticated Signal read, with one silent re-authentication on a rejected token.
+ *
+ * ── Why a retry rather than a longer-lived token ────────────────────────────────────
+ * Access tokens are HMACed with `AUTH_ACCESS_SECRET`, and a node started without one
+ * generates a fresh random key per boot (`backend/.env.example`) — so every node restart
+ * invalidates every outstanding token. Nothing recovered from that: the vault stayed
+ * unlocked, `activeAccessToken` stayed set, and every guarded read answered
+ * `access token is invalid` for ever, because the only code that mints a token runs when
+ * there is NO token. Re-authenticating needs no user input — it is a signature over a
+ * challenge with a key this device already holds unlocked — so the honest behaviour is to
+ * do it and retry, not to report a protocol error to someone who was starting a
+ * conversation.
+ *
+ * Exactly one retry. A node that rejects a freshly minted token is saying something real
+ * (the key is not certified there, or it is revoked) and that must surface, not spin.
+ */
 export async function signalSessionRequest<T>(baseUrl: string, path: string): Promise<T> {
-  if (!activeAccessToken) throw new Error('Authenticate the Signal identity first');
-  return requestJson<T>(baseUrl, path, {
-    headers: { Authorization: `Bearer ${activeAccessToken}` },
-  });
+  if (!activeSigner) throw new Error('Unlock your Signal identity first');
+  if (!activeAccessToken) await authenticateSignalIdentity(baseUrl);
+  try {
+    return await requestJson<T>(baseUrl, path, {
+      headers: { Authorization: `Bearer ${activeAccessToken}` },
+    });
+  } catch (error) {
+    if (!isInvalidTokenError(error)) throw error;
+    activeAccessToken = null;
+    await authenticateSignalIdentity(baseUrl);
+    return requestJson<T>(baseUrl, path, {
+      headers: { Authorization: `Bearer ${activeAccessToken}` },
+    });
+  }
+}
+
+/**
+ * `requestJson` throws the node's `detail` string, so the 401 is recognised by what the node
+ * said rather than by a status code the caller no longer has. Both auth-guarded controllers
+ * answer with one of these two.
+ */
+function isInvalidTokenError(error: unknown): boolean {
+  const detail = error instanceof Error ? error.message.toLowerCase() : '';
+  return detail.includes('access token is invalid') || detail.includes('token has expired');
 }
 
 export async function publishSignalEnvelope(
@@ -843,6 +982,11 @@ export async function publishSignalEnvelope(
   if (!activeSigner) throw new Error('Unlock your Signal identity first');
   const sealed = await activeSigner.seal(input.context, input);
   return submit(baseUrl, sealed.wireBytes, auditServices, activeAccessToken ?? undefined);
+}
+
+/** Channel IDs this device holds a signing key for. Empty when the vault is locked. */
+export async function ownedSignalChannels(): Promise<readonly string[]> {
+  return activeSigner ? activeSigner.ownedChannelIds() : [];
 }
 
 export async function signalRnsTransportIdentity(): Promise<{
@@ -1017,6 +1161,51 @@ export async function publishSignalPushSubscription(
   ).contentId;
 }
 
+/**
+ * Publish a channel key's self-signed certificate. Must precede anything that key signs.
+ *
+ * ── Why a channel needs this at all ─────────────────────────────────────────────────
+ * A channel signs with its OWN derived key (Plans/01 §4, `m/83696968'/21'/c'`), not the
+ * device key `registerSignalIdentity` certified. That key reaches the node having never been
+ * seen, so pipeline step 10 rejects with "author key is not certified" — the declaration
+ * first, and then every broadcast, update, rotation and retirement after it, because all of
+ * those are signed by the channel key too.
+ *
+ * `jb:key:certify:signal:v1` is the bootstrap exception built for precisely this
+ * (`requires_certificate: false`, ADR-004). It is safe here for the same reason it is safe
+ * for a device: the handler re-establishes everything step 10 would have checked — the
+ * certificate is ABOUT the key that signed the envelope, its Ed25519 self-signature
+ * verifies, and its ML-DSA attestation verifies. It had simply never been pointed at a
+ * channel.
+ *
+ * Its proof of work is separate because a PoW challenge is bound to one author key, and this
+ * envelope is signed by the channel key rather than the device key.
+ */
+async function certifySignalChannelKey(
+  baseUrl: string,
+  channel: { readonly channelId: string; readonly publicKey: Uint8Array },
+  auditServices: readonly DiscoveredService[],
+): Promise<void> {
+  if (!activeSigner) throw new Error('Unlock your Signal identity first');
+  const context = { kind: 'channel', channelId: channel.channelId } as const;
+  const pow = await solvePow(await powChallengeFor(baseUrl, channel.publicKey), channel.publicKey);
+  await publishSignalEnvelope(
+    baseUrl,
+    {
+      context,
+      domain: 'jb:key:certify:signal:v1',
+      body: await activeSigner.certificateBody(context),
+      antiAbuse: {
+        credential: new Uint8Array(),
+        nullifier: new Uint8Array(),
+        epoch: 0,
+        pow,
+      },
+    },
+    auditServices,
+  );
+}
+
 export async function declareSignalChannel(
   baseUrl: string,
   input: {
@@ -1027,13 +1216,16 @@ export async function declareSignalChannel(
   auditServices: readonly DiscoveredService[] = [],
 ): Promise<{ readonly channelId: string; readonly contentId: string }> {
   if (!activeSigner) throw new Error('Unlock your Signal identity first');
-  const channel = await activeSigner.createChannelIdentity();
-  const messaging = await activeSigner.messagingPublicKey();
-  const powChallenge = await requestJson<PowChallengeJson>(baseUrl, '/v1/credits/challenge', {
-    method: 'POST',
-    body: JSON.stringify({ author_key: base64(channel.publicKey) }),
-  });
-  const pow = await solvePow(powChallenge, channel.publicKey);
+  const signer = activeSigner;
+  const channel = await signer.createChannelIdentity();
+  const context = { kind: 'channel', channelId: channel.channelId } as const;
+  const messaging = await signer.messagingPublicKey();
+
+  // Two proofs of work, because each is bound to one author key. Declaring a channel is
+  // documented as one-time and expensive (Plans/04 §5).
+  await certifySignalChannelKey(baseUrl, channel, auditServices);
+
+  const pow = await solvePow(await powChallengeFor(baseUrl, channel.publicKey), channel.publicKey);
   const body = ChannelDeclare.encode(
     ChannelDeclare.fromPartial({
       channel_name: input.name,
@@ -1041,7 +1233,7 @@ export async function declareSignalChannel(
       kind: ChannelKind.CHANNEL_KIND_ORGANISATION,
       signing_key: channel.publicKey,
       kem_public_key: messaging.mlKem768,
-      pq_key: await activeSigner.channelPqPublicKey(channel.channelId),
+      pq_key: await signer.channelPqPublicKey(channel.channelId),
       language: input.language,
       valid_from: BigInt(Date.now()),
     }),
@@ -1049,7 +1241,7 @@ export async function declareSignalChannel(
   const published = await publishSignalEnvelope(
     baseUrl,
     {
-      context: { kind: 'channel', channelId: channel.channelId },
+      context,
       domain: 'jb:channel:declare:v1',
       body,
       antiAbuse: {
@@ -1305,8 +1497,14 @@ export async function rotateOwnedSignalChannel(
   audit: readonly DiscoveredService[] = [],
 ): Promise<string> {
   if (!activeSigner) throw new Error('Unlock your Signal identity first');
-  const replacement = await activeSigner.createChannelIdentity();
-  const messaging = await activeSigner.messagingPublicKey();
+  const signer = activeSigner;
+  const replacement = await signer.createChannelIdentity();
+  const messaging = await signer.messagingPublicKey();
+  // The replacement key signs every envelope after the rotation takes effect, so it needs
+  // its own certificate for exactly the reason the declaration did. Certifying it first also
+  // means KY-04 holds through the handover: the old key is still valid while the new one is
+  // already certified, so there is no window in which the channel cannot publish at all.
+  await certifySignalChannelKey(baseUrl, replacement, audit);
   const contentId = await rotateSignalChannel(
     baseUrl,
     {

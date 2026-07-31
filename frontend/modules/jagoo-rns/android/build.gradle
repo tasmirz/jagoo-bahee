@@ -33,4 +33,14 @@ android {
       excludes += ['**/libchaquopy_java.so']
     }
   }
+
+  // ...and for the same reason it must not PACKAGE any Python. Chaquopy supports Python
+  // sources in an application module only; a library that also compiles them emits a second
+  // `assets/chaquopy/app.imy` that collides with the app's at merge time. `:app` owns the
+  // sources (see its `python.srcDirs`), this module owns only the Kotlin bridge.
+  sourceSets {
+    main {
+      python.srcDirs = []
+    }
+  }
 }

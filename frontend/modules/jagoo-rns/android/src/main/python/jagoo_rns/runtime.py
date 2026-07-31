@@ -54,6 +54,17 @@ def start(raw):
             if len(private_key) != 64:
                 raise ValueError("Reticulum private identity must be 64 bytes")
             root = config["storagePath"]
+            # A URI is not a path. `os.makedirs("file:///data/...")` reads that as a RELATIVE
+            # path beginning with a component literally named "file:", resolves it against the
+            # working directory — "/" on Android — and reports
+            # "[Errno 30] Read-only file system: 'file:'", which names the root filesystem for
+            # a directory inside the app's own private storage. The caller converts (see
+            # `fileSystemPath` in rns.ts); this refuses the wrong shape rather than silently
+            # creating "file:" wherever it happens to land.
+            if "://" in root or not root.startswith("/"):
+                raise ValueError(
+                    "storagePath must be an absolute filesystem path, not a URI: %s" % root
+                )
             os.makedirs(root, exist_ok=True)
             config_text, interfaces = _interface_config(config.get("interfaces", []))
             with open(os.path.join(root, "config"), "w", encoding="utf-8") as handle:

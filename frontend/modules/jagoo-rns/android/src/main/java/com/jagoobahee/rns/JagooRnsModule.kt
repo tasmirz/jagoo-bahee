@@ -21,16 +21,38 @@ class JagooRnsModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("JagooRns")
 
-    AsyncFunction("start") { config: Map<String, Any?> ->
-      val privateKey = config["identityPrivateKey"] as? ByteArray
-        ?: throw IllegalArgumentException("identityPrivateKey is required")
+    /**
+     * The identity is a DECLARED `ByteArray` parameter, not a field of the config map.
+     *
+     * Expo converts a JS `Uint8Array` to a Kotlin `ByteArray` only when the signature names
+     * the type it should become. Inside `Map<String, Any?>` there is no type to convert
+     * toward, so the value arrived as something else entirely and
+     * `config["identityPrivateKey"] as? ByteArray` was always null — the module then threw
+     * its own "identityPrivateKey is required" at a caller that had passed exactly that, on
+     * every "Start RNS" and "Start BLE RNode" tap.
+     *
+     * `JagooCryptoModule` never hit this because every one of its functions declares
+     * `ByteArray` parameters directly. Same framework, same JS value, different signature.
+     */
+    AsyncFunction("start") { config: Map<String, Any?>, identityPrivateKey: ByteArray ->
+      if (identityPrivateKey.isEmpty()) {
+        throw IllegalArgumentException("identityPrivateKey is empty")
+      }
       val body = JSONObject().apply {
         put("storagePath", config["storagePath"])
-        put("identityPrivateKey", Base64.encodeToString(privateKey, Base64.NO_WRAP))
+        put("identityPrivateKey", Base64.encodeToString(identityPrivateKey, Base64.NO_WRAP))
         put("propagationDestination", config["propagationDestination"])
         put("interfaces", JSONArray(config["interfaces"] as? List<*> ?: emptyList<Any>()))
       }
-      JSONObject(runtime().callAttr("start", body.toString()).toString()).toMap()
+      try {
+        JSONObject(runtime().callAttr("start", body.toString()).toString()).toMap()
+      } finally {
+        // The Kotlin copy is wiped as soon as the base64 form has been handed on. The
+        // base64 String itself is immutable and lives until GC — unavoidable across the
+        // Chaquopy boundary, which takes JSON — so it is deliberately the only copy that
+        // outlives this call.
+        identityPrivateKey.fill(0)
+      }
     }
 
     AsyncFunction("stop") { runtime().callAttr("stop") }

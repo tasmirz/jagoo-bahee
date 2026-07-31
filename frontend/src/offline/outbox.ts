@@ -17,6 +17,12 @@ import {
 const OUTBOX_KEY = 'jb.offline.outbox.v1';
 const text = new TextEncoder();
 
+/**
+ * `Priority.DIRECT`. Spelled out rather than imported as a value because `Priority` is a
+ * type-only import here and the wire numbering is frozen (Plans/02 §2).
+ */
+const PRIORITY_DIRECT = 2;
+
 const base64 = (value: Uint8Array): string =>
   globalThis.btoa(String.fromCharCode(...value));
 const unbase64 = (value: string): Uint8Array =>
@@ -159,6 +165,35 @@ async function defaultSubmit(
   return payload;
 }
 
+/**
+ * Audit services a given envelope may be copied to — none, for anything person-to-person.
+ *
+ * ── What an audit certificate actually contains ─────────────────────────────────────
+ * `createAuditCertificate` embeds the ENTIRE request body, which is the complete signed
+ * envelope, in `request.body_base64`. That is the point of it: the certificate proves this
+ * exact envelope was submitted and acknowledged, and it is what makes a node's refusal to
+ * publish provable rather than deniable.
+ *
+ * ── Why that must not happen for DIRECT ─────────────────────────────────────────────
+ * A `SignalSessionInit` or `SignalMessage` carries `recipient_key` in the clear, and the
+ * envelope around it carries the sender's identified Signal key and a timestamp. Copying
+ * that to every advertised audit log hands a third party a timestamped social graph of who
+ * messages whom on the plane whose entire purpose is that the speaker is identifiable. This
+ * project already refuses to build that structure server-side — "a list of who follows which
+ * channel is a list of targets" — and shipping it to an outside service is strictly worse.
+ *
+ * Censorship evidence is also not the point here: an audit certificate answers "did the node
+ * suppress my public post", and a private message nobody else can read has no such claim to
+ * make. The certificate is still written to local storage either way; only the copies leave.
+ *
+ * Keyed on the priority CLASS, not on a list of domains: DIRECT is exactly "addressed to one
+ * recipient, end-to-end encrypted" (Plans/04 §5), so a new private domain inherits this
+ * automatically instead of needing someone to remember to add it here.
+ */
+function auditServicesFor(record: OutboxRecord): readonly DiscoveredService[] {
+  return record.priority === PRIORITY_DIRECT ? [] : record.auditServices;
+}
+
 async function deliver(
   record: OutboxRecord,
   submitter: EnvelopeSubmitter,
@@ -166,17 +201,13 @@ async function deliver(
   await replace({ ...record, state: 'sending' });
   const requestBody = JSON.stringify({ envelope: record.envelope });
   try {
-    console.log('[outbox.deliver] Sending envelope to node...', record.baseUrl);
     const receipt = await submitter(record.baseUrl, requestBody, record.transport);
-    console.log('[outbox.deliver] Envelope submitted, receipt received.', receipt);
     const certificate = createAuditCertificate(text.encode(requestBody), receipt);
-    console.log('[outbox.deliver] Storing and forwarding certificate to audit logs...');
     const stored = await storeAndForwardCertificate(
       certificate,
-      record.auditServices,
+      auditServicesFor(record),
       record.transport,
     );
-    console.log('[outbox.deliver] Certificate stored and forwarded.', stored);
     await replace({ ...record, state: 'receipted', receipt });
     return {
       contentId: record.contentId,

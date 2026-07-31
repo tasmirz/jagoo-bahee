@@ -6,6 +6,8 @@ const ACKNOWLEDGED_KEY = 'jb.signal.acknowledged-alerts.v1';
 const ALERT_SETTINGS_KEY = 'jb.signal.alert-settings.v1';
 const PUSH_CHANNELS_KEY = 'jb.signal.push-channels.v1';
 const INBOX_KEY = 'jb.signal.inbox.v1';
+/** Declared here so `clearSignalLocalData` cannot forget it — see `outgoing.ts`. */
+const OUTGOING_KEY = 'jb.signal.outgoing.v1';
 const PREKEY_PREFIX = 'jb.signal.prekey.v1:';
 const BACKUP_OWED_KEY = 'jb.signal.backup-owed.v1';
 
@@ -196,6 +198,7 @@ export async function clearSignalLocalData(): Promise<void> {
     ALERT_SETTINGS_KEY,
     PUSH_CHANNELS_KEY,
     INBOX_KEY,
+    OUTGOING_KEY,
     ...prekeys,
   ]);
 }

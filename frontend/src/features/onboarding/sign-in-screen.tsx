@@ -17,6 +17,7 @@ import {
   signInForumIdentity,
   unlockForumIdentity,
 } from '../../signer';
+import { restoreSignalSession, unlockSignalIdentity } from '../../signer/signal';
 
 type Mode = 'unlock' | 'phrase';
 
@@ -80,6 +81,27 @@ export function SignInScreen({
       await signInForumIdentity(homeNode.baseUrl, homeNode.discovery.services.auditLogs);
     } catch {
       // Deliberately swallowed — see above.
+    }
+    /*
+      Open the Signal vault with the same secret, if that is what it was sealed with.
+
+      Onboarding creates BOTH vaults from one protection choice — `welcome-flow.tsx` passes
+      the same password and the same recovery salt to `createSignalIdentity` deliberately.
+      Not trying it here means the Signal vault stays locked after every launch for anyone
+      who set a password, and every Signal action reports "Unlock your Signal identity
+      first" from a screen that offers no way to do it. `restoreSignalSession` handles the
+      device-lock case, which needs no secret; this is the other half.
+
+      Not plane linkage (SEP-*, ADR-012): no record associates the two identities, nothing
+      is published together, and no key material crosses. It is one person entering one
+      secret they already chose for both vaults. A wrong guess throws inside `unlock` and is
+      swallowed — the Signal vault simply stays locked, exactly as it does today.
+    */
+    try {
+      await unlockSignalIdentity(password, recoverySalt);
+      await restoreSignalSession(homeNode.baseUrl, homeNode.discovery.services.auditLogs);
+    } catch {
+      // Sealed with a different secret, or not configured. The Signal identity screen asks.
     }
   };
 
