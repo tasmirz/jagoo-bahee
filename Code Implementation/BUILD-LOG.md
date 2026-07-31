@@ -2634,3 +2634,124 @@ A cache is only load-bearing if everything between it and the pixels is too.
 **Not claimed:** RNS still has not reached `running`. The RNode path is now correctly reported
 as unsupported rather than fatal; whether plain "Start RNS" (AutoInterface) comes up has not
 been observed, and it cannot carry traffic between the two devices until they share a subnet.
+
+---
+
+## 2026-07-31 — Node-free phone-to-phone messaging over the LAN
+
+**Reported:** "directly lookup nearby devices, for messaging use wifi/bt", then confirmed:
+true phone-to-phone delivery with no server.
+
+### What already existed, and what actually had to be built
+
+`offline/mesh.ts` (371 lines, tested) already implements the entire peer protocol — frames,
+envelope verification against the signature, content-ID dedupe, hop limits, TTL, per-peer
+quotas, store-and-forward — and `offline/webrtc.ts` already carries those frames. Pairing was
+a QR code: two phones swapping a WebRTC offer by camera. That works for two people standing
+together and does not scale to a room.
+
+So two pieces were missing, not one, and the second was the one that mattered.
+
+**1. Discovery.** `modules/jagoo-lan` advertises `_jagoo._tcp` over `NsdManager` and moves
+length-prefixed UTF-8 over TCP. It is a dumb pipe by construction: it never parses a frame and
+holds no keys. Re-implementing any protocol rule in Kotlin would put a second, untested copy
+on the side of the boundary least able to reject hostile input. It takes a `MulticastLock` for
+the same reason the Reticulum work did — mDNS is multicast, and without one Android advertises
+fine and discovers nobody.
+
+**2. Delivery.** Carrying an envelope to the recipient's phone is not delivering it. The inbox
+was read from `/v1/signal/me/messages`, so a mesh-delivered envelope could sit verified in the
+local store and never appear: the NODE was doing the projection, and during a shutdown there
+is no node. `projectLocalSignalEnvelope` is that step, run locally.
+
+Three details of it are load-bearing:
+
+- **"Is it mine?" is answered by decrypting.** `SignalMessage` carries no recipient field —
+  the node knows the recipient from the session it projected earlier, which is exactly the
+  knowledge unavailable here. So the test is the cryptography: attempt to open it, and if it
+  opens it was sealed to this device. No metadata to spoof, and a relayed envelope passing
+  through this phone is stored and forwarded without ever being readable here.
+- **Only newly-stored envelopes are projected**, after `MeshRouter` has verified them. An
+  unverified envelope is never handed to the signer at all, which `lan.test.ts` asserts.
+- **`loadSignalMessages` returns the UNION** of the node's list and the local cache. Returning
+  the node's list would make a mesh-delivered message vanish the moment the node became
+  reachable — the reachable case erasing what the unreachable case achieved.
+
+**3. And the thread had to stop being a view of the server's model.** Entries were selected by
+session id, and sessions come from the node, so a locally-projected message had no session row
+and was invisible — hiding exactly the messages this transport exists to deliver. Grouping is
+now by the participant keys every message already carries.
+
+**Fixed in passing:** the person-keyed refactor from the previous entry broke replying in a
+chat with no node session — it fell through to the "new session" branch and used the people
+picker's value, empty when the chat was opened from the list, so sending reported "recipient
+key must be 64 hex characters" about a contact named at the top of the screen. The open
+conversation names the recipient now; the picker is the fallback for a chat that does not
+exist yet.
+
+**Gate:** `offline/lan.test.ts` — a forged envelope is not relayed onward (relaying would make
+this device an amplifier for it) and is never handed to the signer; non-protocol traffic is
+ignored rather than thrown on; a discovered peer is offered what this device holds; stopping
+forgets its peers.
+
+**Lesson (L-…):** "it reached the device" and "it was delivered" are different claims, and the
+gap between them was invisible because a node had always closed it. When a server is removed
+from a path, every step it was silently performing has to be found and re-homed — transport
+was the obvious one and projection was the one that actually blocked the feature.
+
+**Verified:** frontend 39 suites / 217 tests; `tsc --noEmit` clean; `pnpm lint` 0 errors;
+`installDebug` succeeded and `JagooLanModule` plus `_jagoo._tcp.` were confirmed inside the
+installed APK's dex.
+
+**Not claimed:** never exercised between two devices. The two phones available are on
+different subnets, so mDNS cannot see across them; discovery, transport and local projection
+have each been asserted in isolation and never once end to end. Starting a FIRST conversation
+still needs the recipient's prekey bundle, which comes from the node or its cache — two
+devices that have never met a node together cannot open a new session offline. Replying within
+an existing session works without one.
+
+---
+
+## 2026-07-31 — First contact with no node: prekey bundles over the mesh
+
+**Reported:** follow-on from the previous entry — make a FIRST conversation possible between
+two devices that have never met a node together.
+
+**No new protocol was needed, and that is the point.** A prekey bundle is already a signed
+envelope, `jb:message:prekeys:v1`, published to a node by `publishSignalPrekeys`. So it rides
+the mesh as the envelope it is: `MeshRouter` verifies it on arrival like everything else, no
+new frame type, no new trust relationship. `sealSignalPrekeyEnvelope` produces the same
+envelope without submitting it, `offerable()` puts it at the head of what every peer is sent,
+and `projectLocalSignalEnvelope` gained a branch that caches an arriving one.
+
+It leads the offer list because it is the precondition for everything after it, and it is
+re-sealed on each sync rather than stored: a bundle carries an expiry and one-time prekeys,
+and handing out a stale one produces a session the recipient cannot open.
+
+Disclosure is unchanged — a prekey bundle is what a node hands to anyone who asks, so
+offering it to a local segment reveals nothing that publishing it does not.
+
+**The check that carries the weight.** The bundle is cached for the key that SIGNED the
+envelope, never the key its body names, and a mismatch is refused before any other
+validation. Without that binding, a stranger on the same Wi-Fi could hand out a bundle
+claiming to be Amina carrying prekeys they control; the next first message to Amina would be
+sealed to the attacker, readable by them and never by her — a complete compromise of first
+contact, with no key ever stolen and no signature ever forged.
+
+**Gate:** `signer/prekey-mesh.test.ts`. The negative case is a genuinely signed envelope — the
+attacker's own vault, their own real prekey material, the victim's identity key in the body —
+so `MeshRouter` would accept and relay it and the identity binding is the only thing standing
+between it and a redirected conversation. It asserts the victim's cached bundle is unchanged
+afterwards, which is the property that matters rather than a return value. `offline/lan.test.ts`
+asserts the bundle leads the sync.
+
+**Lesson (L-…):** the useful question when removing a server from a path is not "how do the
+messages get there" but "what did the server know that nobody else does". Transport was the
+visible gap; projection and then prekey distribution were the two that actually blocked the
+feature, and both were things the node had been quietly supplying.
+
+**Verified:** frontend 40 suites / 219 tests; `tsc --noEmit` clean; `pnpm lint` 0 errors.
+
+**Not claimed:** still never exercised between two devices — the two phones available are on
+different subnets, so mDNS cannot see across them. Discovery, transport, local projection and
+prekey exchange have each been asserted in isolation and the path has never run end to end.

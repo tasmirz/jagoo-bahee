@@ -33,6 +33,7 @@ import {
   type MeshFrame,
 } from './mesh';
 import { envelopeBytes, listOutbox } from './outbox';
+import { projectLocalSignalEnvelope, sealSignalPrekeyEnvelope } from '../signer/signal';
 
 export interface LanState {
   readonly available: boolean;
@@ -40,6 +41,15 @@ export interface LanState {
   readonly name: string;
   readonly peers: readonly LanPeer[];
 }
+
+/** Mesh frames carry envelopes base64url-encoded; `mesh.ts` keeps its own copy private. */
+const unbase64url = (value: string): Uint8Array => {
+  const padded = value
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+    .padEnd(Math.ceil(value.length / 4) * 4, '=');
+  return Uint8Array.from(globalThis.atob(padded), (character) => character.charCodeAt(0));
+};
 
 const store = new MeshStore();
 const router = new MeshRouter(store, verifyCachedMeshCertificate);
@@ -81,6 +91,26 @@ async function sendFrame(peer: LanPeer, frame: MeshFrame): Promise<void> {
  */
 async function offerable(): Promise<readonly MeshFrame[]> {
   const stored = await store.list();
+  /*
+    Our own prekey bundle leads, always.
+
+    Opening a FIRST conversation needs the other side's bundle, and it was only obtainable
+    from a node — so two phones that had never met one together could not start talking, in
+    the exact situation the mesh exists for. Offering ours to every peer makes first contact
+    symmetric: after one exchange, either device can open a session with the other and no node
+    has been involved.
+
+    It leads the list because it is the precondition for everything after it, and it is
+    re-sealed each time rather than stored: a bundle carries an expiry and one-time prekeys,
+    and handing out a stale one produces a session the recipient cannot open.
+  */
+  const prekeyFrames: MeshFrame[] = [];
+  try {
+    const prekey = await sealSignalPrekeyEnvelope();
+    prekeyFrames.push(meshEnvelopeFrame(prekey.wireBytes, prekey.contentId));
+  } catch {
+    // The Signal vault is locked. Everything else this device holds is still offerable.
+  }
   const frames: MeshFrame[] = stored.map((row) => ({
     version: 1,
     kind: 'envelope',
@@ -95,7 +125,7 @@ async function offerable(): Promise<readonly MeshFrame[]> {
     if (known.has(record.contentId)) continue;
     frames.push(meshEnvelopeFrame(envelopeBytes(record), record.contentId, record.queuedAtMs));
   }
-  return frames;
+  return [...prekeyFrames, ...frames];
 }
 
 /** Hand a peer everything it may be missing. Dedupe on their side makes repetition cheap. */
@@ -114,7 +144,24 @@ async function onFrame(payload: string, fromHost: string): Promise<void> {
   }
   if (frame.kind !== 'envelope') return;
   const peer = peers.find((item) => item.host === fromHost);
-  const { relay } = await router.receive(peer?.id ?? fromHost, frame);
+  const { ack, relay } = await router.receive(peer?.id ?? fromHost, frame);
+
+  /*
+    Project it locally — this is what makes a message ARRIVE with no node.
+
+    `MeshRouter` verified and stored it; storing is not delivery. The inbox used to be read
+    from `/v1/signal/me/messages`, so an envelope could reach the recipient's phone and never
+    be seen, because the node was doing the projection and during a shutdown there is no node.
+    `projectLocalSignalEnvelope` decrypts it if it was sealed to this device and writes it
+    into the same local history the thread already renders from.
+
+    Only for envelopes newly stored: a duplicate has already been delivered, and re-projecting
+    would be work for nothing. Anything not addressed here simply fails to open and is relayed
+    onward unread, which is the whole point of a store-and-forward mesh.
+  */
+  if (ack.status === 'stored') {
+    await projectLocalSignalEnvelope(unbase64url(frame.envelope)).catch(() => false);
+  }
   // Relay onward to everyone else. `MeshRouter` returns null for a duplicate, so a frame
   // stops the first time it reaches a device that already had it — that is what terminates
   // the flood, not a counter.

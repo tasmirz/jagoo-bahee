@@ -87,6 +87,8 @@ const ROOT_KEY = 'jb.signal.root.v1';
 const CHANNEL_MAP_KEY = 'jb.signal.channels.v1';
 const text = new TextEncoder();
 const RNS_BINDING_PREFIX = text.encode('jb:signal:lxmf-binding:v1\0');
+const hex = (value: Uint8Array): string =>
+  Array.from(value, (byte) => byte.toString(16).padStart(2, '0')).join('');
 /** X25519 || Ed25519 — a Reticulum identity's public half. Mirrors the node's check. */
 const RNS_PUBLIC_KEY_BYTES = 64;
 const LXMF_DESTINATION_BYTES = 16;
@@ -1784,6 +1786,160 @@ export async function continueSignalSession(
   );
 }
 
+/**
+ * Deliver a Signal envelope that arrived over the mesh, with no node involved.
+ *
+ * ── Why this is the piece that makes node-free messaging real ──────────────────────
+ * The LAN transport carries signed envelopes between phones, but the inbox was read from
+ * `/v1/signal/me/messages` — so an envelope could reach the recipient's device and still not
+ * appear, because nothing on that device projected it. The node was doing the projection, and
+ * during a shutdown there is no node. This is that step, run locally.
+ *
+ * ── "Is it mine?" is answered by decrypting, not by a label ────────────────────────
+ * `SignalMessage` carries no recipient field — the node knows the recipient from the session
+ * it projected earlier, which is exactly the knowledge missing here. So the test is the
+ * cryptography itself: attempt to open it, and if it opens, it was sealed to this device's
+ * keys. No metadata to spoof, and a message for someone else fails in the only way that
+ * matters. It also means a relayed envelope passing through this phone is stored and
+ * forwarded without ever being readable here.
+ *
+ * Returns true when the envelope was for this device and is now in the local history.
+ */
+/**
+ * This device's own prekey bundle, sealed and ready to hand to a peer directly.
+ *
+ * `publishSignalPrekeys` sends the same envelope to a node. Starting a FIRST conversation
+ * needs the recipient's bundle, and it was only ever obtainable from a node — so two phones
+ * that had never met one together could not open a session, which is precisely the situation
+ * the mesh exists for. The bundle is a signed envelope like any other, so it needs no new
+ * frame type and no new trust: it rides the mesh, is verified by `MeshRouter` on arrival, and
+ * carries its own Ed25519 self-signature over the prekey material on top of that.
+ *
+ * A prekey bundle is public by design — it is what the node hands to anyone who asks — so
+ * broadcasting it to a local segment discloses nothing that publishing it does not.
+ */
+export async function sealSignalPrekeyEnvelope(): Promise<{
+  readonly contentId: string;
+  readonly wireBytes: Uint8Array;
+}> {
+  if (!activeSigner) throw new Error('Unlock your Signal identity first');
+  const sealed = await activeSigner.seal(
+    { kind: 'device' },
+    { domain: 'jb:message:prekeys:v1', body: await activeSigner.prekeyBody() },
+  );
+  return { contentId: sealed.contentId, wireBytes: sealed.wireBytes };
+}
+
+export async function projectLocalSignalEnvelope(wireBytes: Uint8Array): Promise<boolean> {
+  if (!activeSigner) return false;
+  const signer = activeSigner;
+  let envelope: SignedEnvelope;
+  try {
+    envelope = decodeSignedEnvelope(wireBytes);
+  } catch {
+    return false;
+  }
+  if (envelope.plane !== Plane.SIGNAL) return false;
+
+  const identity = await signer.identity({ kind: 'device' });
+  const myKeyHex = hex(identity.publicKey);
+  const contentId = computeContentId(envelope);
+  const senderKey = hex(envelope.author_key);
+  const createdAtMs = Number(envelope.created_at_ms);
+
+  const store = async (session: string, counter: number, plaintext: string): Promise<boolean> => {
+    const previous = await loadCachedSignalMessages<DecryptedSignalMessage>();
+    if (previous.some((item) => item.id === contentId)) return true;
+    const record: DecryptedSignalMessage = {
+      id: contentId,
+      session,
+      senderKey,
+      recipientKey: myKeyHex,
+      counter: String(counter),
+      header: '',
+      ciphertext: '',
+      attachmentRefs: [],
+      createdAtMs,
+      // Nothing has acknowledged it; the sender is not reachable to be told, either.
+      deliveryState: 1,
+      deliveryUpdatedAtMs: createdAtMs,
+      plaintext,
+    };
+    await cacheSignalMessages(
+      [...previous, record].sort((left, right) => left.createdAtMs - right.createdAtMs),
+    );
+    return true;
+  };
+
+  if (envelope.domain === 'jb:message:session:v1') {
+    const body = SignalSessionInit.decode(envelope.body);
+    try {
+      const opened = await signer.openFirstMessage(
+        {
+          kemCiphertext: body.kem_ciphertext,
+          ephemeralX25519: body.ephemeral_x25519,
+          ciphertext: body.ciphertext,
+        },
+        `signal:${myKeyHex}`,
+      );
+      // A session opener names its own session, exactly as the node keys it.
+      return await store(contentId, 0, new TextDecoder().decode(opened));
+    } catch {
+      return false;
+    }
+  }
+
+  /*
+    A peer's prekey bundle, cached so a FIRST message to them can be composed with no node.
+
+    Not addressed to anyone, so unlike a message this is not decrypted — it is verified. The
+    same checks `verifiedSignalPrekey` applies to the node's copy are applied here, against
+    the envelope's own author key: a bundle claiming to be someone else's is refused, because
+    caching it would let a peer on the Wi-Fi redirect a first message to keys it controls.
+  */
+  if (envelope.domain === 'jb:message:prekeys:v1') {
+    const body = PrekeyBundle.decode(envelope.body);
+    const bundle: NodePrekeyBundle = {
+      identityKey: hex(body.identity_key),
+      signedPrekey: base64(body.signed_prekey),
+      signedPrekeySignature: base64(body.signed_prekey_sig),
+      kemPublicKey: base64(body.kem_public_key),
+      oneTimePrekeys: body.one_time_prekeys.map((value) => base64(value)),
+      validUntilMs: Number(body.valid_until_ms),
+    };
+    // The bundle must belong to whoever SIGNED the envelope, not to whoever it names.
+    if (bundle.identityKey.toLowerCase() !== senderKey.toLowerCase()) return false;
+    try {
+      verifyNodePrekey(senderKey, bundle);
+    } catch {
+      return false;
+    }
+    await cacheSignalPrekey(senderKey, bundle);
+    // Cached, but nothing was delivered to a person — the thread has nothing to show.
+    return false;
+  }
+
+  if (envelope.domain === 'jb:message:signal:v1') {
+    const body = SignalMessage.decode(envelope.body);
+    if (body.header.length !== 1121 || body.header[0] !== 1) return false;
+    try {
+      const opened = await signer.openFirstMessage(
+        {
+          kemCiphertext: body.header.slice(1, 1089),
+          ephemeralX25519: body.header.slice(1089),
+          ciphertext: body.ciphertext,
+        },
+        `signal-message:${body.session}:${body.counter}`,
+      );
+      return await store(body.session, Number(body.counter), new TextDecoder().decode(opened));
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
 export async function loadSignalMessages(
   baseUrl: string,
   identityKeyHex: string,
@@ -1837,10 +1993,15 @@ export async function loadSignalMessages(
   const previous = await loadCachedSignalMessages<DecryptedSignalMessage>();
   const merged = new Map(previous.map((item) => [item.id, item] as const));
   for (const item of decrypted) merged.set(item.id, item);
-  await cacheSignalMessages(
-    [...merged.values()].sort((left, right) => left.createdAtMs - right.createdAtMs),
-  );
-  return decrypted;
+  const union = [...merged.values()].sort((left, right) => left.createdAtMs - right.createdAtMs);
+  await cacheSignalMessages(union);
+  /*
+    The UNION, not the node's list. A message delivered phone-to-phone over the mesh exists
+    only in the local history, so returning what the node happens to hold would make it vanish
+    the moment the node became reachable again — the reachable case erasing what the
+    unreachable case achieved.
+  */
+  return union;
 }
 
 type NodeSignalSession = CachedSignalSession;

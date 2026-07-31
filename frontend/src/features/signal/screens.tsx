@@ -2075,6 +2075,20 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
     const ids = new Set(
       sessions.filter((item) => counterpartKey(item).toLowerCase() === contact).map((item) => item.id),
     );
+    /*
+      A message belongs to a person because of who is on it, not because a session row exists.
+
+      Sessions come from the node. A message delivered phone-to-phone over the mesh is
+      projected locally and has no session row here at all, so selecting by session id alone
+      hid exactly the messages that arrived with no node — the case this transport exists for.
+      Every message already carries both keys, which is all the grouping needs.
+    */
+    const mineOrTheirs = (item: DecryptedSignalMessage): boolean =>
+      ids.has(item.session) ||
+      (item.senderKey.toLowerCase() === contact &&
+        item.recipientKey.toLowerCase() === identityKey.toLowerCase()) ||
+      (item.recipientKey.toLowerCase() === contact &&
+        item.senderKey.toLowerCase() === identityKey.toLowerCase());
     const mine = new Map(
       outgoing
         .filter((item) => item.recipientKey.toLowerCase() === contact || ids.has(item.session))
@@ -2094,7 +2108,7 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
       });
     }
 
-    for (const item of messages.filter((row) => ids.has(row.session))) {
+    for (const item of messages.filter(mineOrTheirs)) {
       const local = mine.get(item.id);
       entries.push({
         id: item.id,
@@ -2158,6 +2172,16 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
       app whose premise is that the network fails, the conversation list cannot be a view of
       a server's state.
     */
+    // And because someone sent US one — the node-free inbound case, which has no session.
+    for (const item of messages) {
+      const mine = item.senderKey.toLowerCase() === identityKey.toLowerCase();
+      const key = (mine ? item.recipientKey : item.senderKey).toLowerCase();
+      if (!key || key === identityKey.toLowerCase()) continue;
+      const row = byContact.get(key) ?? { key, sessionIds: new Set<string>(), lastAtMs: 0 };
+      row.sessionIds.add(item.session);
+      row.lastAtMs = Math.max(row.lastAtMs, item.createdAtMs);
+      byContact.set(key, row);
+    }
     for (const item of outgoing) {
       const key = item.recipientKey.toLowerCase();
       if (!key) continue;
@@ -2172,7 +2196,12 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
       const own = outgoing.filter(
         (item) => item.recipientKey.toLowerCase() === row.key || row.sessionIds.has(item.session),
       );
-      const theirs = messages.filter((item) => row.sessionIds.has(item.session));
+      const theirs = messages.filter(
+        (item) =>
+          row.sessionIds.has(item.session) ||
+          item.senderKey.toLowerCase() === row.key ||
+          item.recipientKey.toLowerCase() === row.key,
+      );
       const lastAtMs = Math.max(
         row.lastAtMs,
         ...own.map((item) => item.sentAtMs),

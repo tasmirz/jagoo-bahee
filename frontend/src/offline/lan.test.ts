@@ -45,6 +45,18 @@ jest.mock('./outbox', () => ({
   envelopeBytes: jest.fn(() => new Uint8Array([1])),
 }));
 
+const projected: Uint8Array[] = [];
+jest.mock('../signer/signal', () => ({
+  projectLocalSignalEnvelope: jest.fn(async (bytes: Uint8Array) => {
+    projected.push(bytes);
+    return true;
+  }),
+  sealSignalPrekeyEnvelope: jest.fn(async () => ({
+    contentId: 'jb1prekey',
+    wireBytes: new Uint8Array([7, 7, 7]),
+  })),
+}));
+
 import { encodeMeshFrame, meshEnvelopeFrame } from './mesh';
 import { broadcastToLan, snapshotLan, startLan, stopLan, syncWithPeer } from './lan';
 
@@ -84,6 +96,17 @@ describe('LAN peer transport', () => {
     expect(nativeSends.filter((item) => item.host === '192.168.1.9')).toEqual([]);
   });
 
+  it('does not attempt local delivery for an envelope it rejected', async () => {
+    // Verification failed, so nothing was stored — and an unverified envelope must never be
+    // handed to the signer to decrypt, let alone shown to anyone.
+    await startLan('Amina');
+    projected.length = 0;
+    const frame = meshEnvelopeFrame(new Uint8Array([9, 9, 9]), 'jb1forged');
+    onFrame?.({ from: PEER.host, payload: encodeMeshFrame(frame) });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(projected).toEqual([]);
+  });
+
   it('ignores traffic that is not this protocol instead of throwing', async () => {
     await startLan('Amina');
     onFrame?.({ from: '192.168.1.5', payload: 'not json at all' });
@@ -105,12 +128,18 @@ describe('LAN peer transport', () => {
     expect(snapshotLan()).toMatchObject({ running: false, peers: [] });
   });
 
-  it('offers a peer nothing it cannot name', async () => {
-    // `syncWithPeer` with an empty store and empty outbox sends zero frames — the sync is
-    // driven by what this device holds, never by what the peer claims to want.
+  it('leads with its own prekey bundle, so first contact needs no node', async () => {
+    /*
+      Opening a FIRST session needs the other side's prekey bundle, which was only obtainable
+      from a node — so two phones that had never met one together could not start talking, in
+      the exact situation this transport exists for. It leads because it is the precondition
+      for everything after it.
+    */
     await startLan('Amina');
-    expect(await syncWithPeer(PEER)).toBe(0);
-    expect(nativeSends).toEqual([]);
+    expect(await syncWithPeer(PEER)).toBe(1);
+    expect(nativeSends).toHaveLength(1);
+    const frame = JSON.parse(nativeSends[0]!.payload) as { kind: string; contentId: string };
+    expect(frame).toMatchObject({ kind: 'envelope', contentId: 'jb1prekey' });
   });
 });
 

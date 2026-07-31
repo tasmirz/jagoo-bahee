@@ -356,7 +356,7 @@ publish-all base="41800":
 
 # Tunnel node + audit + mCaptcha + blob to an uncommon port block; writes ops/service-map.json
 [windows]
-publish-all base="41800":
+publish-all base="41809":
     @$node = [int]'{{base}}'; $audit = $node + 1; $mcaptcha = $node + 2; $blob = $node + 3; $pairs = @( @(3000, $node), @(3100, $audit), @(7000, $mcaptcha), @(9000, $blob) ); $ports = [ordered]@{ }; foreach ($pair in $pairs) { $ports[[string]$pair[0]] = $pair[1] }; [ordered]@{ publicHost = 'bore.pub'; scheme = 'http'; ports = $ports } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 ops/service-map.json; Write-Host "wrote ops/service-map.json (overwrites any previous map)"; foreach ($pair in $pairs) { Write-Host ("  {0,-5} -> bore.pub:{1}" -f $pair[0], $pair[1]) }; Write-Host ""; Write-Host "set in backend/.env, then RESTART the node:"; Write-Host "  S3_PUBLIC_ENDPOINT=http://bore.pub:$blob"; Write-Host ""; Write-Host "home server for the app:  http://bore.pub:$node"; Write-Host ""; $jobs = $pairs | ForEach-Object { Start-Process -FilePath 'bore' -ArgumentList 'local', $_[0], '--to', 'bore.pub', '-p', $_[1] -PassThru -NoNewWindow }; Write-Host "Started $($jobs.Count) tunnels. Ctrl+C or 'just publish-stop' to end."; Wait-Process -Id $jobs.Id
 
 [windows]
