@@ -72,10 +72,12 @@ import type { DiscoveredService } from '../data/node-config';
 import { networkRequest } from '../data/request';
 import { solvePow, type PowChallengeJson } from '../data/pow';
 import {
+  cacheSignalMessages,
   cacheSignalPrekey,
   cacheSignalInbox,
   clearSignalLocalData,
   loadCachedSignalInbox,
+  loadCachedSignalMessages,
   loadCachedSignalPrekey,
   type CachedSignalSession,
 } from '../features/signal/storage';
@@ -1787,11 +1789,23 @@ export async function loadSignalMessages(
   identityKeyHex: string,
 ): Promise<readonly DecryptedSignalMessage[]> {
   if (!activeSigner) throw new Error('Unlock your Signal identity first');
-  const response = await signalSessionRequest<{ readonly items: readonly NodeSignalMessage[] }>(
-    baseUrl,
-    '/v1/signal/me/messages?limit=100',
-  );
-  return Promise.all(
+  let response: { readonly items: readonly NodeSignalMessage[] };
+  try {
+    response = await signalSessionRequest<{ readonly items: readonly NodeSignalMessage[] }>(
+      baseUrl,
+      '/v1/signal/me/messages?limit=100',
+    );
+  } catch (error) {
+    /*
+      Offline is the ordinary case, not a failure to report. The decrypted history is already
+      on this device; returning it is what makes a conversation readable during the outage it
+      was written for. Mirrors `loadSignalInbox`, which has always fallen back this way.
+    */
+    const cached = await loadCachedSignalMessages<DecryptedSignalMessage>();
+    if (cached.length === 0) throw error;
+    return cached;
+  }
+  const decrypted = await Promise.all(
     response.items.map(async (message) => {
       if (message.recipientKey.toLowerCase() !== identityKeyHex.toLowerCase()) {
         return { ...message, plaintext: null };
@@ -1815,6 +1829,18 @@ export async function loadSignalMessages(
       }
     }),
   );
+  /*
+    Merge rather than overwrite: the node returns the last 100 and anything decrypted before
+    that window moved would otherwise be forgotten on the next successful read — the cache
+    would shrink every time the network worked, which is the opposite of what it is for.
+  */
+  const previous = await loadCachedSignalMessages<DecryptedSignalMessage>();
+  const merged = new Map(previous.map((item) => [item.id, item] as const));
+  for (const item of decrypted) merged.set(item.id, item);
+  await cacheSignalMessages(
+    [...merged.values()].sort((left, right) => left.createdAtMs - right.createdAtMs),
+  );
+  return decrypted;
 }
 
 type NodeSignalSession = CachedSignalSession;

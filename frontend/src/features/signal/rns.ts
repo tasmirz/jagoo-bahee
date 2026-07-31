@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import RnsNative, {
   type LxmfMessage,
@@ -5,6 +6,7 @@ import RnsNative, {
   type RnsInterfaceConfig,
   type RnsStatus,
 } from '../../../modules/jagoo-rns';
+import { networkRequest } from '../../data/request';
 import { signalRnsTransportIdentity } from '../../signer/signal';
 
 const unavailable: RnsStatus = {
@@ -58,14 +60,61 @@ export function parseRnsTcpEndpoints(endpoints: readonly string[]): readonly Rns
   });
 }
 
+const BOOTSTRAP_CACHE_KEY = 'jb.signal.rns-bootstrap.v1';
+
+/** Nothing from the node: AutoInterface alone, which is local Wi-Fi and needs no server. */
+const NO_BOOTSTRAP: SignalRnsBootstrap = { tcpEndpoints: [], lxmfPropagationDestination: null };
+
 export async function fetchSignalRnsBootstrap(baseUrl: string): Promise<SignalRnsBootstrap> {
-  const response = await fetch(new URL('/v1/signal/rns-bootstrap', baseUrl).toString());
+  // `networkRequest`, not bare `fetch`, so a Tor-configured client does not silently make a
+  // direct connection here — this is the one call in the mesh path that touches the internet.
+  const response = await networkRequest(
+    new URL('/v1/signal/rns-bootstrap', baseUrl).toString(),
+    { headers: { Accept: 'application/json' } },
+  );
   if (!response.ok) throw new Error(`Signal bootstrap failed with HTTP ${response.status}`);
   const body = (await response.json()) as SignalRnsBootstrap;
-  return {
+  const bootstrap: SignalRnsBootstrap = {
     tcpEndpoints: Array.isArray(body.tcpEndpoints) ? body.tcpEndpoints : [],
     lxmfPropagationDestination: body.lxmfPropagationDestination ?? null,
   };
+  await AsyncStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify(bootstrap));
+  return bootstrap;
+}
+
+/**
+ * The bootstrap, and never a reason not to start.
+ *
+ * ── The fallback required the thing it is a fallback for ───────────────────────────
+ * `startSignalRns` awaited this fetch inside a `Promise.all`, so a node that could not be
+ * reached rejected the whole call with "Network request failed" and the mesh transport never
+ * started. That is precisely backwards: LoRa and local Wi-Fi exist for the moment the node is
+ * unreachable, and requiring an HTTP round trip to the node to reach them means the
+ * resilience path is available exactly when it is not needed. TP-01's rule in the other
+ * direction — "code that only runs during a blackout fails during a blackout" — is the same
+ * observation.
+ *
+ * What the node actually supplies is a list of TCP relays and an LXMF propagation node. Both
+ * are optimisations over the internet. `AutoInterface` discovers peers on the local segment
+ * with no server at all, which is the case that matters here: several phones on one LAN with
+ * the uplink cut. So a failure falls back to the last answer this device was given, and then
+ * to nothing, and starting proceeds either way.
+ */
+export async function bootstrapOrCached(baseUrl: string): Promise<{
+  readonly bootstrap: SignalRnsBootstrap;
+  readonly source: 'node' | 'cache' | 'none';
+}> {
+  try {
+    return { bootstrap: await fetchSignalRnsBootstrap(baseUrl), source: 'node' };
+  } catch {
+    const cached = await AsyncStorage.getItem(BOOTSTRAP_CACHE_KEY);
+    if (!cached) return { bootstrap: NO_BOOTSTRAP, source: 'none' };
+    try {
+      return { bootstrap: JSON.parse(cached) as SignalRnsBootstrap, source: 'cache' };
+    } catch {
+      return { bootstrap: NO_BOOTSTRAP, source: 'none' };
+    }
+  }
 }
 
 /** Starts only the Signal transport. It never reads the Forum node, signer, or outbox. */
@@ -78,8 +127,8 @@ export async function startSignalRns(
   if (!RnsNative) {
     return { ...unavailable, error: 'RNS is available in the Android development build only.' };
   }
-  const [bootstrap, identity] = await Promise.all([
-    fetchSignalRnsBootstrap(baseUrl),
+  const [{ bootstrap }, identity] = await Promise.all([
+    bootstrapOrCached(baseUrl),
     signalRnsTransportIdentity(),
   ]);
   try {

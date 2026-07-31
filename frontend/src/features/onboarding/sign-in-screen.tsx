@@ -18,6 +18,7 @@ import {
   unlockForumIdentity,
 } from '../../signer';
 import { restoreSignalSession, unlockSignalIdentity } from '../../signer/signal';
+import { isKillswitchPassphrase, triggerKillswitch } from '../../security/killswitch';
 
 type Mode = 'unlock' | 'phrase';
 
@@ -107,6 +108,17 @@ export function SignInScreen({
 
   const unlock = () =>
     run(async () => {
+      /*
+        The killswitch is checked BEFORE the vault, and it is the whole point that this is the
+        ordinary unlock field. Someone being made to hand over their password types the other
+        one; both vaults are destroyed and the app lands where a device that was never set up
+        lands. Nothing on this screen advertises that the option exists.
+      */
+      if (await isKillswitchPassphrase(password)) {
+        await triggerKillswitch();
+        await onSignedIn();
+        return;
+      }
       await unlockForumIdentity(password || undefined, recoverySalt);
       await finish();
     });

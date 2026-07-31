@@ -8,6 +8,8 @@ const PUSH_CHANNELS_KEY = 'jb.signal.push-channels.v1';
 const INBOX_KEY = 'jb.signal.inbox.v1';
 /** Declared here so `clearSignalLocalData` cannot forget it — see `outgoing.ts`. */
 const OUTGOING_KEY = 'jb.signal.outgoing.v1';
+const DELETED_CHATS_KEY = 'jb.signal.deleted-chats.v1';
+const MESSAGES_KEY = 'jb.signal.messages.v1';
 const PREKEY_PREFIX = 'jb.signal.prekey.v1:';
 const BACKUP_OWED_KEY = 'jb.signal.backup-owed.v1';
 
@@ -189,6 +191,24 @@ export async function loadCachedSignalInbox(): Promise<readonly CachedSignalSess
   return readJson<readonly CachedSignalSession[]>(INBOX_KEY, []);
 }
 
+/**
+ * Decrypted messages, kept so a conversation survives the network going away.
+ *
+ * `loadSignalMessages` decrypts on every read and returns nothing at all when the node is
+ * unreachable — so a chat history existed only while online, in an app whose entire premise
+ * is that the network is the thing that fails. The plaintext is already on this device the
+ * moment it is decrypted; writing it down changes nothing about who can read it and is the
+ * only way the thread renders during the outage it was written for. Wiped by
+ * `clearSignalLocalData` and by the killswitch, like every other Signal-plane record.
+ */
+export async function cacheSignalMessages<T>(messages: readonly T[]): Promise<void> {
+  await AsyncStorage.setItem(MESSAGES_KEY, JSON.stringify(messages.slice(-500)));
+}
+
+export async function loadCachedSignalMessages<T>(): Promise<readonly T[]> {
+  return readJson<readonly T[]>(MESSAGES_KEY, []);
+}
+
 export async function clearSignalLocalData(): Promise<void> {
   const prekeys = (await AsyncStorage.getAllKeys()).filter((key) => key.startsWith(PREKEY_PREFIX));
   await AsyncStorage.multiRemove([
@@ -199,6 +219,8 @@ export async function clearSignalLocalData(): Promise<void> {
     PUSH_CHANNELS_KEY,
     INBOX_KEY,
     OUTGOING_KEY,
+    DELETED_CHATS_KEY,
+    MESSAGES_KEY,
     ...prekeys,
   ]);
 }

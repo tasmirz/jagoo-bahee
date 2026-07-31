@@ -1,0 +1,11 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+  <!--
+    mDNS is multicast. Android's Wi-Fi driver drops inbound multicast frames not addressed to
+    this device unless a MulticastLock is held, so without this NsdManager advertises fine and
+    discovers nobody — the same silent failure the Reticulum AutoInterface had.
+  -->
+  <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+</manifest>

@@ -67,3 +67,38 @@ export async function recordOutgoingSignalMessage(
 export async function clearOutgoingSignalMessages(): Promise<void> {
   await AsyncStorage.removeItem(OUTGOING_KEY);
 }
+
+const DELETED_KEY = 'jb.signal.deleted-chats.v1';
+
+/**
+ * Chats cleared from this device, by counterpart key and when.
+ *
+ * Deleting is LOCAL, and the semantics have to be honest about that: the node still holds
+ * every envelope, and so does the other person's phone. What this removes is this device's
+ * copy — the plaintext we kept, and everything already exchanged. Anything that arrives
+ * afterwards is new and reappears, because silently swallowing a message someone sent you
+ * during a shutdown would be a far worse failure than a chat coming back.
+ */
+export async function loadDeletedSignalChats(): Promise<Readonly<Record<string, number>>> {
+  const encoded = await AsyncStorage.getItem(DELETED_KEY);
+  if (!encoded) return {};
+  try {
+    const rows = JSON.parse(encoded) as Record<string, number>;
+    return rows && typeof rows === 'object' ? rows : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Clears our stored plaintext for that person and marks everything older as deleted. */
+export async function deleteSignalChat(
+  counterpartKey: string,
+  atMs = Date.now(),
+): Promise<Readonly<Record<string, number>>> {
+  const key = counterpartKey.toLowerCase();
+  const kept = (await read()).filter((row) => row.recipientKey.toLowerCase() !== key);
+  await AsyncStorage.setItem(OUTGOING_KEY, JSON.stringify(kept));
+  const next = { ...(await loadDeletedSignalChats()), [key]: atMs };
+  await AsyncStorage.setItem(DELETED_KEY, JSON.stringify(next));
+  return next;
+}

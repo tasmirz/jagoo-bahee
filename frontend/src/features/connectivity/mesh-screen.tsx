@@ -29,6 +29,16 @@ import {
   type MeshFrame,
 } from '../../offline/mesh';
 import { NativeMeshTransport } from '../../offline/webrtc';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import {
+  broadcastToLan,
+  snapshotLan,
+  startLan,
+  stopLan,
+  syncWithPeer,
+  watchLan,
+  type LanState,
+} from '../../offline/lan';
 import {
   loadMeshPreferences,
   meshProbeIntervalMs,
@@ -88,6 +98,10 @@ export function MeshScreen({
   const [outbox, setOutbox] = useState<readonly OutboxRecord[]>([]);
   const [preferences, setPreferences] = useState(initialPreferences);
   const [pairing, setPairing] = useState('');
+  const [lan, setLan] = useState<LanState>(snapshotLan);
+  // The advertised name is a label a human reads off another phone, never an identity.
+  const [lanName] = useState(() => `Jagoo ${Math.floor(Math.random() * 900 + 100)}`);
+  useEffect(() => watchLan(setLan), []);
   const [scanning, setScanning] = useState(false);
   const [connected, setConnected] = useState(false);
   const [notice, setNotice] = useState('');
@@ -307,6 +321,70 @@ export function MeshScreen({
         tone="verified"
       />
 
+      {/*
+        ── Nearby devices, found without pairing ────────────────────────────────────
+        The QR flow below still exists and is still the only option when there is no network
+        at all. This is the one for a room: mDNS finds every Jagoo device on the segment, and
+        anything queued here is handed over the moment one appears.
+      */}
+      <SectionHeader colors={colors} title="Nearby devices" />
+      {!lan.available ? (
+        <StatusBanner
+          body="Automatic discovery needs the Android development build."
+          colors={colors}
+          icon="information-circle-outline"
+          title="Not available in this build"
+          tone="neutral"
+        />
+      ) : (
+        <>
+          <View style={styles.row}>
+            <Button
+              colors={colors}
+              icon={lan.running ? 'stop-circle-outline' : 'wifi-outline'}
+              label={lan.running ? 'Stop discovery' : 'Find nearby devices'}
+              onPress={() => {
+                void (lan.running ? stopLan() : startLan(lanName || 'Jagoo device'));
+              }}
+            />
+            {lan.running ? (
+              <Button
+                colors={colors}
+                label="Send everything now"
+                onPress={() => void broadcastToLan()}
+                variant="secondary"
+              />
+            ) : null}
+          </View>
+          {lan.running ? (
+            <Text style={[typography.caption, { color: colors.text2 }]}>
+              Visible to this network as “{lan.name || lanName}”. A name is a label, not an
+              identity — every envelope is still verified by its signature.
+            </Text>
+          ) : null}
+          {lan.running && lan.peers.length === 0 ? (
+            <Text style={[typography.caption, { color: colors.text2 }]}>
+              Looking… Devices must be on the same Wi-Fi network, and the other side needs
+              discovery switched on too.
+            </Text>
+          ) : null}
+          {lan.peers.map((peer) => (
+            <View key={peer.id} style={styles.row}>
+              <Ionicons color={colors.verified} name="phone-portrait-outline" size={18} />
+              <Text style={[typography.body, styles.flexOne, { color: colors.text }]}>
+                {peer.name}
+              </Text>
+              <Button
+                colors={colors}
+                label="Send"
+                onPress={() => void syncWithPeer(peer)}
+                variant="ghost"
+              />
+            </View>
+          ))}
+        </>
+      )}
+
       <SectionHeader colors={colors} title="Pair by QR" />
       <View style={styles.row}>
         <Button
@@ -417,6 +495,7 @@ export function MeshScreen({
 }
 
 const styles = StyleSheet.create({
+  flexOne: { flex: 1, minWidth: 0 },
   /** `PageHeader` is sticky and owns the top inset, so the page below it simply fills. */
   page: { flex: 1 },
   cameraFrame: { height: 280, overflow: 'hidden', borderRadius: radius.lg },

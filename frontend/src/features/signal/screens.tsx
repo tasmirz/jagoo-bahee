@@ -35,11 +35,20 @@ import { loadSignalContacts, type SignalContact } from './contacts';
 import { encodeSignalIdentityCard } from './identity-card';
 import { clearSignalBackupOwed, isSignalBackupOwed } from './storage';
 import {
+  deleteSignalChat,
+  loadDeletedSignalChats,
   loadOutgoingSignalMessages,
   recordOutgoingSignalMessage,
   type OutgoingSignalMessage,
 } from './outgoing';
 import { listOutbox } from '../../offline/outbox';
+import {
+  clearKillswitchPassphrase,
+  isKillswitchConfigured,
+  isKillswitchPassphrase,
+  setKillswitchPassphrase,
+  triggerKillswitch,
+} from '../../security/killswitch';
 import { useAsyncAction } from '../../hooks/use-async-action';
 import { useNodeDocument, type NodePage } from '../../data/node';
 import type { HomeNode } from '../../data/node-config';
@@ -1599,6 +1608,11 @@ function VaultActions({
   onPrekeys,
   onRevoke,
   onPanic,
+  killswitchArmed,
+  killswitch,
+  onKillswitch,
+  onArmKillswitch,
+  onDisarmKillswitch,
 }: {
   readonly colors: AppPalette;
   readonly busy: boolean;
@@ -1610,6 +1624,11 @@ function VaultActions({
   readonly onPrekeys: () => void;
   readonly onRevoke: () => void;
   readonly onPanic: () => void;
+  readonly killswitchArmed: boolean;
+  readonly killswitch: string;
+  readonly onKillswitch: (next: string) => void;
+  readonly onArmKillswitch: () => void;
+  readonly onDisarmKillswitch: () => void;
 }) {
   return (
     <>
@@ -1640,6 +1659,58 @@ function VaultActions({
         />
         <Button colors={colors} disabled={busy} icon="trash-outline" label="Panic wipe Signal only" onPress={onPanic} variant="destructive" />
       </Card>
+
+      {/*
+        ── The killswitch ──────────────────────────────────────────────────────────────
+        A button is useless in the situation a panic wipe exists for: with someone standing
+        over you demanding the password, you cannot reach for a control labelled "destroy
+        everything". You can comply — so compliance is the destruction. This passphrase is
+        typed into the NORMAL unlock field and wipes both vaults.
+      */}
+      <SectionHeader colors={colors} title="Killswitch passphrase" />
+      <Card colors={colors} style={styles.formCard}>
+        <Text style={[typography.body, { color: colors.text2 }]}>
+          A second passphrase for the ordinary unlock screen. Entering it erases both your
+          Forum and Signal identities from this device and leaves the app looking like it was
+          never set up. Nothing on the unlock screen hints that it exists.
+        </Text>
+        <Text style={[typography.caption, { color: colors.constrained }]}>
+          It cannot be undone and it publishes nothing — with no network, it still works. To
+          tell the network your key is compromised, use "Revoke Signal key" instead.
+        </Text>
+        {killswitchArmed ? (
+          <>
+            <Text style={[typography.label, { color: colors.verified }]}>
+              ✓ Armed on this device
+            </Text>
+            <Button
+              colors={colors}
+              disabled={busy}
+              label="Remove killswitch"
+              onPress={onDisarmKillswitch}
+              variant="secondary"
+            />
+          </>
+        ) : (
+          <>
+            <PasswordField
+              colors={colors}
+              hint="Choose something you can type under pressure, and that is NOT your app password."
+              label="Killswitch passphrase"
+              onChangeText={onKillswitch}
+              value={killswitch}
+            />
+            <Button
+              colors={colors}
+              disabled={busy || killswitch.trim().length < 4}
+              icon="flash-outline"
+              label="Arm killswitch"
+              onPress={onArmKillswitch}
+              variant="destructive"
+            />
+          </>
+        )}
+      </Card>
     </>
   );
 }
@@ -1655,6 +1726,8 @@ export function SignalIdentityScreen({ colors, mode, homeNode, reach, onNetwork,
   const [recovery, setRecovery] = useState('');
   const [restorePhrase, setRestorePhrase] = useState('');
   const [revokeConfirm, setRevokeConfirm] = useState('');
+  const [killswitch, setKillswitch] = useState('');
+  const [killswitchArmed, setKillswitchArmed] = useState(false);
   const [done, setDone] = useState('');
   const [recoveryCopied, setRecoveryCopied] = useState(false);
   const [backupOwed, setBackupOwed] = useState(false);
@@ -1663,6 +1736,7 @@ export function SignalIdentityScreen({ colors, mode, homeNode, reach, onNetwork,
   const refresh = useCallback(async () => {
     setSummary(await signalSessionSummary());
     setBackupOwed(await isSignalBackupOwed());
+    setKillswitchArmed(await isKillswitchConfigured());
   }, []);
   useEffect(() => {
     void refresh();
@@ -1747,7 +1821,14 @@ export function SignalIdentityScreen({ colors, mode, homeNode, reach, onNetwork,
           onPanic={() => run('Wiping the Signal vault', panicSignal)}
           onPassphrase={setPassphrase}
           onSalt={setSalt}
-          onUnlock={() => run('Unlocking your Signal identity', () => unlockSignalIdentity(passphrase, salt))}
+          onUnlock={() =>
+            run('Unlocking your Signal identity', async () => {
+              // Same field, same rule as the Forum sign-in: the killswitch is checked first
+              // and nothing here advertises that it exists.
+              if (await isKillswitchPassphrase(passphrase)) return triggerKillswitch();
+              return unlockSignalIdentity(passphrase, salt);
+            })
+          }
           passphrase={passphrase}
           salt={salt}
         />
@@ -1822,6 +1903,19 @@ export function SignalIdentityScreen({ colors, mode, homeNode, reach, onNetwork,
           onRevoke={() => run('Publishing a key revocation', () => revokeSignalKey(homeNode.baseUrl, audits))}
           onRevokeConfirm={setRevokeConfirm}
           revokeConfirm={revokeConfirm}
+          killswitchArmed={killswitchArmed}
+          killswitch={killswitch}
+          onKillswitch={setKillswitch}
+          onArmKillswitch={() =>
+            run('Arming the killswitch', async () => {
+              // Refused rather than silently shadowed: a killswitch that is also a vault
+              // passphrase would wipe on an ordinary sign-in.
+              if (await isKillswitchPassphrase(killswitch)) return;
+              await setKillswitchPassphrase(killswitch.trim());
+              setKillswitch('');
+            })
+          }
+          onDisarmKillswitch={() => run('Removing the killswitch', clearKillswitchPassphrase)}
         />
       ) : null}
 
@@ -1847,7 +1941,19 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
   const [sessions, setSessions] = useState<readonly DecryptedSignalSession[]>([]);
   const [messages, setMessages] = useState<readonly DecryptedSignalMessage[]>([]);
   const [identityKey, setIdentityKey] = useState('');
-  const [activeSession, setActiveSession] = useState('');
+  /*
+    A conversation is a PERSON, not a session.
+
+    Every "Start encrypted session" mints a new session ID, and the list was keyed on it — so
+    talking to the same person twice produced two rows with the same name and no way to tell
+    them apart. Sessions are a ratchet detail; nobody has two conversations with one contact.
+    Grouping by counterpart key is what removes the duplicates, and it also means a reply on
+    a fresh session lands in the thread you were already reading.
+  */
+  const [activeContact, setActiveContact] = useState('');
+  const [deletedChats, setDeletedChats] = useState<Readonly<Record<string, number>>>({});
+  /** The chat awaiting confirmation. Deleting local plaintext is not undoable. */
+  const [confirmDelete, setConfirmDelete] = useState('');
   const [groupName, setGroupName] = useState('');
   const [groupMembers, setGroupMembers] = useState('');
   const [groups, setGroups] = useState<readonly SignalGroupDocument[]>([]);
@@ -1898,9 +2004,14 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
    * queued message flips to sent on its own when connectivity returns.
    */
   const refreshLocal = useCallback(async () => {
-    const [sent, queued] = await Promise.all([loadOutgoingSignalMessages(), listOutbox()]);
+    const [sent, queued, deleted] = await Promise.all([
+      loadOutgoingSignalMessages(),
+      listOutbox(),
+      loadDeletedSignalChats(),
+    ]);
     setOutgoing(sent);
     setUndelivered(new Set(queued.map((record) => record.contentId)));
+    setDeletedChats(deleted);
   }, []);
 
   useEffect(() => {
@@ -1956,16 +2067,22 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
    * first.
    */
   const thread = useMemo((): readonly ThreadEntry[] => {
-    if (!activeSession) return [];
+    if (!activeContact) return [];
+    const contact = activeContact.toLowerCase();
+    const clearedBefore = deletedChats[contact] ?? 0;
+    // Every session this device has with that person. Sessions are a ratchet detail; the
+    // person is the conversation, so all of them render as one thread.
+    const ids = new Set(
+      sessions.filter((item) => counterpartKey(item).toLowerCase() === contact).map((item) => item.id),
+    );
     const mine = new Map(
       outgoing
-        .filter((item) => item.session === activeSession)
+        .filter((item) => item.recipientKey.toLowerCase() === contact || ids.has(item.session))
         .map((item) => [item.contentId, item] as const),
     );
     const entries: ThreadEntry[] = [];
 
-    const opener = sessions.find((item) => item.id === activeSession);
-    if (opener) {
+    for (const opener of sessions.filter((item) => ids.has(item.id))) {
       const local = mine.get(opener.id);
       entries.push({
         id: opener.id,
@@ -1977,7 +2094,7 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
       });
     }
 
-    for (const item of messages.filter((row) => row.session === activeSession)) {
+    for (const item of messages.filter((row) => ids.has(row.session))) {
       const local = mine.get(item.id);
       entries.push({
         id: item.id,
@@ -2008,17 +2125,56 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
       });
     }
 
-    return entries.sort((left, right) => left.counter - right.counter || left.atMs - right.atMs);
-  }, [activeSession, messages, sessions, outgoing, undelivered, identityKey]);
+    /*
+      Ordered by TIME, not by counter. Counters restart at 0 for each session, so ordering by
+      them would interleave two conversations with the same person into nonsense. Anything
+      older than a local delete stays hidden; anything newer is a message that arrived after
+      it and must not be swallowed.
+    */
+    return entries
+      .filter((entry) => entry.atMs > clearedBefore)
+      .sort((left, right) => left.atMs - right.atMs);
+  }, [activeContact, deletedChats, messages, sessions, outgoing, undelivered, identityKey]);
 
-  /** Threads, newest first, with the preview a person actually recognises them by. */
+  /** One row per PERSON, newest first, with the preview they are recognised by. */
   const threads = useMemo(() => {
-    const rows = sessions.map((session) => {
-      const key = counterpartKey(session);
-      const own = outgoing.filter((item) => item.session === session.id);
-      const theirs = messages.filter((item) => item.session === session.id);
+    const byContact = new Map<
+      string,
+      { key: string; sessionIds: Set<string>; lastAtMs: number }
+    >();
+    for (const session of sessions) {
+      const key = counterpartKey(session).toLowerCase();
+      const row = byContact.get(key) ?? { key, sessionIds: new Set<string>(), lastAtMs: 0 };
+      row.sessionIds.add(session.id);
+      row.lastAtMs = Math.max(row.lastAtMs, session.createdAtMs);
+      byContact.set(key, row);
+    }
+    /*
+      A chat also exists because WE wrote in it, with no session from the node at all.
+
+      Threads were derived from `sessions` alone, and sessions come from the node — so with
+      the network gone the chat list was empty even though this device held the plaintext of
+      everything it had sent, and a message queued in the outbox had nowhere to appear. In an
+      app whose premise is that the network fails, the conversation list cannot be a view of
+      a server's state.
+    */
+    for (const item of outgoing) {
+      const key = item.recipientKey.toLowerCase();
+      if (!key) continue;
+      const row = byContact.get(key) ?? { key, sessionIds: new Set<string>(), lastAtMs: 0 };
+      row.sessionIds.add(item.session);
+      row.lastAtMs = Math.max(row.lastAtMs, item.sentAtMs);
+      byContact.set(key, row);
+    }
+
+    const rows = [...byContact.values()].map((row) => {
+      const clearedBefore = deletedChats[row.key] ?? 0;
+      const own = outgoing.filter(
+        (item) => item.recipientKey.toLowerCase() === row.key || row.sessionIds.has(item.session),
+      );
+      const theirs = messages.filter((item) => row.sessionIds.has(item.session));
       const lastAtMs = Math.max(
-        session.createdAtMs,
+        row.lastAtMs,
         ...own.map((item) => item.sentAtMs),
         ...theirs.map((item) => item.createdAtMs),
       );
@@ -2035,14 +2191,22 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
       const preview =
         latestOwn && (!latestTheirs || latestOwn.sentAtMs >= latestTheirs.createdAtMs)
           ? `You: ${latestOwn.plaintext}`
-          : (latestTheirs?.plaintext ?? session.plaintext ?? 'Encrypted');
-      const waiting =
-        own.filter((item) => undelivered.has(item.contentId)).length +
-        (undelivered.has(session.id) ? 1 : 0);
-      return { session, key, lastAtMs, preview, waiting };
+          : (latestTheirs?.plaintext ?? 'Encrypted');
+      const waiting = own.filter((item) => undelivered.has(item.contentId)).length;
+      return { key: row.key, lastAtMs, preview, waiting, clearedBefore };
     });
-    return rows.sort((left, right) => right.lastAtMs - left.lastAtMs);
-  }, [sessions, messages, outgoing, undelivered, identityKey]);
+
+    // A chat deleted on this device stays gone until something newer than the delete arrives.
+    return rows
+      .filter((row) => row.lastAtMs > row.clearedBefore)
+      .sort((left, right) => right.lastAtMs - left.lastAtMs);
+  }, [sessions, messages, outgoing, undelivered, identityKey, deletedChats]);
+
+  const removeChat = async (key: string) => {
+    setDeletedChats(await deleteSignalChat(key));
+    setOutgoing(await loadOutgoingSignalMessages());
+    if (activeContact.toLowerCase() === key.toLowerCase()) setActiveContact('');
+  };
 
   const send = async () => {
     setBusy(true);
@@ -2050,22 +2214,36 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
     try {
       const body = message;
       let id: string;
-      let session = activeSession;
       let counter = 0;
       let recipientKey = recipient;
-      if (activeSession) {
-        const current = sessions.find((item) => item.id === activeSession);
-        if (!current) throw new Error('Choose a valid session.');
+      /*
+        Continue the person's MOST RECENT session, not "the selected session" — the thread is
+        keyed on the person now, and they may have several. The counter belongs to that one
+        session, so it is computed from that session's messages rather than from the merged
+        thread, whose counters restart per session.
+      */
+      const current = activeContact
+        ? sessions
+            .filter((item) => counterpartKey(item).toLowerCase() === activeContact.toLowerCase())
+            .reduce<DecryptedSignalSession | null>(
+              (best, item) => (!best || item.createdAtMs > best.createdAtMs ? item : best),
+              null,
+            )
+        : null;
+      let session = current?.id ?? '';
+      if (current) {
         recipientKey =
           current.senderKey.toLowerCase() === identityKey.toLowerCase()
             ? current.recipientKey
             : current.senderKey;
-        const latest = thread.reduce((value, item) => Math.max(value, item.counter), 0);
-        counter = latest + 1;
+        counter =
+          messages
+            .filter((item) => item.session === current.id)
+            .reduce((value, item) => Math.max(value, Number(item.counter)), 0) + 1;
         id = await continueSignalSession(
           homeNode.baseUrl,
           {
-            session: activeSession,
+            session: current.id,
             recipientKey,
             counter: BigInt(counter),
             plaintext: body,
@@ -2073,9 +2251,24 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
           homeNode.discovery.services.auditLogs,
         );
       } else {
+        /*
+          No session with this person yet — which is NOT only the "new chat" case.
+
+          A thread now exists whenever this device holds a local record for someone, so an
+          open chat can have no session at all: the node has never been reached, or its
+          sessions have not loaded. Replying there fell through to here and used the people
+          picker's value, which is empty when the chat was opened from the list — so sending
+          reported "recipient key must be 64 hex characters" about a contact plainly named at
+          the top of the screen. The open conversation names the recipient; the picker is only
+          the fallback for a chat that does not exist yet.
+        */
+        recipientKey = activeContact || recipient;
+        if (!/^[0-9a-f]{64}$/i.test(recipientKey)) {
+          throw new Error('Choose who to send this to first.');
+        }
         id = await startSignalSession(
           homeNode.baseUrl,
-          recipient,
+          recipientKey,
           body,
           homeNode.discovery.services.auditLogs,
         );
@@ -2100,7 +2293,7 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
           sentAtMs: Date.now(),
         }),
       );
-      if (!activeSession) setActiveSession(session);
+      if (!activeContact) setActiveContact(recipientKey.toLowerCase());
       setMessage('');
       setNotice(SEND_OK);
       await refresh();
@@ -2162,7 +2355,7 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
         value={mode}
       />
       {mode === 'sessions' ? (
-        activeSession ? (
+        activeContact ? (
           /*
             ── One conversation ────────────────────────────────────────────────────────
             A thread, oldest at the top, ours on the right and theirs on the left, with the
@@ -2178,19 +2371,23 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
               <Button
                 colors={colors}
                 icon="chevron-back"
-                label="All conversations"
-                onPress={() => setActiveSession('')}
+                label="All chats"
+                onPress={() => setActiveContact('')}
                 variant="ghost"
               />
               <View style={styles.flex}>
                 <Text numberOfLines={1} style={[typography.label, { color: colors.text }]}>
-                  {nameFor(
-                    counterpartKey(
-                      sessions.find((item) => item.id === activeSession) ?? sessions[0]!,
-                    ),
-                  )}
+                  {nameFor(activeContact)}
                 </Text>
               </View>
+              <Button
+                accessibilityLabel={`Delete the chat with ${nameFor(activeContact)}`}
+                colors={colors}
+                icon="trash-outline"
+                label="Delete"
+                onPress={() => setConfirmDelete(activeContact)}
+                variant="ghost"
+              />
             </Row>
             <View style={styles.thread}>
               {thread.length === 0 ? (
@@ -2240,16 +2437,13 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
           <>
             {threads.length > 0 ? (
               <View style={styles.rowGroup}>
-                {threads.map(({ session, key, lastAtMs, preview, waiting }) => (
+                {threads.map(({ key, lastAtMs, preview, waiting }) => (
+                  <View key={key} style={[styles.listRow, { borderBottomColor: colors.border }]}>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel={`Conversation with ${nameFor(key)}`}
-                    key={session.id}
-                    onPress={() => setActiveSession(session.id)}
-                    style={({ pressed }) => [
-                      styles.listRow,
-                      { borderBottomColor: colors.border, opacity: pressed ? 0.65 : 1 },
-                    ]}
+                    accessibilityLabel={`Chat with ${nameFor(key)}`}
+                    onPress={() => setActiveContact(key)}
+                    style={({ pressed }) => [styles.listRowMain, { opacity: pressed ? 0.65 : 1 }]}
                   >
                     <View style={[styles.channelAvatar, { backgroundColor: colors.surface2 }]}>
                       <Ionicons color={colors.signal} name="person-circle-outline" size={24} />
@@ -2279,13 +2473,21 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
                         </Row>
                       ) : null}
                     </View>
-                    <Ionicons color={colors.text2} name="chevron-forward" size={18} />
                   </Pressable>
+                  <Button
+                    accessibilityLabel={`Delete the chat with ${nameFor(key)}`}
+                    colors={colors}
+                    icon="trash-outline"
+                    label=""
+                    onPress={() => setConfirmDelete(key)}
+                    variant="ghost"
+                  />
+                  </View>
                 ))}
               </View>
             ) : null}
 
-            <SectionHeader colors={colors} title="Start a conversation" />
+            <SectionHeader colors={colors} title="Start a chat" />
             {recipientName ? (
               <Card colors={colors} style={styles.lifecycle}>
                 <Row gap={spacing.xs}>
@@ -2364,6 +2566,36 @@ export function SignalMessagesScreen({ colors, mode: themeMode, homeNode, reach,
           ) : null}
         </>
       )}
+      {/*
+        Deleting clears plaintext this device is the only holder of, so it asks first — and it
+        says exactly what it does and does not reach, because "delete" in a messaging app is
+        routinely assumed to reach the other person's phone. It does not.
+      */}
+      {confirmDelete ? (
+        <Card colors={colors} style={styles.lifecycle}>
+          <Text style={[typography.label, { color: colors.text }]}>
+            Delete your copy of this chat with {nameFor(confirmDelete)}?
+          </Text>
+          <Text style={[typography.caption, { color: colors.text2 }]}>
+            Removes it from this device only. Their copy is untouched, and anything they send
+            afterwards will start the chat again.
+          </Text>
+          <Row gap={spacing.xs} wrap>
+            <Button colors={colors} label="Cancel" onPress={() => setConfirmDelete('')} variant="secondary" />
+            <Button
+              colors={colors}
+              icon="trash-outline"
+              label="Delete on this device"
+              onPress={() => {
+                const key = confirmDelete;
+                setConfirmDelete('');
+                void removeChat(key);
+              }}
+              variant="destructive"
+            />
+          </Row>
+        </Card>
+      ) : null}
       {/*
         Success is stated, not sniffed from the wording. The banner used to decide its own
         tone with `notice.startsWith('Encrypted')`, so rewording a message changed whether it

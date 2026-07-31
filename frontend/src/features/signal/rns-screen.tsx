@@ -252,6 +252,27 @@ export function RnsSignalScreen({
               : 'Forum posts and forum identity are never used by this transport.'
           }
         />
+        {/*
+          Which interfaces actually came up, and which could not. The runtime already returned
+          this on every start and nothing rendered it — so "Start BLE RNode" appeared to do
+          nothing on a build with no radio support, and the only way to learn why was a
+          Python traceback in an alert.
+        */}
+        {(status?.interfaces ?? []).length > 0 ? (
+          <View style={styles.interfaces}>
+            {status?.interfaces.map((item) => (
+              <Row gap={spacing.xs} key={`${item.kind}-${item.state}`}>
+                <Text style={[typography.caption, { color: colors.text2 }]}>
+                  {item.state === 'configured' ? '✓' : '—'}
+                </Text>
+                <Text style={[typography.caption, styles.flex, { color: item.state === 'configured' ? colors.text2 : colors.constrained }]}>
+                  {item.kind}
+                  {item.detail ? ` · ${item.detail}` : ''}
+                </Text>
+              </Row>
+            ))}
+          </View>
+        ) : null}
         <SectionHeader colors={colors} title="Transport" />
         <TextField
           autoCapitalize="none"
@@ -398,6 +419,7 @@ const styles = StyleSheet.create({
   // Gutter-free by contract — `Page` owns the screen's inline inset.
   body: { gap: spacing.md },
   cardStack: { gap: spacing.xs },
+  interfaces: { gap: spacing.xxs },
   contactRow: { minHeight: 64, borderBottomWidth: StyleSheet.hairlineWidth, flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   flex: { flex: 1, minWidth: 0 },
 });

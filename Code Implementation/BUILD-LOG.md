@@ -2439,3 +2439,198 @@ middle.
 
 **Not claimed:** RNS still has not been observed to reach `running`. This clears the directory
 creation; `RNS.Reticulum(configdir=root)` and the LXMF router have not run yet on this device.
+
+---
+
+## 2026-07-31 — Start RNS killed the process; chats keyed on the wrong thing; a killswitch
+
+### 1. `RNS.panic()` is `os._exit(255)`, and no `except` can see it
+
+Tapping Start RNS closed the app. Not a crash — logcat is unambiguous:
+
+```
+09:12:56  libchaquopy_java.so loaded            ← Python started; the srcDirs fix worked
+09:13:00  Process com.jagoobahee.app has died: fg TOP
+09:13:00  Zygote: Process 5866 exited cleanly (255)
+```
+
+`exited cleanly (255)` is `RNS/__init__.py:349`, `def panic(): os._exit(255)`. It is not an
+exception, not a signal, and not something `try/except` can intercept, so `runtime.py`'s
+handler — written specifically to "avoid Reticulum's process-level panic" — was never
+reached. `Reticulum.__init__` calls it at three sites: an unparseable config, a duplicate
+interface name, and any interface that fails to construct (`Reticulum.py:1090`), which is the
+likely one on Android.
+
+A library embedded in someone else's app does not get to end the process. `_install_host_guards`
+replaces `RNS.panic` and `RNS.exit` with raises, so the existing handler turns them into
+`{state: "failed", error}`. Reticulum logs the real cause immediately before panicking, so
+`RNS.logdest` is switched to `LOG_CALLBACK` into a 40-line ring buffer and the tail is
+attached to the error — otherwise the honest report would be "Reticulum aborted" with no
+cause, which is barely better than the silent exit.
+
+### 2. Duplicate chats: a conversation is a person, not a session
+
+Every "Start encrypted session" mints a new session ID and the thread list was keyed on it, so
+two conversations with one contact produced two identically-named rows. Sessions are a ratchet
+detail. `threads` now groups by counterpart key and `activeContact` replaces `activeSession`;
+a reply on a fresh session lands in the thread already open. Thread entries are ordered by
+TIME rather than by counter, because counters restart per session and ordering by them
+interleaves two sessions into nonsense. `send` continues the person's most recent session and
+computes the counter from that session alone.
+
+### 3. Deleting a chat, with honest semantics
+
+`deleteSignalChat` erases our stored plaintext for that person and records when. Entries older
+than that are hidden; anything newer reappears — silently swallowing a message someone sent
+during a shutdown is a far worse failure than a chat coming back. The confirmation says what
+it does not reach: the node still holds every envelope and so does the other person's phone.
+
+### 4. Killswitch passphrase
+
+"Panic wipe" is a button, and a button is useless in the situation it exists for: with someone
+standing over you demanding the password you cannot reach for a control labelled "destroy
+everything". You can comply — so compliance is the destruction. `security/killswitch.ts` holds
+a salted scrypt verifier at the same cost as a vault (a stored verifier must not be the cheap
+way in), compared in constant time. Both unlock paths — Forum sign-in and the Signal vault —
+check it BEFORE attempting the vault, and it wipes both planes.
+
+Two decisions worth defending. It lands on the setup screen rather than reporting a wrong
+password: the alternative keeps the coercion going against a device that no longer holds
+anything and invites a second, angrier attempt. And it publishes NOTHING — `revokeSignalKey`
+and `prepareDuressRevocation` already exist for telling the network, they need a reachable
+node, and they are observable by whoever is watching the screen. A killswitch has to work with
+the radio off and without announcing itself; conflating the two would make the silent one
+impossible.
+
+**Gate:** `security/killswitch.test.ts` covers both directions, and the wrong one is the scary
+one — a false negative means a duress passphrase reports "wrong password" and the coercion
+continues, a false positive means a typo wipes two identities. Also: inert until armed (so
+unlock paths may call it unconditionally), stops matching once removed, and the stored record
+does not contain the passphrase. Its scrypt stub is cheap but still a function of the input,
+or every assertion would pass for free.
+
+**Verified:** frontend 38 suites / 206 tests; `tsc --noEmit` clean; `pnpm lint` 0 errors.
+
+**Not claimed:** RNS has still never reached `running`. The guard converts a process kill into
+a readable failure — it does not make an interface work. The cause will be in the next error
+string, and that is the first time this codebase will have seen it.
+
+---
+
+## 2026-07-31 — The mesh fallback required the network it is a fallback for
+
+**Reported:** Start RNS said "network request failed"; and with every device on the same LAN
+and the internet disabled, messages stopped passing.
+
+### The code fault
+
+`startSignalRns` awaited `fetchSignalRnsBootstrap` inside a `Promise.all`, so a node that
+could not be reached rejected the whole call and the mesh transport never started. Backwards
+by construction: LoRa and local Wi-Fi exist for the moment the node is unreachable, so gating
+them on an HTTP round trip to the node makes the resilience path available exactly when it is
+not needed. It is `Plans` TP-01's rule seen from the other side — "code that only runs during
+a blackout fails during a blackout".
+
+What the node supplies is a list of TCP relays and an LXMF propagation node, both
+optimisations over the internet. `AutoInterface` discovers peers on the local segment with no
+server at all. And on the node this was reproduced against, the endpoint returns
+`{"tcpEndpoints":[],"lxmfPropagationDestination":null}` — the blocking call was gating the
+radio on an answer containing nothing.
+
+`bootstrapOrCached` now falls back to the last answer this device was given, then to nothing,
+and starting proceeds either way. The fetch also moved from bare `fetch` to `networkRequest`,
+so a Tor-configured client does not silently open a direct connection on the one call in the
+mesh path that touches the internet.
+
+**Gate:** three cases in `rns.test.ts` — the node's answer is used and cached, an unreachable
+node falls back to the cache, and with no cache it returns empty rather than throwing.
+
+### The reported symptom was NOT this, and the diagnosis is worth keeping
+
+Both complaints had one cause, and it was environmental:
+
+```
+Mac (node):  192.168.0.123/24   → 192.168.0.0/24
+Phone:       192.168.2.167/24   → 192.168.2.0/24
+adb shell ping 192.168.0.123 →  100% packet loss
+macOS firewall: disabled
+```
+
+Two different subnets. "Connected to the same Wi-Fi" was a guest network, a second SSID, or a
+mesh extender running its own DHCP — with the uplink cut there is nothing to route between
+them. Messages queue in the outbox (visible now, as "waiting to send") because the node is
+genuinely unreachable, and RNS could not fetch its bootstrap for the same reason.
+
+Worth noting the earlier `classifyLink` fix reports this correctly: caller `192.168.2.167`
+against published `http://192.168.0.123:3000` normalises to `192.168.0.123`, `/24` subnets
+differ, so the answer is `private-range` → "Nearby network" rather than "Same network". The
+indicator would have said so.
+
+**Lesson (L-…):** a test rig has to be verified, not assumed. Two devices "on the same Wi-Fi"
+were on different segments for an entire debugging session, and every symptom it produced
+looked like an application bug. `adb shell ping` from the device under test answers in one
+second what an hour of reading code cannot.
+
+**Verified:** frontend 38 suites / 209 tests; `tsc --noEmit` clean; `pnpm lint` 0 errors.
+
+**Not claimed:** RNS still has not been observed to reach `running`, and now cannot be until
+the two devices share a segment — `AutoInterface` is link-local multicast and does not cross
+subnets either.
+
+---
+
+## 2026-07-31 — The RNode radio aborts by design; chat history existed only online
+
+### 1. `RNodeInterface` panics from its constructor when its imports are missing
+
+The panic guard from the previous entry did its job and produced the first real diagnostic
+this feature has ever had:
+
+```
+RNS/Reticulum.py:1041   _synthesize_interface → RNodeInterface(...)
+RNS/Interfaces/Android/RNodeInterface.py:411   RNS.panic()
+```
+
+Line 411 is the `else` of `importlib.util.find_spec('usbserial4a') != None`. The Android
+RNodeInterface needs `usbserial4a` for the serial line and `jnius` for the Android APIs, and
+when either is absent it calls `RNS.panic()` **from `__init__`** — so a missing Python package
+does not fail the interface, it ends the process. Chaquopy installs `rns` and `lxmf` only, so
+every "Start BLE RNode" on this build was a guaranteed abort that took the working interfaces
+down with it.
+
+`_missing_rnode_requirements()` now asks first and reports the interface as `unavailable` with
+what is missing, instead of declaring it in the config. Not fixed by adding the two packages:
+Reticulum is the lowest-priority transport here and an optional adapter by design (AR-12), and
+pulling in two more native-adjacent dependencies on the chance they compile under Chaquopy
+trades a clear "no radio support in this build" for a probable build break.
+
+The runtime has always returned a per-interface `{kind, state, detail}` report and the screen
+rendered none of it, which is why "Start BLE RNode" looked like it did nothing. It is now
+shown, so a build without radio support says so instead of requiring a traceback to discover.
+
+### 2. Chat history existed only while the network did
+
+`loadSignalMessages` decrypts on every read and had no cache, so with the node unreachable it
+returned nothing — in an app whose entire premise is that the network is what fails. Worse,
+`threads` was derived from `sessions`, which come from the node, so the chat LIST was empty
+offline even though this device held the plaintext of everything it had sent and had queued
+messages in the outbox with nowhere to appear.
+
+- `cacheSignalMessages` / `loadCachedSignalMessages` persist the decrypted history and are the
+  fallback when the read fails. The plaintext is already on the device the moment it is
+  decrypted, so writing it down changes nothing about who can read it. The write MERGES rather
+  than overwrites: the node returns the last 100, and replacing would shrink the cache every
+  time the network worked — the opposite of its purpose.
+- `threads` now also derives conversations from local outgoing records, so a chat exists
+  because we wrote in it, with no session from the node at all.
+
+**Lesson (L-…):** "offline is the default assumption" was satisfied one layer too low. The
+inbox had a cache and the messages did not, and the list that indexes both was built from the
+server's model — so two of three layers being offline-capable still produced an empty screen.
+A cache is only load-bearing if everything between it and the pixels is too.
+
+**Verified:** frontend 38 suites / 209 tests; `tsc --noEmit` clean; `pnpm lint` 0 errors.
+
+**Not claimed:** RNS still has not reached `running`. The RNode path is now correctly reported
+as unsupported rather than fatal; whether plain "Start RNS" (AutoInterface) comes up has not
+been observed, and it cannot carry traffic between the two devices until they share a subnet.
