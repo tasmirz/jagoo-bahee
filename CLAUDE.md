@@ -53,9 +53,24 @@ package. The root holds only workspace-level configuration — `package.json`, `
 goes in `backend/`, client code in `frontend/`, shared code in a `packages/*` package. A `.ts`/`.tsx`
 file at the root is a design-pattern violation, not a shortcut.
 
-**State: P0 and P1 complete. P2 complete — federation, the PRIMARY goal, is met.**
+**State: P0, P1 and P2 complete — federation, the PRIMARY goal, is met. P4, P5 and P6 are
+complete at their software gates. P3 is the one phase with a failing gate.**
 `P0-SKELETON-PLAN.md` §10, `P1-CORE-NODE-PLAN.md` §6 and `P2-FEDERATION-PLAN.md` §4 hold the
-gate-by-gate evidence tables.
+gate-by-gate evidence tables; `P3-HANDOFF.md` holds P3's state and is authoritative over
+`P3-ISP-AVAILABILITY-PLAN.md` §7.
+
+**P3's container gate now runs, and it fails two criteria — see §3.** `P3-HANDOFF.md` says the
+gate "has never once run green" and that the four node containers "then exit(1)". Both statements
+are stale: as of 2026-08-15 the stack comes up healthy and `pnpm gate:isp` completes, scoring
+**17 of 19**. The two failures are one defect and it is real, not flaky — it reproduces on a
+stack recreated with `-v`. Do not mark P3 done, and do not re-derive its state from the plan file.
+
+**P4/P5/P6 are "software gate" complete, which is a narrower claim than it looks.** The Signal
+plane, offline mesh and Reticulum adapter pass their own suites. What has never been observed:
+phone-to-phone LAN mesh between two real devices (the available handsets were on different
+subnets), RNS reaching `running` on device, and any physical radio drill. The build log's
+2026-07-31 entries say so explicitly. Treat "complete" in `P4-`/`P5-`/`P6-*.md` as "implemented
+and unit-gated", never as "observed working end to end".
 
 What works today: all 30 Forum domains use the 19-step ingress pipeline; Mongo, Redis, S3/filesystem
 blobs, projection rebuild, Merkle receipts, auth, certificates/revocation, anti-abuse, the frozen
@@ -164,13 +179,68 @@ pnpm smoke:local                  # dependency-free end-to-end acceptance
 Rust and Python are invoked through `pnpm vectors`; run them directly with `cargo test -p jb-core`
 and `python -m pytest tools/vectors`.
 
-**Current verified baseline (2026-07-29):** `pnpm vectors` → 3 implementations agree on 16
-vectors; `pnpm test` → **356 passing** (backend 257, SDK 65, frontend 32, audit-log 2) plus 3
-infrastructure tests skipped without Mongo/Redis; lint, typecheck, native/backend build,
-`proto:lint` and `proto:check` pass; `pnpm smoke:local` passes. CI starts a Mongo replica set and
-Redis and runs four adapter tests as mandatory gates, and runs FG-01…FG-10 as a **separate blocking
-job** — burying the project's primary goal inside the general test job would let a green summary
-hide it being skipped.
+**Current verified baseline (2026-08-15, every line below re-run on this date):**
+
+| Gate | Command | Result |
+| --- | --- | --- |
+| Cross-language vectors | `pnpm vectors` | ✅ 3 implementations agree on 16 vectors |
+| Rust / Python directly | `cargo test -p jb-core`, `pytest tools/vectors`, `pytest services/relay` | ✅ 6 / 22 / 6 |
+| Full suite, no infra | `pnpm test` | ✅ **813 passing**, 13 skipped — backend 519, frontend 219, SDK 71, audit-log 4 |
+| Infra adapters | the three integration specs with `MONGO_URL`/`REDIS_URL` | ✅ 17/17 — the 13 skips above all pass, so **826** total |
+| Lint / typecheck / proto | `pnpm lint`, `pnpm typecheck`, `pnpm proto:lint`, `pnpm proto:check` | ✅ all clean |
+| Acceptance | `pnpm smoke:local` | ✅ |
+| ★ Federation | `vitest run src/federation` | ✅ 30/30 (FG-01…FG-10) |
+| ★ Federation, deployed | `pnpm ops:two-node` | ✅ both nodes healthy; a post on node-a projects on node-b with an identical content ID and an **origin-derived** community ID (ADR-010 holding in the wild) |
+| ISP, in-process | `vitest run src/transport/isp.e2e.spec.ts` | ✅ 22/22 |
+| ISP, deployed | `pnpm ops:isp && pnpm gate:isp` | ❌ **17/19 — see below** |
+
+**Do not run the whole suite with `MONGO_URL` exported.** Setting it makes `NODE_SIGNING_SEED`
+mandatory and swaps in the real adapters for specs written against the in-memory doubles: 4 files
+fail and 30 tests skip. CI is right — `pnpm test` runs bare, and only the three integration specs
+get the infra env. `MONGO_URL` from the host also needs `?directConnection=true`, never
+`?replicaSet=rs0`, or the driver chases the in-network member name `mongo:27017` and hangs (L-16).
+
+**The two P3 container-gate failures, characterised.** Both are one defect, and it is in the
+bridge:
+
+- `TG-04` — "the bridge reports itself ready (BR-01)": **no uplink pair has a TRUSTED peer on
+  both sides.** `ops/isp-compose.yml` gives `jb-bridge` three static peers in `FEDERATION_PEERS`
+  (a1, a2 on ASN 64501; b1 on 64502). The env var is intact inside the container, the keys match
+  what those nodes actually derive, and `parsePeers` trims and would yield all three — but
+  `/v1/federation/peers` on the bridge returns **exactly one**, b1, the last entry, with its
+  endpoint listed twice. Last-write-wins onto one row: this is **L-21's shape** (an identity field
+  that is constant across entities collapsing them onto one document), now on the *configured*
+  peer path rather than the directory-exchange path. Look between parse and persist, not in the parser.
+- `TG-04` — "a post published on island A after the cut appears on island B": fails as a
+  consequence. Island B holds the post already, because a1 and b1 peer *directly* after directory
+  exchange, so the crossing cannot be attributed to the bridge.
+
+`TG-01` passes, and it is the assertion no in-process harness can make: `/proc/net/tcp` inside
+`jb-bridge` shows established federation sockets leaving from **both** configured source
+addresses, 10.90.1.30 and 10.90.2.30. The bulk crossing, per-direction accounting, IX-cut
+isolation, uplink override and zero-loss failover all pass too. **L-20 one more time: the
+in-process suite had TG-04 green and the container run does not.**
+
+CI starts a Mongo replica set and Redis and runs the adapter tests as mandatory gates, and runs
+FG-01…FG-10 as a **separate blocking job** — burying the project's primary goal inside the general
+test job would let a green summary hide it being skipped. The ISP container gate is **not** in CI
+and should be, once the bridge defect is fixed.
+
+**First measurements ever taken on this system (2026-08-15).** The repository had no benchmark,
+latency or memory harness of any kind before this; these came from the running containers and are
+first datapoints, not a characterisation:
+
+- **Federation propagation, node-a → node-b:** 623–857 ms over 5 samples, median ~790 ms.
+  Upper bound only — the poller costs an HTTP round trip per attempt.
+- **Read path** (`/v1/posts/:id`, keep-alive, node-b): 228 req/s at concurrency 1 (p50 4.1 ms),
+  750 req/s at 8 (p50 9.4 ms), 688 req/s at 32 (p50 44.2 ms). Measure with keep-alive — a
+  `curl`-per-request loop reports ~144 ms and is timing process spawn, not the node.
+- **Resident memory:** an idle federating node is **~62 MiB**; under the TG-05 bulk crossing
+  `jb-a1` reached **233 MiB at 54% CPU**. With Mongo (147 MiB) and Redis (3.7 MiB) on the same
+  box that is ~384 MiB, so the "< 512 MB on a Pi 4" constraint in §5.5 is **tight rather than
+  comfortable**, and Mongo is the term that dominates.
+- **Canonical wire sizes**, straight from `tools/vectors/expected.json` + 64 B Ed25519:
+  check-in **155 B**, Bangla broadcast **243 B**, full forum post **220 B**.
 
 Two environment notes that will otherwise cost you an hour:
 
