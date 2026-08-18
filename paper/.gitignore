@@ -1,0 +1,9 @@
+# LaTeX build artefacts. main.pdf is deliberately NOT ignored — it is the deliverable.
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz

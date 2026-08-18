@@ -1,0 +1,787 @@
+<title>Islands of Reach</title>
+<style>
+  :root {
+    --ground: #EDF0EF;
+    --surface: #FFFFFF;
+    --surface-2: #F5F8F7;
+    --ink: #111A1D;
+    --ink-2: #3D4B4F;
+    --ink-3: #6B7C80;
+    --rule: #D3DBD9;
+    --rule-strong: #B6C3C0;
+    --accent: #0E6C68;
+    --accent-soft: #DCEBEA;
+    --accent-2: #2E8B85;
+    --ok: #2C6E52;
+    --ok-soft: #DEEDE5;
+    --warn: #94660B;
+    --warn-soft: #F4EAD3;
+    --bad: #9C3030;
+    --bad-soft: #F5E1DF;
+    --neutral: #55666A;
+    --neutral-soft: #E7ECEB;
+    --shadow: 0 1px 2px rgba(17, 26, 29, .06), 0 8px 24px -16px rgba(17, 26, 29, .28);
+
+    --display: ui-sans-serif, "Segoe UI Variable Display", "Segoe UI", -apple-system, system-ui, sans-serif;
+    --body: Charter, "Bitstream Charter", "Iowan Old Style", "Source Serif 4", "Source Serif Pro", Georgia, Cambria, serif;
+    --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0C1315;
+      --surface: #131C1F;
+      --surface-2: #182326;
+      --ink: #E3EAE9;
+      --ink-2: #B4C4C4;
+      --ink-3: #86999A;
+      --rule: #263437;
+      --rule-strong: #35474B;
+      --accent: #4FC0B5;
+      --accent-soft: #12302F;
+      --accent-2: #6FD3C7;
+      --ok: #63BE93;
+      --ok-soft: #142C22;
+      --warn: #D9A648;
+      --warn-soft: #2F2513;
+      --bad: #E3796F;
+      --bad-soft: #33191A;
+      --neutral: #9AACAD;
+      --neutral-soft: #202B2D;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .7);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0C1315;
+    --surface: #131C1F;
+    --surface-2: #182326;
+    --ink: #E3EAE9;
+    --ink-2: #B4C4C4;
+    --ink-3: #86999A;
+    --rule: #263437;
+    --rule-strong: #35474B;
+    --accent: #4FC0B5;
+    --accent-soft: #12302F;
+    --accent-2: #6FD3C7;
+    --ok: #63BE93;
+    --ok-soft: #142C22;
+    --warn: #D9A648;
+    --warn-soft: #2F2513;
+    --bad: #E3796F;
+    --bad-soft: #33191A;
+    --neutral: #9AACAD;
+    --neutral-soft: #202B2D;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .7);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 64rem;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 4.5rem) clamp(1.1rem, 4vw, 2.5rem) 6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 3.25rem;
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead { display: flex; flex-direction: column; gap: 1.1rem; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1.1rem;
+  }
+  .eyebrow span { white-space: nowrap; }
+  .eyebrow span + span { color: var(--ink-3); }
+
+  h1 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(1.9rem, 5.4vw, 3.05rem);
+    line-height: 1.06;
+    letter-spacing: -.026em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h1 em {
+    font-style: normal;
+    color: var(--accent-2);
+  }
+
+  .standfirst {
+    font-size: clamp(1.02rem, 2.2vw, 1.18rem);
+    color: var(--ink-2);
+    max-width: 50ch;
+    margin: 0;
+  }
+
+  /* ---------- status band ---------- */
+
+  .status {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--accent);
+    border-radius: 3px;
+    padding: clamp(1.2rem, 3vw, 1.75rem);
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+  }
+  .status p { margin: 0; max-width: 68ch; }
+  .status p.lede { font-size: 1.08rem; }
+  .status p.lede b { color: var(--ink); }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .stat {
+    background: var(--surface-2);
+    padding: .85rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: .18rem;
+  }
+  .stat .n {
+    font-family: var(--display);
+    font-size: 1.55rem;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+  .stat .k {
+    font-family: var(--mono);
+    font-size: .63rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .stat.is-ok .n { color: var(--ok); }
+  .stat.is-warn .n { color: var(--warn); }
+  .stat.is-accent .n { color: var(--accent-2); }
+
+  /* ---------- sections ---------- */
+
+  section { display: flex; flex-direction: column; gap: 1.15rem; }
+
+  .sec-head { display: flex; flex-direction: column; gap: .35rem; }
+
+  h2 {
+    font-family: var(--display);
+    font-size: clamp(1.3rem, 3vw, 1.65rem);
+    font-weight: 700;
+    letter-spacing: -.02em;
+    line-height: 1.15;
+    margin: 0;
+    padding-bottom: .55rem;
+    border-bottom: 2px solid var(--ink);
+    text-wrap: balance;
+  }
+  .sec-sub { font-size: .95rem; color: var(--ink-3); font-family: var(--display); max-width: 62ch; }
+
+  h3 {
+    font-family: var(--display);
+    font-size: 1.04rem;
+    font-weight: 650;
+    letter-spacing: -.008em;
+    margin: 0;
+  }
+
+  h4 {
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0;
+    font-weight: 600;
+  }
+
+  p { margin: 0; max-width: 70ch; }
+  section > p { max-width: 70ch; }
+
+  ul, ol { margin: 0; padding-left: 1.3rem; display: flex; flex-direction: column; gap: .45rem; }
+  li::marker { color: var(--ink-3); }
+
+  a { color: var(--accent); text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+  code {
+    font-family: var(--mono);
+    font-size: .85em;
+    background: var(--surface-2);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: .05em .32em;
+  }
+
+  .chip {
+    font-family: var(--mono);
+    font-size: .64rem;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    padding: .17em .5em;
+    border-radius: 2px;
+    white-space: nowrap;
+    display: inline-block;
+    border: 1px solid transparent;
+  }
+  .chip.ok      { background: var(--ok-soft);      color: var(--ok);      border-color: var(--ok); }
+  .chip.warn    { background: var(--warn-soft);    color: var(--warn);    border-color: var(--warn); }
+  .chip.bad     { background: var(--bad-soft);     color: var(--bad);     border-color: var(--bad); }
+  .chip.neutral { background: var(--neutral-soft); color: var(--neutral); border-color: var(--rule-strong); }
+
+  .scroller { overflow-x: auto; border: 1px solid var(--rule); border-radius: 3px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 36rem; font-size: .91rem; }
+  th, td { text-align: left; padding: .6rem .8rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th {
+    font-family: var(--mono);
+    font-size: .65rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.tight { white-space: nowrap; }
+
+  /* ---------- the ladder (hero diagram) ---------- */
+
+  .ladder {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--rule);
+  }
+  .rung {
+    background: var(--surface);
+    display: grid;
+    grid-template-columns: 3.4rem 1fr auto;
+    align-items: center;
+    gap: .9rem;
+    padding: .85rem 1.1rem;
+  }
+  .rung .id {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--ink-3);
+    letter-spacing: -.01em;
+  }
+  .rung .body { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+  .rung .scope {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--accent-2);
+  }
+  .rung .desc { font-family: var(--display); font-size: .95rem; color: var(--ink-2); }
+  .rung .evidence { font-size: .82rem; color: var(--ink-3); font-family: var(--display); }
+  /* taper — each rung narrower than the last, visualising shrinking reach */
+  .rung[data-w="100"] { width: 100%; }
+  .rung[data-w="86"]  { width: 86%; }
+  .rung[data-w="72"]  { width: 72%; }
+  .rung[data-w="58"]  { width: 58%; }
+  .rung[data-w="44"]  { width: 44%; }
+  .rung[data-w="30"]  { width: 30%; }
+  .rung.st-ok      { border-left: 4px solid var(--ok); }
+  .rung.st-warn    { border-left: 4px solid var(--warn); }
+  .rung.st-neutral { border-left: 4px solid var(--rule-strong); }
+  .rung.st-bad     { border-left: 4px solid var(--bad); }
+
+  .ladder-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1.3rem;
+    font-size: .84rem;
+    color: var(--ink-3);
+    font-family: var(--display);
+  }
+  .ladder-legend span { display: inline-flex; align-items: center; gap: .4rem; }
+  .swatch { width: .65rem; height: .65rem; border-radius: 1px; display: inline-block; }
+
+  /* ---------- bar chart (page histogram) ---------- */
+
+  .histo {
+    display: flex;
+    align-items: flex-end;
+    gap: 1.1rem;
+    height: 8rem;
+    padding: 0 .5rem;
+    border-bottom: 1px solid var(--rule-strong);
+  }
+  .histo .col { display: flex; flex-direction: column; align-items: center; gap: .4rem; flex: 1; height: 100%; justify-content: flex-end; }
+  .histo .bar { width: 100%; max-width: 3.4rem; background: var(--accent-soft); border: 1px solid var(--accent); border-bottom: none; border-radius: 3px 3px 0 0; position: relative; }
+  .histo .bar.is-peak { background: var(--accent); }
+  .histo .bar .val { position: absolute; top: -1.35rem; left: 50%; transform: translateX(-50%); font-family: var(--mono); font-size: .78rem; font-variant-numeric: tabular-nums; color: var(--ink-2); font-weight: 600; }
+  .histo .lbl { font-family: var(--mono); font-size: .72rem; color: var(--ink-3); padding-bottom: .3rem; }
+
+  /* ---------- page-budget bar ---------- */
+
+  .budget-bar {
+    display: flex;
+    height: 2.6rem;
+    border-radius: 3px;
+    overflow: hidden;
+    border: 1px solid var(--rule-strong);
+  }
+  .budget-bar .seg {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: .72rem;
+    font-weight: 600;
+    color: var(--ink-2);
+    border-right: 1px solid var(--rule);
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .budget-bar .seg:last-child { border-right: none; }
+  .budget-bar .seg:nth-child(odd)  { background: var(--accent-soft); }
+  .budget-bar .seg:nth-child(even) { background: var(--surface-2); }
+
+  /* ---------- findings ---------- */
+
+  .findings { display: flex; flex-direction: column; gap: .85rem; }
+  .finding {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--rule-strong);
+    border-radius: 3px;
+    padding: .95rem 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: .45rem;
+  }
+  .finding.ok { border-left-color: var(--ok); }
+  .finding.warn { border-left-color: var(--warn); }
+  .finding-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem .75rem; }
+  .finding-head h3 { margin: 0; }
+  .finding p { max-width: 66ch; font-size: .96rem; }
+
+  /* ---------- paper card ---------- */
+
+  .paper-card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    box-shadow: var(--shadow);
+    padding: clamp(1.3rem, 3vw, 1.9rem);
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+  }
+  .paper-card .kicker {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .paper-card .ptitle {
+    font-family: var(--display);
+    font-size: clamp(1.2rem, 2.6vw, 1.5rem);
+    font-weight: 700;
+    letter-spacing: -.015em;
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+  .paper-card .ptitle .sub { display: block; font-weight: 500; color: var(--ink-2); font-size: .78em; margin-top: .2rem; }
+  .paper-card .abstract {
+    font-size: .98rem;
+    color: var(--ink-2);
+    border-top: 1px solid var(--rule);
+    padding-top: 1rem;
+  }
+  .paper-card .abstract b { color: var(--ink); font-weight: 600; font-family: var(--display); font-size: .8rem; letter-spacing: .04em; text-transform: uppercase; display: block; margin-bottom: .5rem; color: var(--ink-3); }
+
+  /* ---------- critical path / schedule ---------- */
+
+  .sched { display: flex; flex-direction: column; }
+  .day {
+    display: grid;
+    grid-template-columns: 6.75rem 1fr;
+    gap: 0 1.1rem;
+    padding: .8rem 0;
+    border-top: 1px solid var(--rule);
+    align-items: start;
+  }
+  .day:last-child { border-bottom: 1px solid var(--rule); }
+  .day .when {
+    font-family: var(--mono);
+    font-size: .74rem;
+    letter-spacing: .03em;
+    color: var(--accent);
+    text-transform: uppercase;
+    padding-top: .18rem;
+  }
+  .day .what { display: flex; flex-direction: column; gap: .3rem; }
+  .day .what b { font-family: var(--display); font-weight: 650; font-size: 1rem; }
+  .day .what span { font-size: .92rem; color: var(--ink-2); max-width: 58ch; }
+
+  .milestones {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .milestone {
+    flex: 1;
+    min-width: 8.5rem;
+    padding: .8rem 1rem;
+    background: var(--surface);
+    border-right: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+    gap: .2rem;
+  }
+  .milestone:last-child { border-right: none; }
+  .milestone.is-next { background: var(--accent-soft); }
+  .milestone .date { font-family: var(--mono); font-size: .78rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .milestone .label { font-family: var(--display); font-size: .88rem; font-weight: 600; color: var(--ink); }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 1.2rem;
+    font-size: .87rem;
+    color: var(--ink-3);
+    font-family: var(--display);
+    max-width: 70ch;
+  }
+
+  @media (max-width: 36rem) {
+    .day { grid-template-columns: 1fr; gap: .3rem; }
+    .rung { grid-template-columns: 2.4rem 1fr; }
+    .rung .evidence { grid-column: 1 / -1; }
+    .rung[data-w] { width: 100% !important; }
+  }
+</style>
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>Build · complete</span>
+      <span>NSysS 2026 full paper</span>
+      <span>Updated 19 August 2026 · 8 pp</span>
+    </div>
+    <h1>Islands of Reach <em>— built, measured, written</em></h1>
+    <p class="standfirst">A federated content substrate that keeps working as connectivity degrades from the open internet to isolated ISP islands. The plan is now execution: the partition gate is green, two real defects were found by deploying it, and the paper compiles.</p>
+  </header>
+
+  <div class="status">
+    <p class="lede">Evidence is <b>in</b>. The bridge gate that had never once run green now passes <b>every criterion</b>, and it took two genuine defects to get there — neither of which any in-process test could see.</p>
+    <div class="stats">
+      <div class="stat is-ok"><span class="n">19/19</span><span class="k">partition gate</span></div>
+      <div class="stat is-ok"><span class="n">195×</span><span class="k">crossing speed-up</span></div>
+      <div class="stat is-accent"><span class="n">8 pp</span><span class="k">paper, gate passes</span></div>
+      <div class="stat is-ok"><span class="n">827</span><span class="k">tests passing</span></div>
+      <div class="stat is-accent"><span class="n">5</span><span class="k">defects found by measuring</span></div>
+      <div class="stat is-warn"><span class="n">9</span><span class="k">days to deadline</span></div>
+    </div>
+    <p>Deadline <b>28 August 2026, AoE</b>. The paper is 7 pages against a stated 6–8 limit, fully anonymised, and every number in it traces to a command in the repository.</p>
+  </div>
+
+  <section>
+    <div class="sec-head">
+      <h2>Two defects, found only by deploying it</h2>
+      <p class="sec-sub">Both were invisible to a suite of 823 passing tests. Each needed a topology the in-process harness could not express — which is the most transferable thing this work produced.</p>
+    </div>
+
+    <div class="findings">
+      <div class="finding ok">
+        <div class="finding-head">
+          <h3>A stale tree head read as a log fork</h3>
+          <span class="chip ok">Fixed · 17→18</span>
+        </div>
+        <p>Four code paths observe a peer's signed tree head with no ordering between them. An older reading arriving after a fresher one looked like a tree that had <i>shrunk</i> — the single strongest tamper signal the system has — and irrecoverably <code>BLOCKED</code> two honest peers. The bridge then correctly refused to bridge, and every downstream symptom was a faithful report of a state produced by a false accusation.</p>
+        <p><b>The rule:</b> a check that can block a peer must first establish that its evidence is <i>current</i>, not just that it is attributable. If the payload carries no ordering claim, the comparison cannot honestly be made.</p>
+      </div>
+
+      <div class="finding ok">
+        <div class="finding-head">
+          <h3>One unreachable peer stalled delivery to every reachable one</h3>
+          <span class="chip ok">Fixed · 18→19</span>
+        </div>
+        <p>The outbox drained peers <b>serially, with no deadline</b>. A severed link blackholes rather than refuses, so the connection attempt to the cut-off peer neither succeeded nor errored — and every peer behind it in the same pass waited, <i>including the bridge whose entire purpose is to route around that partition</i>. A node with three peers degraded to the availability of its <b>worst</b> peer instead of its best.</p>
+        <p><b>The tell:</b> every queued row sat at <code>attempts: 0</code> while overdue by 150 seconds. Retries that fail tell you about the destination; work never attempted tells you about the scheduler.</p>
+        <p><b>Why it survived this long:</b> a two-node deployment has no head of line to block. It needed three peers, one of which goes unreachable while the others stay up.</p>
+      </div>
+      <div class="finding ok">
+        <div class="finding-head">
+          <h3>Malformed input returned HTTP 500 — and the error path was the amplifier</h3>
+          <span class="chip ok">Fixed</span>
+        </div>
+        <p>Flooding a live node with 3000 mutated envelopes returned 8 responses as HTTP 500 with a protobuf stack trace, because the write endpoint decoded untrusted bytes <i>outside</i> the pipeline purely to label a metric. A caller could choose how fast the node filled its own disk. Fixing it also took rejection throughput from <b>440 to 730 req/s</b> — the node had been spending the difference constructing stack traces.</p>
+      </div>
+
+      <div class="finding warn">
+        <div class="finding-head">
+          <h3>The <code>anonymous</code> option went missing, and the next build named all three authors</h3>
+          <span class="chip warn">Guarded now</span>
+        </div>
+        <p>Found by accident: <code>\documentclass</code> had lost <code>anonymous</code>, and the built PDF carried <b>10 identity strings</b> and a real byline. Strictly double-blind means that is a desk reject — and nothing warned, because both versions compile and look finished. <code>check-submission.sh</code> now fails loudly on the class option, identity strings in the rendered text, PDF metadata, page count, unresolved references and self-citation.</p>
+      </div>
+    </div>
+
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Bridged crossing, per envelope</th><th>Before</th><th>After</th></tr></thead>
+        <tbody>
+          <tr><td>Certificate → community → post, exchange cut</td><td class="num">407.6 s</td><td class="num">2.1 s</td></tr>
+          <tr><td>Same chain, both islands healthy</td><td class="num">3.2 s</td><td class="num">1.9 s</td></tr>
+          <tr><td>Bridge's own relay time</td><td class="num">1.1 s</td><td class="num">1.1 s</td></tr>
+          <tr><td>Partition gate</td><td class="num">18 / 19</td><td class="num">19 / 19</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The bridge was never the bottleneck — it relayed in about a second throughout. Measuring the <b>three-envelope dependency chain</b> rather than the post is what turned a "it's just slow" story into a located defect.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>The sweep we threw away</h2>
+      <p class="sec-sub">A parameter sweep is the shape of evidence that looks rigorous while being worthless. This one was, and only an accident caught it.</p>
+    </div>
+
+    <div class="finding warn">
+      <div class="finding-head"><h3>The same configuration disagreed with itself by 5&times;</h3><span class="chip warn">Discarded</span></div>
+      <p>Eight configurations of chain length and drain interval were measured and <b>every number discarded</b>. Runs degraded monotonically as the sweep proceeded — delivery fell from 100% to 88%, maxima reached 180&nbsp;s, and the linear fit's R&sup2; collapsed from 0.98 to <b>0.33</b> with a 67-second intercept.</p>
+      <p>The evidence was a configuration that happened to repeat: an identical four-node, 500&nbsp;ms run measured <b>1348&nbsp;ms</b> at the first hop early in the sweep and <b>6630&nbsp;ms</b> later. Recreating the host returned it to <b>888&nbsp;ms</b> at 100% delivery. The varying quantity was host contention, not the parameter.</p>
+      <p><b>That repeat was unplanned.</b> A sweep visiting each configuration once has no internal control and would have shipped three significant figures of nonsense. Every sweep from here carries a deliberate duplicate, checked against itself before anything else is read.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>The ladder, with today's evidence</h2>
+      <p class="sec-sub">The paper claims L0→L3 and nothing below it. That scoping is what keeps every sentence defensible.</p>
+    </div>
+
+    <div class="ladder">
+      <div class="rung st-ok" data-w="100">
+        <div class="id">L0</div>
+        <div class="body">
+          <div class="scope">Global</div>
+          <div class="desc">Ordinary internet. Any two federated instances reach each other directly.</div>
+        </div>
+        <div class="evidence"><span class="chip ok">Verified</span></div>
+      </div>
+      <div class="rung st-ok" data-w="86">
+        <div class="id">L1</div>
+        <div class="body">
+          <div class="scope">National</div>
+          <div class="desc">International transit cut; the domestic exchange still carries traffic.</div>
+        </div>
+        <div class="evidence"><span class="chip ok">Verified</span></div>
+      </div>
+      <div class="rung st-ok" data-w="72">
+        <div class="id">L2</div>
+        <div class="body">
+          <div class="scope">ISP‑local</div>
+          <div class="desc">The exchange is down. Each ISP is an island; instances inside one still federate.</div>
+        </div>
+        <div class="evidence"><span class="chip ok">19 / 19 on the gate</span></div>
+      </div>
+      <div class="rung st-ok" data-w="58">
+        <div class="id">L3</div>
+        <div class="body">
+          <div class="scope">Bridged islands</div>
+          <div class="desc">A multi‑homed relay rejoins two ISP islands. The paper's central mechanism.</div>
+        </div>
+        <div class="evidence"><span class="chip ok">Crossing 2.1 s</span></div>
+      </div>
+      <div class="rung st-bad" data-w="44">
+        <div class="id">L4</div>
+        <div class="body">
+          <div class="scope">LAN / mesh</div>
+          <div class="desc">No wide‑area IP. Phone‑to‑phone relay over the local network.</div>
+        </div>
+        <div class="evidence"><span class="chip bad">Not observed</span></div>
+      </div>
+      <div class="rung st-bad" data-w="30">
+        <div class="id">L5</div>
+        <div class="body">
+          <div class="scope">LoRa / packet radio</div>
+          <div class="desc">No IP at all. Broadcast and messaging over Reticulum.</div>
+        </div>
+        <div class="evidence"><span class="chip bad">Not observed</span></div>
+      </div>
+    </div>
+
+    <div class="ladder-legend">
+      <span><span class="swatch" style="background:var(--ok)"></span>measured and passing</span>
+      <span><span class="swatch" style="background:var(--bad)"></span>implemented, never run end to end</span>
+    </div>
+
+    <p><b>L4 and L5 stay out of the abstract.</b> They appear once, in a named Limitations section, and as a distinct symbol in the comparison table — never as a filled circle. A reviewer who spots an unqualified claim there and then reads the limitations stops trusting the whole table.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>The one honest quantitative comparison</h2>
+      <p class="sec-sub">80 real <code>Create</code>/<code>Note</code> activities pulled from two independent ActivityPub instances, measured as the servers actually emit them.</p>
+    </div>
+
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Encoded size</th><th>p50</th><th>min</th><th>max</th></tr></thead>
+        <tbody>
+          <tr><td>ActivityPub, delivered</td><td class="num">4216 B</td><td class="num">2786</td><td class="num">6909</td></tr>
+          <tr><td>&nbsp;&nbsp;of which authored text</td><td class="num">205 B</td><td class="num">30</td><td class="num">524</td></tr>
+          <tr><td>&nbsp;&nbsp;of which JSON‑LD context</td><td class="num">927 B</td><td class="num">927</td><td class="num">927</td></tr>
+          <tr><td><b>ActivityPub, protocol overhead</b></td><td class="num"><b>4015 B</b></td><td class="num">2756</td><td class="num">6484</td></tr>
+          <tr><td>ActivityPub, gzipped</td><td class="num">1074 B</td><td class="num">786</td><td class="num">1400</td></tr>
+          <tr><td><b>Ours — check‑in / post / broadcast</b></td><td class="num" colspan="3"><b>155 / 220 / 243 B</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="finding warn">
+      <div class="finding-head"><h3>Both ratios go in the paper, not just the flattering one</h3><span class="chip warn">Discipline</span></div>
+      <p>On protocol overhead the ratio is <b>19.5×–25.9×</b>. But compression erases most of it: ActivityPub gzips to a 1074 B median while our envelopes <i>do not compress at all</i> — a random 64‑byte signature is incompressible, and gzip makes all three of ours <b>larger</b>. The compressed comparison is <b>4.4×–6.9×</b>.</p>
+      <p>The first gzip figure computed was wrong in our favour, because the signature had been padded with zero bytes. Quoting only the uncompressed ratio is what a reviewer finds before disbelieving everything else in the paper.</p>
+      <p>ActivityPub is also charged <b>nothing</b> for authentication here, while our figures include a signature that makes the envelope verifiable at rest. A structurally fair comparison would widen the gap, not narrow it.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>The paper</h2>
+      <p class="sec-sub">ACM <code>sigconf</code>, double-blind, compiling from the conference's own template files.</p>
+    </div>
+
+    <div class="paper-card">
+      <span class="kicker">Submitted title</span>
+      <div class="ptitle">Islands of Reach<span class="sub">Federated Content Delivery Across ISP-Level Network Partitions</span></div>
+      <div class="abstract">
+        <b>Status</b>
+        7 pages against a 6–8 page limit · 0 unresolved references · 0 unresolved citations · 0 overfull boxes · 5 figures, 3 tables, 24 references · verified anonymous, with zero identity strings in the rendered PDF and no author metadata.
+      </div>
+    </div>
+
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Compliance check</th><th>Requirement</th><th>State</th></tr></thead>
+        <tbody>
+          <tr><td>Page limit</td><td>6–8, double column, incl. everything</td><td><span class="chip ok">7 pp</span></td></tr>
+          <tr><td>Template</td><td>ACM <code>sigconf</code>, from <code>sample-sigconf</code></td><td><span class="chip ok">Local <code>acmart.cls</code></span></td></tr>
+          <tr><td>Double-blind</td><td>No author name anywhere</td><td><span class="chip ok">0 leaks</span></td></tr>
+          <tr><td>Identity-revealing refs</td><td>No self-citation</td><td><span class="chip ok">None</span></td></tr>
+          <tr><td>Format</td><td>PDF, electronic only</td><td><span class="chip ok">Builds</span></td></tr>
+          <tr><td>Prose</td><td>Screened by plagiarism <i>and</i> AI detector</td><td><span class="chip warn">Rewrite in own voice</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>Evidence ledger</h2>
+      <p class="sec-sub">Every claim the paper makes, against the evidence for it. A claim with no green evidence does not appear.</p>
+    </div>
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Claim</th><th>Evidence</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>One canonical encoding, byte-identical across three implementations</td><td>TS ≡ Rust ≡ Python, 16 vectors</td><td><span class="chip ok">Verified</span></td></tr>
+          <tr><td>One pipeline validates every mutation regardless of transport</td><td>19 steps; federated envelopes re-run all 19</td><td><span class="chip ok">Verified</span></td></tr>
+          <tr><td>Two independent instances federate for real</td><td>separate datastores; 31 federation assertions</td><td><span class="chip ok">Verified</span></td></tr>
+          <tr><td>A federated identifier derives from signed bytes</td><td>identical content ID + origin-derived community ID</td><td><span class="chip ok">Verified</span></td></tr>
+          <tr><td>Sockets leave from both source addresses on the bridge</td><td><code>/proc/net/tcp</code> inside the container</td><td><span class="chip ok">Verified</span></td></tr>
+          <tr><td><b>Operates across L0→L3</b></td><td><b>partition gate: every criterion passed</b></td><td><span class="chip ok">19 / 19</span></td></tr>
+          <tr><td><b>Multi-hop propagation latency</b></td><td>8-node chain, 200 paced samples, 7 hops p50 4125 ms, zero loss</td><td><span class="chip ok">Measured</span></td></tr>
+          <tr><td>Per-hop protocol cost, isolated from queueing</td><td>71–89 ms residual across a 4× drain change</td><td><span class="chip ok">Measured</span></td></tr>
+          <tr><td>Read-path throughput</td><td>228 → 750 req/s across concurrency, keep-alive</td><td><span class="chip ok">Measured</span></td></tr>
+          <tr><td>Fits a 512 MB single-board computer</td><td>62 MiB idle, 233 MiB under load, ~384 MiB with datastore</td><td><span class="chip warn">Tight, not comfortable</span></td></tr>
+          <tr><td><b>Smaller than the dominant federation protocol</b></td><td>n = 80 real activities; 19.5–25.9× on overhead, 4.4–6.9× gzipped</td><td><span class="chip ok">Measured</span></td></tr>
+          <tr><td><b>Fork detection stays safe with no consistency proof</b></td><td>timestamp-ordered rule; asserts both a stale head is ignored <i>and</i> a genuine rollback still trips</td><td><span class="chip ok">Novel + gated</span></td></tr>
+          <tr><td><b>An invalid-envelope flood causes no write load</b></td><td>3000 mutated envelopes: zero writes (profiler-verified), log unchanged, 730 req/s</td><td><span class="chip ok">Measured</span></td></tr>
+          <tr><td>Nodes converge regardless of delivery order</td><td>total order on signed fields; asserted over all permutations</td><td><span class="chip ok">Fixed + gated</span></td></tr>
+          <tr><td>Deletion leaves a public tombstone</td><td>publish-then-attest; body withheld, metadata retained</td><td><span class="chip ok">Design + tests</span></td></tr>
+          <tr><td>Phone-to-phone LAN mesh</td><td>—</td><td><span class="chip bad">Not observed</span></td></tr>
+          <tr><td>Reticulum on device / physical radio drill</td><td>—</td><td><span class="chip bad">Not observed</span></td></tr>
+          <tr><td>Formal unlinkability of the two identity planes</td><td>—</td><td><span class="chip bad">No proof</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <h2>What is left</h2>
+      <p class="sec-sub">Nine days. Nothing here is blocked on engineering.</p>
+    </div>
+    <div class="sched">
+      <div class="day">
+        <div class="when">Highest</div>
+        <div class="what">
+          <b>Rewrite the prose by hand</b>
+          <span>Submissions are screened with a plagiarism checker <i>and</i> an AI detector. The draft is a factually-checked skeleton — every number measured, every citation verified against a primary source — but the sentences should be the authors'.</span>
+        </div>
+      </div>
+      <div class="day">
+        <div class="when">High</div>
+        <div class="what">
+          <b>Read the capability table against its sources once more</b>
+          <span>17 corrections to common belief are already folded in — ActivityPub makes neither HTTP nor object signatures normative; AT Protocol commits are not offline-verifiable; a well-known implementation's "tombstones" table is a replay guard. Each cell should survive a reviewer clicking the citation.</span>
+        </div>
+      </div>
+      <div class="day">
+        <div class="when">Medium</div>
+        <div class="what">
+          <b>Decide whether to spend the eighth page</b>
+          <span>Seven pages sits inside the limit with room. The strongest candidates are a worked example of the encoding rule and a second operating point for the bridge.</span>
+        </div>
+      </div>
+      <div class="day">
+        <div class="when">Before submit</div>
+        <div class="what">
+          <b>Re-verify anonymity on the final PDF</b>
+          <span>The author block is present in the source and suppressed by a single class option. Confirm the rendered PDF still contains zero identity strings and no author metadata after any last edit.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    Every figure on this page comes from a command in the repository rather than an estimate. Where a measurement had two defensible regimes — paced against burst offered load, compressed against uncompressed size — both are reported, because the flattering one alone is what a reviewer finds first.
+  </footer>
+
+</div>

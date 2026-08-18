@@ -803,6 +803,49 @@ describe('FG-08 — a peer that rewrote its log is detected, demoted, and alerte
     expect((await b.peers.get(peerIdOf(a)))!.trust).toBe(PeerTrust.BLOCKED);
   });
 
+  /**
+   * The container gate's finding, as a unit case.
+   *
+   * Four paths call `observePeerSth` — the outbound announce handshake, the inbound one,
+   * the `currentSth` on a peer record, and gossip — and nothing orders their arrival. So a
+   * head captured at size 6 can land AFTER one captured at size 8, and the peer has done
+   * nothing wrong. TG-06 reproduces it on demand: forcing an uplink out of service and back
+   * makes the reconnect replay a head it captured before the last gossip round, and both
+   * island-A peers were blocked with "tree shrank from 8 to 6" while both logs were intact.
+   *
+   * A BLOCK is unrecoverable without an operator, so a stale read must never cause one.
+   */
+  it('does not block a peer for an observation that is merely OLDER (out-of-order reads)', async () => {
+    await introduce(b, a, PeerTrust.TRUSTED);
+    await b.sender.announce((await b.peers.get(peerIdOf(a)))!);
+    await b.peers.upsert({ ...(await b.peers.get(peerIdOf(a)))!, trust: PeerTrust.TRUSTED });
+
+    // Gossip recorded the newer, larger head first.
+    await b.ledger.recordPeerSth(peerIdOf(a), {
+      serverKey: a.signer.publicKey,
+      treeSize: 8,
+      rootHash: new Uint8Array(32).fill(7),
+      timestampMs: NOW_MS,
+      signature: new Uint8Array(64),
+    });
+
+    // A reconnect now delivers the head it captured EARLIER — smaller, and older.
+    const status = await b.inbox.observePeerSth((await b.peers.get(peerIdOf(a)))!, {
+      serverKey: a.signer.publicKey,
+      treeSize: 6,
+      rootHash: new Uint8Array(32).fill(9),
+      timestampMs: NOW_MS - 60_000,
+      signature: new Uint8Array(64),
+    });
+
+    expect(status).not.toBe('FORKED');
+    expect((await b.peers.get(peerIdOf(a)))!.trust).toBe(PeerTrust.TRUSTED);
+    // The stale head is discarded rather than recorded: writing it back would roll the
+    // ledger to 6 and make the next honest observation at 8 look like the regression this
+    // one was not.
+    expect((await b.ledger.lastPeerSth(peerIdOf(a)))?.treeSize).toBe(8);
+  });
+
   it('a fork block cannot be vouched away — only an operator lifts it', async () => {
     await introduce(b, a, PeerTrust.TRUSTED);
     await b.sender.announce((await b.peers.get(peerIdOf(a)))!);

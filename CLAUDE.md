@@ -53,17 +53,30 @@ package. The root holds only workspace-level configuration — `package.json`, `
 goes in `backend/`, client code in `frontend/`, shared code in a `packages/*` package. A `.ts`/`.tsx`
 file at the root is a design-pattern violation, not a shortcut.
 
-**State: P0, P1 and P2 complete — federation, the PRIMARY goal, is met. P4, P5 and P6 are
-complete at their software gates. P3 is the one phase with a failing gate.**
+**State: P0–P3 complete. Federation, the PRIMARY goal, is met, and as of 2026-08-19 the P3
+container gate passes 19/19 for the first time. P4, P5 and P6 are complete at their software
+gates.**
 `P0-SKELETON-PLAN.md` §10, `P1-CORE-NODE-PLAN.md` §6 and `P2-FEDERATION-PLAN.md` §4 hold the
 gate-by-gate evidence tables; `P3-HANDOFF.md` holds P3's state and is authoritative over
 `P3-ISP-AVAILABILITY-PLAN.md` §7.
 
-**P3's container gate now runs, and it fails two criteria — see §3.** `P3-HANDOFF.md` says the
-gate "has never once run green" and that the four node containers "then exit(1)". Both statements
-are stale: as of 2026-08-15 the stack comes up healthy and `pnpm gate:isp` completes, scoring
-**17 of 19**. The two failures are one defect and it is real, not flaky — it reproduces on a
-stack recreated with `-v`. Do not mark P3 done, and do not re-derive its state from the plan file.
+**P3's container gate is GREEN — `pnpm gate:isp` reports "every criterion passed" (19/19),
+2026-08-19, on a stack recreated with `-v`.** `P3-HANDOFF.md` is stale on every point: it says the
+gate "has never once run green" and that the four node containers "then exit(1)". Neither is true.
+Do not re-derive P3's state from that file.
+
+Getting there took two real defects, both worth knowing because both are shapes that recur:
+
+- **L-28, a stale tree head read as a fork.** Four code paths call `observePeerSth` with no
+  ordering between them, so an older reading arriving after a fresher one looked like a log
+  rollback and irrecoverably `BLOCKED` two honest peers. Fixed by discarding observations older
+  than the recorded one. 17/19 → 18/19.
+- **L-31, head-of-line blocking across peers.** `drain()` delivered to peers serially with no
+  deadline, so one blackholed peer stalled delivery to every other peer in the same pass —
+  including the bridge, whose whole purpose is to route around the partition that caused the
+  stall. Measured: a bridged crossing cost **407.6 s** after the cut against 3.2 s before it, with
+  every outbox row sitting at `attempts: 0`. Fixed by draining peers concurrently and bounding each
+  `deliver`. Crossing dropped to **2.1 s** (195×). 18/19 → **19/19**.
 
 **P4/P5/P6 are "software gate" complete, which is a narrower claim than it looks.** The Signal
 plane, offline mesh and Reticulum adapter pass their own suites. What has never been observed:
@@ -185,14 +198,16 @@ and `python -m pytest tools/vectors`.
 | --- | --- | --- |
 | Cross-language vectors | `pnpm vectors` | ✅ 3 implementations agree on 16 vectors |
 | Rust / Python directly | `cargo test -p jb-core`, `pytest tools/vectors`, `pytest services/relay` | ✅ 6 / 22 / 6 |
-| Full suite, no infra | `pnpm test` | ✅ **813 passing**, 13 skipped — backend 519, frontend 219, SDK 71, audit-log 4 |
-| Infra adapters | the three integration specs with `MONGO_URL`/`REDIS_URL` | ✅ 17/17 — the 13 skips above all pass, so **826** total |
+| Full suite, no infra | `pnpm test` | ✅ **827 passing**, 13 skipped — backend 533, frontend 219, SDK 71, audit-log 4 |
+| Infra adapters | the three integration specs with `MONGO_URL`/`REDIS_URL` | ✅ 17/17 — the 13 skips above all pass, so **840** total |
 | Lint / typecheck / proto | `pnpm lint`, `pnpm typecheck`, `pnpm proto:lint`, `pnpm proto:check` | ✅ all clean |
 | Acceptance | `pnpm smoke:local` | ✅ |
 | ★ Federation | `vitest run src/federation` | ✅ 30/30 (FG-01…FG-10) |
 | ★ Federation, deployed | `pnpm ops:two-node` | ✅ both nodes healthy; a post on node-a projects on node-b with an identical content ID and an **origin-derived** community ID (ADR-010 holding in the wild) |
 | ISP, in-process | `vitest run src/transport/isp.e2e.spec.ts` | ✅ 22/22 |
-| ISP, deployed | `pnpm ops:isp && pnpm gate:isp` | ❌ **17/19 — see below** |
+| ISP, deployed | `pnpm ops:isp && pnpm gate:isp` | ✅ **19/19 — every criterion passed** (2026-08-19) |
+| Bridged crossing, measured | `ops:isp`, per envelope from `received_at_ms` | ✅ 0.5 / 1.2 / 2.1 s for the certificate → community → post chain, with the exchange cut |
+| ActivityPub size baseline | `pnpm ap:baseline` | ✅ n = 80 real activities, overhead p50 **4015 B** vs our 155–206 B |
 
 **Do not run the whole suite with `MONGO_URL` exported.** Setting it makes `NODE_SIGNING_SEED`
 mandatory and swaps in the real adapters for specs written against the in-memory doubles: 4 files
@@ -200,26 +215,17 @@ fail and 30 tests skip. CI is right — `pnpm test` runs bare, and only the thre
 get the infra env. `MONGO_URL` from the host also needs `?directConnection=true`, never
 `?replicaSet=rs0`, or the driver chases the in-network member name `mongo:27017` and hangs (L-16).
 
-**The two P3 container-gate failures, characterised.** Both are one defect, and it is in the
-bridge:
+**What the P3 gate proves, now that it passes.** `TG-01` is the assertion no in-process harness
+can make: `/proc/net/tcp` inside `jb-bridge` shows established federation sockets leaving from
+**both** configured source addresses, 10.90.1.30 and 10.90.2.30. `TG-04` cuts the exchange, checks
+island B does not already hold the content, and then watches it arrive via the bridge. The bulk
+crossing, per-direction accounting, IX-cut isolation, reserved capacity for classes 0–2, uplink
+override and zero-loss failover all pass.
 
-- `TG-04` — "the bridge reports itself ready (BR-01)": **no uplink pair has a TRUSTED peer on
-  both sides.** `ops/isp-compose.yml` gives `jb-bridge` three static peers in `FEDERATION_PEERS`
-  (a1, a2 on ASN 64501; b1 on 64502). The env var is intact inside the container, the keys match
-  what those nodes actually derive, and `parsePeers` trims and would yield all three — but
-  `/v1/federation/peers` on the bridge returns **exactly one**, b1, the last entry, with its
-  endpoint listed twice. Last-write-wins onto one row: this is **L-21's shape** (an identity field
-  that is constant across entities collapsing them onto one document), now on the *configured*
-  peer path rather than the directory-exchange path. Look between parse and persist, not in the parser.
-- `TG-04` — "a post published on island A after the cut appears on island B": fails as a
-  consequence. Island B holds the post already, because a1 and b1 peer *directly* after directory
-  exchange, so the crossing cannot be attributed to the bridge.
-
-`TG-01` passes, and it is the assertion no in-process harness can make: `/proc/net/tcp` inside
-`jb-bridge` shows established federation sockets leaving from **both** configured source
-addresses, 10.90.1.30 and 10.90.2.30. The bulk crossing, per-direction accounting, IX-cut
-isolation, uplink override and zero-loss failover all pass too. **L-20 one more time: the
-in-process suite had TG-04 green and the container run does not.**
+**L-20 still stands, and P3 is now its best evidence in both directions.** The in-process suite had
+`TG-04` green while the container run did not — and the defect the container run exposed (L-31) was
+invisible to every in-process test because it needs three peers, one of which goes unreachable while
+the others stay up. A two-node harness has no head of line to block.
 
 CI starts a Mongo replica set and Redis and runs the adapter tests as mandatory gates, and runs
 FG-01…FG-10 as a **separate blocking job** — burying the project's primary goal inside the general

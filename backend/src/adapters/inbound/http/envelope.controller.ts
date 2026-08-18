@@ -139,7 +139,7 @@ export class EnvelopeController {
     try {
       const receipts = [];
       for (const raw of raws) {
-        domain = Envelope.decode(raw).domain || 'unknown';
+        domain = this.domainLabel(raw);
         receipts.push(this.formatReceipt(await this.pipeline.accept(raw)));
         this.metrics.ingressAccepted(domain);
       }
@@ -173,6 +173,23 @@ export class EnvelopeController {
         );
       }
       throw e;
+    }
+  }
+
+  /**
+   * The metric label, and nothing else.
+   *
+   * This decodes untrusted bytes OUTSIDE the pipeline, so it must not be able to decide the
+   * response. It used to call the generated decoder directly; a raw protobuf exception is not
+   * an `EnvelopeRejected`, so it fell past the typed-rejection branch and surfaced as a 500
+   * with a stack trace per request -- letting a caller choose how fast this node fills its own
+   * disk. The pipeline owns the verdict; this only says how to count it.
+   */
+  private domainLabel(raw: Uint8Array): string {
+    try {
+      return Envelope.decode(raw).domain || 'unknown';
+    } catch {
+      return 'malformed';
     }
   }
 

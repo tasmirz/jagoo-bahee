@@ -347,12 +347,12 @@ Budget set by §1.2 (9 pages operative) and shaped by §2.3 and §2.5.
 | § | Content | Pages |
 | --- | --- | --- |
 | 1 | **Introduction.** The ladder, from OONI's Bangladesh 2024 measurements. The gap: internet systems stop at rung 1, mesh systems only start at rung 4. **Three contribution bullets, no more** — matching the two-to-three-bullet norm (§2.5): (a) a scope-aware federation design that spans L0–L3; (b) two federation design rules with the deployed failures that produced them; (c) a partition testbed and the first measurements of the system. Intro body ~0.6 page per §2.5. | **1.0** |
-| 2 | **Related work.** Its own numbered section — 30 of 35 papers do this. Ordered: DTN/RFC 9171 as the architectural ancestor; Serval, Bridgefy, Amigo, ASMesh at the mesh rung; ActivityPub + the two Mastodon CVEs at the federation rung; Matrix Canonical JSON as the design contrast; ICE/MPTCP as path-selection ancestors; Privacy Pass for issuance/verification separation. Positioned as "each occupies one or two rungs". **Budget three sentences each to introduce federation, canonical encoding and transparency logs from zero** — §3 shows the PC has no exposure to any of them. | **1.0** |
+| 2 | **Related work.** Its own numbered section — 30 of 35 papers do this. Ordered: DTN/RFC 9171 as the architectural ancestor; Serval, Bridgefy, Amigo, ASMesh at the mesh rung; ActivityPub + the two Mastodon CVEs at the federation rung; **AT Protocol as the closest prior *composition*** (signed records, a Merkle tree over them, federation) and the sharpest contrast on deletion; Matrix Canonical JSON and Cosmos SDK ADR-020 as the two poles of the canonicalisation design space (§4.7); ICE/MPTCP as path-selection ancestors; Privacy Pass for issuance/verification separation. Positioned as "each occupies one or two rungs". **Budget three sentences each to introduce federation, canonical encoding and transparency logs from zero** — §3 shows the PC has no exposure to any of them. | **1.0** |
 | 3 | **Design.** One write endpoint; the envelope; canonical encoding and why re-encode-and-compare rather than canonicalise-at-both-ends; the 19-step pipeline with steps 1–12 performing no writes; registry-driven dispatch. Figures 1 and 2. | **1.5** |
 | 4 | **Federating across a partition.** Passthrough codec (ADR-008 §1). `(content_id, direction)` as a unique index rather than a read-then-write check (ADR-008 §2). Origin-derived identifiers (ADR-010). Cost at origin, quota at receiver (ADR-011). The multi-homed bridge between ISP islands. Figure 3. | **1.25** |
 | 5 | **Adversary and scope.** Deliberately short — **half a page, not the full page the prior pass budgeted**, because §2.4 shows 0 of 35 accepted papers have one at all and the space is better spent on evaluation. States the adversary (an ISP or national operator with DPI, routing control and the ability to partition) and, more importantly, what is out of scope: no global passive adversary, no compromised-majority peer set, no endpoint compromise, no traffic-analysis resistance, no formal plane-unlinkability claim. | **0.5** |
 | 6 | **Evaluation.** Testbed figure. Then: (6.1) correctness under partition — identical content IDs and origin-derived community IDs across independent datastores; (6.2) propagation latency, ≥ 8 nodes, ≥ 200 samples, CDF against fanout degree; (6.3) bridge attribution — `/proc/net/tcp` source-address evidence and per-direction accounting; (6.4) read throughput and p50/p99 at c ∈ {1, 8, 32}; (6.5) resident memory idle and under bulk crossing, against the 512 MB Pi-4 constraint; (6.6) encoded wire size against a JSON-LD `Create`/`Note` baseline. Figures 4–8, Table 1. | **2.5** |
-| 7 | **Comparison with related systems.** **A capability matrix, explicitly modelled on `3777555.3777565` Table 3 (p.7)** — rows are DTN/BPv7, Serval, Bridgefy, ActivityPub/Mastodon, Matrix, ours; columns are the ladder rungs L0–L5 plus "signed at rest", "verifies without server", "no re-encode on path". This is how the venue's own networking paper handles having no quantitative baseline, and it converts our biggest stated weakness into a conventional move. Table 2. | **0.5** |
+| 7 | **Comparison with related systems.** **A capability matrix, explicitly modelled on `3777555.3777565` Table 3 (p.7)** — rows are DTN/BPv7, Serval, Bridgefy, ActivityPub/Mastodon, Matrix, **AT Protocol** and ours; columns are the ladder rungs L0–L5 plus "signed at rest", "verifies without server", "no re-encode on path", "transparency-log gossip", "federation trust states" and "tombstoned deletion". This is how the venue's own networking paper handles having no quantitative baseline, and it converts our biggest stated weakness into a conventional move. Table 2. | **0.5** |
 | 8 | **Limitations.** A named section — 14 of 35 papers have one and it is a recognised move (§2.5). Explicit: no phone-to-phone LAN mesh between real handsets; no RNS reaching `running` on device; no physical radio drill; no evaluation outside containers; no formal unlinkability argument. | **0.4** |
 | 9 | **Lessons.** Three, transferable: an identifier derived from the local node cannot be stable across nodes (L-17); a single-node test suite cannot see a two-node bug (L-18); a green in-process gate does not mean the deployed artefact runs (L-20). | **0.35** |
 | 10 | **Conclusion.** | **0.2** |
@@ -372,12 +372,12 @@ the range (max observed: 17 figures, 9 tables).
 | 2 | The 19-step ingress pipeline, with the steps 1–12 / 13–19 no-write boundary marked | design |
 | 3 | Federation across the partition: two islands, the exchange network, the multi-homed bridge, and the two source addresses | design |
 | 4 | Testbed topology: 4+ nodes, 3 Docker networks (two `internal: true`), per-node datastores | testbed |
-| 5 | Propagation-latency CDF, node-a → node-b, ≥ 200 samples, by fanout degree | **to measure** |
+| 5 | Propagation-latency CDF over an 8-node chain, 200 paced samples, by hop count | ✅ measured 2026-08-18 |
 | 6 | Read throughput and p50/p99 at c ∈ {1, 8, 32} | measured, re-run at scale |
 | 7 | Resident memory: idle vs. bulk crossing, with the 512 MB Pi-4 line drawn | measured |
-| 8 | Encoded wire size, ours vs. JSON-LD baseline, for check-in / broadcast / forum post | **to measure** |
+| 8 | Encoded wire size, ours vs. a real ActivityPub baseline (n = 80), for check-in / broadcast / forum post — plot **protocol overhead**, not totals, and show the compressed pair beside it | ✅ measured 2026-08-19 |
 | T1 | Per-scope path-selection and per-direction bridge accounting | measured |
-| T2 | Capability matrix vs. DTN, Serval, Bridgefy, ActivityPub, Matrix | design |
+| T2 | Capability matrix vs. DTN/BPv7, Serval, Bridgefy, ActivityPub, Matrix, AT Protocol | design |
 
 ### 4.5 Claim-to-evidence table
 
@@ -391,11 +391,11 @@ green evidence does not go in the paper.**
 | 3 | Two independent instances federate for real, with separate datastores | `pnpm ops:two-node`; FG-01…FG-10, 30/30 | ✅ verified |
 | 4 | A federated identifier is derived from signed bytes, not from the projecting node | post on node-a projects on node-b with identical content ID **and origin-derived community ID** (ADR-010) | ✅ verified in deployment |
 | 5 | Federation sockets leave from both configured source addresses on a multi-homed bridge | `/proc/net/tcp` inside `jb-bridge`: 10.90.1.30 and 10.90.2.30 | ✅ verified — TG-01 |
-| 6 | The system operates across L0→L3 (global → national → ISP island → bridged islands) | ISP container testbed: 4 nodes, 3 networks, two `internal: true`; gate 17/19 | ⚠️ **17/19 — must reach 19/19 before submission** |
-| 7 | Propagation latency across a federation link | 623–857 ms, median ~790 ms, n = 5, poller-bounded | ⚠️ **n = 5 and n = 2 nodes; must become ≥ 200 samples, ≥ 8 nodes** (§2.3c) |
+| 6 | The system operates across L0→L3 (global → national → ISP island → bridged islands) | ISP container testbed: 4 nodes, 3 networks, two `internal: true`. **`pnpm gate:isp` — every criterion passed, 19/19, 2026-08-19.** Bridged crossing measured per envelope: 0.5 / 1.2 / 2.1 s for the certificate → community → post chain with the exchange cut, against 1.5 / 1.5 / 1.9 s healthy | ✅ **verified in deployment.** Cutting the exchange no longer meaningfully degrades crossing latency — which is the property the bridge was always supposed to provide and, until L-31 was fixed, never did. |
+| 7 | Propagation latency across a multi-hop federation chain | 8-node chain, 200 paced samples, zero loss: 7 hops **p50 4125 ms, p99 6115 ms, 200/200 delivered**. Per-hop model `drain/2 + fixed` confirmed at two operating points, with fixed stable at **71–89 ms across a 4× change in the drain interval** | ✅ **measured 2026-08-18** — satisfies §2.3c. Report the regime (L-29): the unpaced burst run gave hop-1 p50 10 s / p95 173 s, which is queueing plus shared-mongod contention and **not** propagation. Never average the two. |
 | 8 | Read-path throughput | 228 req/s @ c=1 (p50 4.1 ms), 750 @ c=8 (9.4 ms), 688 @ c=32 (44.2 ms), keep-alive | ✅ measured; re-run on the scaled testbed |
 | 9 | A federating node fits the Raspberry Pi 4 512 MB constraint | RSS 62 MiB idle, 233 MiB @ 54% CPU under bulk crossing; +147 MiB Mongo, +3.7 MiB Redis ⇒ ~384 MiB | ✅ measured — report as **tight, Mongo-dominated**, not comfortable |
-| 10 | Encoded envelopes are small enough for constrained links | check-in 155 B, Bangla broadcast 243 B, forum post 220 B, incl. 64 B Ed25519 | ✅ measured; **needs the JSON-LD baseline to become a comparison** |
+| 10 | Encoded envelopes are small enough for constrained links, and materially smaller than the dominant federation protocol | ours: check-in 155 B, Bangla broadcast 243 B, forum post 220 B, incl. 64 B Ed25519. Baseline: **n = 80 real `Create`/`Note` activities** from two independent stock Mastodon instances — delivered **p50 4216 B**, authored text p50 205 B, **protocol overhead p50 4015 B**, and a **927 B `@context` alone** (identical on both hosts) | ✅ **measured 2026-08-19** via `pnpm ap:baseline`. Overhead ratio **19.5×–25.9×**; **gzipped it is 4.4×–6.9×** and our envelopes do *not* compress (a random 64 B signature is incompressible, so gzip makes them larger). Quote **both**. AP is charged **nothing** for authentication — HTTP Signatures are transport-level and a third party cannot verify a stored object — so the comparison already favours AP. |
 | 11 | Admission cost is charged at origin; the receiver's protection is a per-peer per-class quota | ADR-011; quota + `backpressure_hint_ms` implemented and gated | ✅ design + tests |
 | 12 | A peer's bytes are never re-encoded on the path | passthrough gRPC codec, ADR-008 §1 | ✅ design + tests |
 | 13 | Deduplication is a unique index, not a read-then-write | `(content_id, direction)` unique index, ADR-008 §2 | ✅ design + tests |
@@ -403,30 +403,42 @@ green evidence does not go in the paper.**
 | 15 | Reticulum/RNS reaches `running` on device | — | ❌ **NOT OBSERVED — §8 Limitations only** |
 | 16 | Any physical LoRa radio drill | — | ❌ **NOT OBSERVED — must not appear in the abstract** |
 | 17 | Formal unlinkability of the two identity planes | — | ❌ **No adversary model, no proof — §8 Limitations only** |
+| 18 | Independent nodes receiving the same signed set in **different orders** converge to identical projections | `vote-cast.handler.ts` orders by `(created_at_ms, content_id)`, both inside the signed envelope; `vote-cast.spec.ts` asserts order-independence over all permutations | ✅ **fixed and gated 2026-08-18.** Before the fix two nodes diverged permanently on both the stored vote and the post score. This is a genuine federation-correctness result and belongs in §4. |
+| 19 | Deletion leaves a publicly visible tombstone (content ID, author, timestamp, acting moderator, reason) | publish-then-attest moderation; tombstone retains everything but the body | ✅ design + tests — **and it is the sharpest single contrast with AT Protocol**, whose repository spec states: *"Record deletion is supported without leaving a trace or 'tombstone' of previous contents."* |
 
 ### 4.6 What has to happen before submission, in priority order
 
-Reordered against the prior pass, because §2 changes the ranking.
+Reordered against the prior pass, because §2 changes the ranking. **Status column added 2026-08-19**; items 1 and 2 have moved since this table was written.
 
-| # | Item | Why it moved | Est. |
-| --- | --- | --- | --- |
-| 1 | **Fix the bridge defect; get `pnpm gate:isp` to 19/19** on a stack recreated with `-v`. L-21-shaped last-write-wins collapse between parse and persist; `/v1/federation/peers` returns 1 of 3 configured peers. | Unchanged and still first. §4 and §6 of the paper are *about* the bridge. Publishing a bridge evaluation while the bridge gate fails on the bridge is indefensible. | hours |
-| 2 | **Scale the testbed to ≥ 8 nodes and take ≥ 200 propagation samples** with a projection-time timestamp on both nodes rather than a poller. | **The one criterion the corpus actually enforces** (§2.3c): every networking paper here sweeps node count — 100–400, 10/20/30, 15 across 5 regions. n = 2 is below all of them. | 2–3 d |
-| 3 | **Build the capability matrix (Table 2)** against DTN/BPv7, Serval, Bridgefy, ActivityPub/Mastodon and Matrix. | **Replaces "get a quantitative baseline" as the top comparison task.** §2.3a: `3777555.3777565` p.7 does exactly this and is a networking paper by the general contact. Cheaper than a baseline and better matched to a contribution with no prior art. | 1 d |
-| 4 | **Measure a real ActivityPub `Create`/`Note` payload** and put it beside 155 B / 243 B / 220 B. | Still worth doing — it is the one place we can produce an honest quantitative comparison, and the corpus has a precedent for size-as-a-metric (`3704522.3704546` Table 6, serialisation results). Now a supporting figure, not the load-bearing one. | 1 d |
-| 5 | **Write §5 Adversary and scope — half a page.** | **Downgraded from fatal to hygiene.** 0 of 35 accepted papers have one (§2.4), including two offensive-security papers. Worth writing to pre-empt "resistant to whom?", not worth a full page. | 0.5 d |
-| 6 | **Strip LoRa, Reticulum and phone-mesh from the abstract and every claim.** Confine to §8. | Unchanged. Claim 14–17 are unobserved. One probing question unravels the paper. | free |
-| 7 | **Anonymise for double-blind.** No system name, no repo URL, no acknowledgements; cite OONI and any BUET-group work in the third person. | Unchanged; desk-reject risk. Note that the two most adjacent papers (`3777555.3777565`, `3777555.3777563`) are both co-authored by the NSysS 2026 general contact — cite them in the third person, and cite them, because engaging the venue's own literature is visible and cheap. | free |
-| 8 | **Write the prose by hand.** The Author Instructions state submissions are screened with an AI detector. | Unchanged. | — |
+| # | Item | Why it moved | Est. | Status |
+| --- | --- | --- | --- | --- |
+| 1 | **Get `pnpm gate:isp` to 19/19** on a stack recreated with `-v`. | §4 and §6 of the paper are *about* the bridge. Publishing a bridge evaluation while the bridge gate fails on the bridge is indefensible. | hours | ✅ **DONE 2026-08-19 — "every criterion passed".** Two real defects, not a timeout: **L-28** (a stale tree head read as a fork, BLOCKING two honest peers) took it 17→18, and **L-31** (head-of-line blocking across peers — one blackholed peer stalled delivery to every other peer in the same drain pass, including the bridge) took it 18→**19**. Bridged crossing fell from **407.6 s to 2.1 s**. Gated by `federation-outbox.spec.ts`, which fails on purpose against the serial implementation. |
+| 2 | **Scale the testbed to ≥ 8 nodes and take ≥ 200 propagation samples** with a projection-time timestamp rather than a poller. | **The one criterion the corpus actually enforces** (§2.3c): every networking paper here sweeps node count — 100–400, 10/20/30, 15 across 5 regions. n = 2 is below all of them. | 2–3 d | ✅ **done 2026-08-18.** `scale-gen.ts` / `scale-measure.ts`, 8-node chain, 200 paced samples, zero loss. See claim 7 and L-29 (always report the regime). |
+| 3 | **Build the capability matrix (Table 2)** against DTN/BPv7, Serval, Bridgefy, ActivityPub/Mastodon, Matrix, **AT Protocol** and ours. | **Replaces "get a quantitative baseline" as the top comparison task.** §2.3a: `3777555.3777565` p.7 does exactly this and is a networking paper by the general contact. Cheaper than a baseline and better matched to a contribution with no prior art. **AT Protocol was added 2026-08-19** — it is the closest prior *composition* and neither earlier research pass found it. | 1 d | ✅ **done 2026-08-19.** Cells in `NSYSS-2026-PAPER-S7-CAPABILITY-MATRIX.md`, every one traced to a verbatim quote in `NSYSS-2026-CAPABILITY-MATRIX-SOURCES.md` (17 corrections to common belief, incl. ActivityPub requiring **neither** HTTP nor object signatures normatively, and atproto **not** being offline-verifiable). |
+| 4 | **Measure a real ActivityPub `Create`/`Note` payload** and put it beside 155 B / 243 B / 220 B. | Still worth doing — it is the one place we can produce an honest quantitative comparison, and the corpus has a precedent for size-as-a-metric (`3704522.3704546` Table 6). A supporting figure, not the load-bearing one. | 1 d | ✅ **done 2026-08-19.** `pnpm ap:baseline`, n = 80, two instances. See claim 10 and L-30. |
+| 5 | **Write §5 Adversary and scope — half a page.** | **Downgraded from fatal to hygiene.** 0 of 35 accepted papers have one (§2.4), including two offensive-security papers. Worth writing to pre-empt "resistant to whom?", not worth a full page. State what is **out** of scope as clearly as what is in. | 0.5 d | ✅ **content settled 2026-08-19** in `NSYSS-2026-PAPER-S5-ADVERSARY-AND-SCOPE.md` — six in-scope attacks each mapped to something gated, eight out-of-scope limits. Prose deliberately left to the author (AI-detector screening). |
+| 6 | **Strip LoRa, Reticulum and phone-mesh from the abstract and every claim.** Confine to §8. | Unchanged. Claims 14–17 are unobserved. One probing question unravels the paper. | free | 🔵 enforce at draft time |
+| 7 | **Anonymise for double-blind.** No system name, no repo URL, no acknowledgements; cite OONI and any BUET-group work in the third person. | Unchanged; desk-reject risk. The two most adjacent papers (`3777555.3777565`, `3777555.3777563`) are both co-authored by the NSysS 2026 general contact — cite them in the third person, and *do* cite them, because engaging the venue's own literature is visible and cheap. | free | 🔵 enforce at draft time |
+| 8 | **Write the prose by hand.** | The Author Instructions state submissions are screened with a plagiarism checker **and** an AI detector. | — | 🔵 enforce at draft time |
 
-### 4.7 The Matrix contrast, settled against the spec
+### 4.7 Canonicalisation is a three-position design space, settled against the specs
 
-§2 and §3 both turn on a comparison with Matrix. The spec text is unambiguous and was read directly,
-so write the paper from these two citations rather than from memory — an earlier pass in this project
-got the direction of this comparison **backwards**, which would have put a false claim in related work.
+> **Revised 2026-08-19.** This section previously framed canonicalisation as a two-position
+> contrast — Matrix versus this system. That framing is wrong by omission. It presents our rule as
+> *the* alternative to Matrix's, when there is a third, well-documented position that a reviewer may
+> know better than either, and whose existence changes what our contribution actually is. All three
+> positions below are quoted from primary sources, read directly.
 
-**Matrix verifies against re-encoded bytes, not received bytes.** The "Checking for a signature"
-algorithm in the Matrix appendices
+§2 and §3 both turn on this comparison, and an earlier pass in this project got the direction of the
+Matrix half **backwards** — which would have put a false claim in related work. Write the paper from
+the quotations below, not from memory.
+
+The design space is not "canonicalise or don't". It is **where in the pipeline canonicalisation sits,
+and what happens when it fails**.
+
+#### Position 1 — canonicalise at verify (Matrix)
+
+The "Checking for a signature" algorithm in the Matrix appendices
 (<https://spec.matrix.org/v1.11/appendices/>) is ordered:
 
 > 5. Removes the `signatures` and `unsigned` members of the object.
@@ -435,39 +447,103 @@ algorithm in the Matrix appendices
 
 Canonicalisation happens at **step 6, inside the verifier**. An intermediary may therefore reorder
 keys or change whitespace in a Matrix event without invalidating anything, because the receiver
-re-derives the canonical form before checking. That is the opposite of this system's rule.
+re-derives the canonical form before checking. The verifier checks the signature against bytes **it
+produced itself**, not against bytes it received.
 
-So the honest framing is a **design-space contrast, not a discovered attack** — which is also the
-framing most likely to survive review, because the attack framing invites "show me a victim":
+#### Position 2 — sign the raw bytes and define no canonical form (Cosmos SDK ADR-020)
 
-| | Matrix | This system |
-| --- | --- | --- |
-| The signature covers | a canonical form *derived from the parsed object* | *the bytes as they arrived* |
-| May an intermediary re-serialise? | Yes, freely | No — hence the passthrough codec (ADR-008 §1) |
-| Where canonicalisation happens | in every verifier, at check time | once at the origin; receivers only *compare* |
-| The cost | the canonicalisation function is security-critical and must be byte-identical in every implementation; anything outside it (`unsigned`) is unprotected | strictness — exactly one accepted encoding, everything else rejected |
-| The benefit | tolerant of sloppy relays and re-serialising middleboxes | no canonicalisation function sits between the attacker and the verifier, so there is nothing for two implementations to disagree about |
+ADR-020 rejects canonicalisation outright, and says why
+(<https://github.com/cosmos/cosmos-sdk/blob/main/docs/architecture/adr-020-protobuf-transaction-encoding.md>):
 
-This is the argument that makes the cross-language vector gate load-bearing rather than decorative:
-three independent implementations agreeing byte-for-byte on 16 vectors is *what makes the strict
-choice viable at all*. Say that explicitly in §3 — it converts a testing artefact into a design
-justification.
+> Signature verification is based on comparing the raw `TxBody` and `AuthInfo` bytes encoded in
+> `TxRaw` not based on any "canonicalization" algorithm which creates added complexity for clients
+> in addition to preventing some forms of upgradeability
 
-**Pre-empt the protobuf objection in the same paragraph.** `protobuf.dev` publishes a page titled
-"protobuf serialization is not canonical"
+and, on the direct signing mode:
+
+> The "direct" signing behavior is to sign the raw `TxBody` bytes as broadcast over the wire. This
+> has the advantages of: requiring the minimum additional client capabilities beyond a standard
+> protocol buffers implementation [and] leaving effectively zero holes for transaction malleability
+> (i.e. there are no subtle differences between the signing and encoding formats which could
+> potentially be exploited by an attacker)
+
+This is **not** our position, and the difference is the whole point of §3. Cosmos signs what was sent
+and verifies against what arrived — so far identical to us — but defines **no** accepted encoding at
+all. Whatever bytes the sender emitted are, by construction, the contract. There is nothing to reject.
+
+#### Position 3 — bytes as received, plus a canonical-form admission gate (this system)
+
+We take Cosmos's verification rule and Matrix's insistence that a canonical form exists, and put them
+in a different order. The signature is checked against the bytes **as they arrived**, exactly as
+ADR-020 requires. Separately, and *before* verification, the decoder re-encodes and compares to
+establish that those bytes are the one accepted encoding, and **rejects** them if they are not
+(`decode.ts:270`, EN-02).
+
+So canonicalisation is not in the verification path. It is an **admission predicate**, and its failure
+mode is rejection rather than repair. This is the sentence that distinguishes all three positions and
+belongs in the paper nearly verbatim:
+
+> Matrix canonicalises to decide *what to verify against*; Cosmos declines to canonicalise at all;
+> we canonicalise to decide *what to admit*, and verify against what arrived.
+
+The hazard this forecloses is specific, and it is the reason the rule exists: a re-encoding
+intermediary in Matrix's model silently **repairs** a malformed object into a verifiable one. In v1 of
+this system that was the signature-confusion bug. In Cosmos's model the hazard cannot arise because
+the question is never asked; in ours it cannot arise because the answer is "reject".
+
+#### The three positions side by side
+
+| | Matrix | Cosmos SDK ADR-020 | This system |
+| --- | --- | --- | --- |
+| The signature covers | a canonical form *derived from the parsed object* | *the raw bytes broadcast on the wire* | *the bytes as they arrived* |
+| Canonicalisation happens | in every verifier, at check time | **nowhere — explicitly rejected** | once at the origin; receivers only *compare* |
+| Its role | decides what to verify against | — | decides what to **admit** |
+| Failure of the canonical form | cannot fail — it is re-derived | not defined | **rejection** (EN-02) |
+| May an intermediary re-serialise? | yes, freely | no | no — hence the passthrough codec (ADR-008 §1) |
+| Valid encodings per message | many (all canonicalise alike) | **one, implicitly** — whatever the sender emitted | **one, explicitly** — and it is checkable |
+| The cost | the canonicalisation function is security-critical, must be byte-identical in every implementation, and anything outside it (`unsigned`) is unprotected | no interoperable definition of "the same message"; ADR-020 concedes it prevents "some forms of upgradeability" | strictness — a non-canonical encoder cannot talk to the network at all |
+| The benefit | tolerant of sloppy relays and re-serialising middleboxes | minimum client capability; "effectively zero holes for transaction malleability" | no canonicalisation function sits between the attacker and the verifier, **and** two implementations can be proven to agree |
+
+#### Why this makes the vector gate load-bearing rather than decorative
+
+Position 3 is viable only if the accepted encoding is genuinely agreed across implementations —
+otherwise the admission gate becomes a compatibility bug that rejects honest peers. Three independent
+implementations agreeing byte-for-byte on 16 vectors is **what makes the strict choice affordable**.
+Say that explicitly in §3: it converts a testing artefact into a design justification, and it answers
+the obvious reviewer question, *"what happens when your Rust and TypeScript encoders disagree?"* — the
+gate is the reason that question has an answer.
+
+#### Own the upgradeability cost, because ADR-020 names it
+
+ADR-020's objection is not only complexity; it is that canonicalisation prevents "some forms of
+upgradeability". That is a real cost and the paper should concede it rather than wait to be asked. The
+answer is structural and already in the design: unknown fields are not retained, so an old node cannot
+silently pass through a new field it does not understand, and the response is a **version bump rather
+than an in-place contract edit** (`CLAUDE.md` §7.1), with the version carried in the envelope and
+checked at pipeline step 3. The cost is real — a v1 node cannot forward-carry a v2 field — and we
+accept it because the alternative is exactly the ambiguity the profile exists to remove.
+
+#### Pre-empt the protobuf objection in the same paragraph
+
+`protobuf.dev` publishes a page titled "protobuf serialization is not canonical"
 (<https://protobuf.dev/programming-guides/serialization-not-canonical/>) which states serialization
 "is not (and cannot be) canonical", that "deterministic serialization is not canonical", and warns
 against "comparing serialized payloads to check message equality". A reviewer who knows protobuf will
 raise this against `decode.ts:270`, which does precisely that comparison.
 
 The answer is that Google's guidance addresses a different question. It warns against using
-byte-equality as a proxy for **message equality** — two encoders may legitimately emit different
-bytes for the same message, so the comparison gives false negatives. This system asks a stricter and
+byte-equality as a proxy for **message equality** — two encoders may legitimately emit different bytes
+for the same message, so the comparison gives false negatives. This system asks a stricter and
 narrower question: **is this the one accepted encoding?** A different encoding of the same meaning is
 not an inconvenience to be tolerated; it is a second valid form, and rejecting it is the point
 (EN-02). Protobuf declining to define a canonical form is exactly why the profile has to define one
-and prove it across three implementations. State this in the text **before** a reviewer states it at
-you; unprompted it reads as rigour, prompted it reads as a patch.
+and prove it across three implementations.
+
+Note that Cosmos SDK reads the *same* Google guidance and draws the opposite conclusion — sign the raw
+bytes, define nothing. Citing that agreement-on-premises, disagreement-on-conclusion is stronger than
+citing Google alone, because it shows the design space was surveyed rather than assumed. State this in
+the text **before** a reviewer states it at you; unprompted it reads as rigour, prompted it reads as a
+patch.
 
 ---
 

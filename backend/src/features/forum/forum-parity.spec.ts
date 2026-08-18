@@ -746,10 +746,16 @@ describe('votes and karma (VOT-01–VOT-04, USR-03)', () => {
       scope: communityId,
       body: VoteCast.encode(VoteCast.fromPartial({ target: post.contentId, value: 1 })).finish(),
     });
+    // Later in time, because that is what "changed their vote" means and it is what the
+    // projection orders by. The harness stamps every envelope with a frozen `NOW_MS`, so
+    // without this both votes carry the same `created_at_ms` and the merge falls to its
+    // content-id tie-break — deterministic across nodes, but not what this test is about.
+    // The tie itself is covered directly in `vote-cast.spec.ts`.
     await accept({
       domain: 'jb:vote:cast:v1',
       seed: OTHER_SEED,
       scope: communityId,
+      createdAtMs: BigInt(NOW_MS + 1),
       body: VoteCast.encode(VoteCast.fromPartial({ target: post.contentId, value: -1 })).finish(),
     });
 

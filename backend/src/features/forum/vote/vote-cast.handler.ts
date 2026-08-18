@@ -36,6 +36,40 @@ export interface VoteDoc {
   readonly target: string;
   readonly value: number;
   readonly updatedAtMs: number;
+  /**
+   * The envelope this value came from. Carried so the merge below has a deterministic
+   * tie-break when two votes share `updatedAtMs` — without it, equal timestamps fall back to
+   * arrival order and two nodes can disagree forever.
+   */
+  readonly contentId: string;
+}
+
+/**
+ * Which of two votes for the same `(author, target)` wins — the same answer on every node.
+ *
+ * ── Why this cannot be arrival order ────────────────────────────────────────────────
+ * A vote is a REPLACING value, so the projection must converge on one of them, and federation
+ * gives no delivery-order guarantee: node A may receive `+1` then `-1`, node B the reverse,
+ * and both orderings are legitimate. Merging by arrival meant the two nodes disagreed on the
+ * stored value AND on the post's score, permanently, with no error anywhere — the projections
+ * simply diverged. That defeats the property the whole design rests on: identical bytes must
+ * produce identical projections everywhere (VP-02, ADR-010's reasoning one layer up).
+ *
+ * ── Why `created_at_ms` and then `content_id` ───────────────────────────────────────
+ * Both are inside the signed envelope, so every node compares the same two values and no node
+ * needs to have seen the other's clock. `created_at_ms` is the author's own ordering claim;
+ * ties break on `content_id`, which is a hash and therefore total, stable and unforgeable-to-
+ * a-preferred-value. Author clock skew can misorder one author's own two votes, which is a
+ * self-inflicted and bounded harm — it cannot affect anyone else's vote, because the key is
+ * per author.
+ */
+export function voteSupersedes(
+  incoming: { readonly createdAtMs: number; readonly contentId: string },
+  stored: { readonly updatedAtMs: number; readonly contentId: string } | null,
+): boolean {
+  if (!stored) return true;
+  if (incoming.createdAtMs !== stored.updatedAtMs) return incoming.createdAtMs > stored.updatedAtMs;
+  return incoming.contentId > stored.contentId;
 }
 
 /** Stable key so a re-vote overwrites rather than appending. */
@@ -95,6 +129,14 @@ export class VoteCastHandler implements DomainHandler<VoteCast> {
     const votes = this.projections.collection<VoteDoc>(VOTES_COLLECTION);
 
     const previous = await votes.findOne({ id: key });
+
+    // A vote that loses the merge changes nothing at all — not the stored value, and not the
+    // score. Returning early rather than writing a zero delta keeps the two in step: the
+    // score is only ever moved by the vote that is currently winning.
+    if (!voteSupersedes({ createdAtMs: Number(env.createdAtMs), contentId: env.contentId }, previous ?? null)) {
+      return;
+    }
+
     const delta = body.value - (previous?.value ?? 0);
 
     await votes.put(
@@ -105,6 +147,7 @@ export class VoteCastHandler implements DomainHandler<VoteCast> {
         target: body.target,
         value: body.value,
         updatedAtMs: Number(env.createdAtMs),
+        contentId: env.contentId,
       },
       tx,
     );

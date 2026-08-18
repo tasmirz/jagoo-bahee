@@ -472,6 +472,35 @@ export class FederationInbox {
     // detection, so `verifyPeerSth` is gone and this is the only comparison left.
     const previous = await this.deps.ledger.lastPeerSth(peer.serverId);
 
+    // ── An OLDER observation is stale, not a fork ────────────────────────────────────
+    //
+    // Four paths feed this method and they race: the outbound announce handshake
+    // (`FederationSync.connect`), the inbound one (`FederationService.announce`), the
+    // `currentSth` carried on a peer record, and `gossip`. Each fetches a head at a
+    // different instant, and nothing orders their arrival. So the sequence "gossip records
+    // size 8; a reconnect then delivers the size-6 head it captured moments earlier" is
+    // routine, and it is NOT evidence of anything — the peer never rewrote its log, we
+    // simply read it twice and processed the reads out of order.
+    //
+    // Treating that as a fork is a false positive with the worst possible blast radius:
+    // BLOCKED is unrecoverable without an operator, `evaluateTrust` will not let vouches
+    // lift it, and a bridge whose peers are blocked stops bridging entirely. The container
+    // gate hit exactly this — TG-06 forces an uplink out of service and back, the
+    // reconnect replayed a stale head, and both island-A peers were blocked with
+    // "tree shrank from 8 to 6" while nothing whatsoever was wrong with either log.
+    //
+    // `timestampMs` is signed as part of the head (Plans/05 §6), so it is the peer's own
+    // ordering claim and not something a relayer can forge independently of the signature.
+    // A stale head is discarded WITHOUT being recorded — recording it would roll the
+    // ledger backwards and make the next honest observation look like the regression this
+    // one was not.
+    //
+    // A genuine rollback attack is unaffected: it must present a head that is newer AND
+    // smaller, which still trips `regressed` below.
+    if (previous !== null && sth.timestampMs < previous.timestampMs) {
+      return PeerLogStatus.UNKNOWN;
+    }
+
     const regressed = previous !== null && sth.treeSize < previous.treeSize;
     const rewritten =
       previous !== null &&

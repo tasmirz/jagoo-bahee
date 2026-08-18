@@ -343,6 +343,34 @@ describe('POST /v1/envelopes — the only write route (WE-01)', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  // ER-02 / DoS surface. Found by flooding a deployed node with mutated envelopes: 8 of 3000
+  // came back as HTTP 500 with a protobuf stack trace in the logs, because the controller
+  // decodes untrusted bytes OUTSIDE the pipeline purely to label a metric, and a raw decoder
+  // exception is not an `EnvelopeRejected` so it escaped the typed-rejection branch.
+  //
+  // Two things make this worth a gate rather than a one-line patch. A 500 on adversarial
+  // input logs a stack trace per request, so an attacker chooses how fast this node fills its
+  // own disk. And the same bytes arriving over federation are refused politely, so the two
+  // ingress paths disagreed about what "malformed" means.
+  //
+  // Each payload below is VALID base64 that is not a valid protobuf message, so it gets past
+  // the base64 guard and reaches the decoder that used to throw.
+  it.each([
+    ['illegal tag (field 14, wire type 7)', 'dw=='],
+    ['truncated length-delimited field', 'Cv8='],
+    ['unsupported wire type 6', 'DgE='],
+    ['group wire types, long', 'd3d3d3d3d3c='],
+  ])('rejects %s as a typed 4xx, never a 500', async (_name, payload) => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/envelopes',
+      payload: { envelope: payload },
+    });
+    expect(res.statusCode).toBeLessThan(500);
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    expect(res.json()).toMatchObject({ code: expect.any(String) });
+  });
+
   it('there is no other write route — POST /v1/posts does not exist', async () => {
     // WE-02: a feature adding its own write route is a review rejection, because it would
     // be a second door that skips the 19 steps.

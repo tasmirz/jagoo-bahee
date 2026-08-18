@@ -57,6 +57,15 @@ export interface FederationOutboxDeps {
   readonly bridge?: BridgeRelay;
   /** How many entries one drain pass leases. Bounded so a deep queue cannot exhaust memory. */
   readonly batchSize?: number;
+  /**
+   * L-31 — how long one peer's `deliver` may take before the pass gives up on it.
+   *
+   * A cut link blackholes rather than refuses, so a connect to an unreachable peer neither
+   * succeeds nor errors; without a deadline the pass waits on the operating system's TCP
+   * retry schedule, which was measured at ~406 s. A timeout converts that into one failed
+   * attempt with ordinary backoff.
+   */
+  readonly deliverTimeoutMs?: number;
 }
 
 export interface DrainReport {
@@ -67,6 +76,33 @@ export interface DrainReport {
 }
 
 const DEFAULT_BATCH = 64;
+/**
+ * Generous enough that a slow-but-live peer is never cut off mid-stream, and short enough
+ * that an unreachable one costs a single drain interval rather than minutes.
+ */
+const DEFAULT_DELIVER_TIMEOUT_MS = 15_000;
+
+/**
+ * Stop waiting on `work` after `ms`.
+ *
+ * The abandoned promise is left to settle on its own — `FederationSender.deliver` takes no
+ * `AbortSignal`, so this bounds how long the DRAIN waits, not how long the transport tries.
+ * That is the honest scope of the fix: the pass stops being hostage to one peer.
+ */
+async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  if (ms <= 0) return work;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(`deliver timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 export class FederationOutboxService extends FederationOut {
   constructor(private readonly deps: FederationOutboxDeps) {
@@ -195,95 +231,128 @@ export class FederationOutboxService extends FederationOut {
       else batches.set(key, [entry]);
     }
 
+    // L-31 — peers are drained CONCURRENTLY, not one after another.
+    //
+    // Each batch is already independent by construction: it is grouped by peer, and FG-10
+    // plane separation is decided when the batch is formed rather than checked afterwards.
+    // Draining them serially meant a peer that had gone unreachable blocked every peer
+    // behind it in the same pass — measured at 406 s, during which the rows for the other
+    // peers sat at `attempts: 0`. The starved peer in the deployed case was the ISP bridge,
+    // whose whole purpose is to route around the partition that caused the stall.
+    //
+    // Concurrency is bounded by the lease size, so this cannot fan out without limit.
+    const results = await Promise.all(
+      [...batches.entries()].map(([key, entries]) => this.deliverBatch(key, entries, nowMs)),
+    );
+
+    let delivered = 0;
+    let failed = 0;
+    let deadLettered = 0;
+    for (const result of results) {
+      delivered += result.delivered;
+      failed += result.failed;
+      deadLettered += result.deadLettered;
+    }
+
+    return { attempted: leased.length, delivered, failed, deadLettered };
+  }
+
+  /** One peer's share of a drain pass. Isolated so no peer can gate another (L-31). */
+  private async deliverBatch(
+    key: string,
+    entries: readonly OutboxEntry[],
+    nowMs: number,
+  ): Promise<{ delivered: number; failed: number; deadLettered: number }> {
     let delivered = 0;
     let failed = 0;
     let deadLettered = 0;
 
-    for (const [key, entries] of batches) {
-      const [peerId, planeText] = key.split('|');
-      const plane = Number(planeText) as Plane;
-      const peer = await this.deps.peers.get(peerId as string);
-      if (!peer || !atLeast(peer.trust, PeerTrust.PROBATION)) {
-        // The peer was blocked after the row was written. Retire the rows rather than
-        // retrying: a blocked peer is a decision, not an outage.
-        for (const entry of entries) await this.deps.outbox.succeed(entry.id);
+    const [peerId, planeText] = key.split('|');
+    const plane = Number(planeText) as Plane;
+    const peer = await this.deps.peers.get(peerId as string);
+    if (!peer || !atLeast(peer.trust, PeerTrust.PROBATION)) {
+      // The peer was blocked after the row was written. Retire the rows rather than
+      // retrying: a blocked peer is a decision, not an outage.
+      for (const entry of entries) await this.deps.outbox.succeed(entry.id);
+      return { delivered, failed, deadLettered };
+    }
+
+    const frames: { entry: OutboxEntry; raw: Uint8Array }[] = [];
+    for (const entry of entries) {
+      const stored = await this.deps.reader.get(entry.contentId);
+      if (!stored) {
+        // The envelope is gone from the log. Nothing will make this deliverable.
+        await this.deps.outbox.fail(entry.id, null, 'envelope not in log');
+        deadLettered += 1;
         continue;
       }
+      frames.push({ entry, raw: stored.raw });
+    }
+    if (frames.length === 0) return { delivered, failed, deadLettered };
 
-      const frames: { entry: OutboxEntry; raw: Uint8Array }[] = [];
-      for (const entry of entries) {
-        const stored = await this.deps.reader.get(entry.contentId);
-        if (!stored) {
-          // The envelope is gone from the log. Nothing will make this deliverable.
-          await this.deps.outbox.fail(entry.id, null, 'envelope not in log');
-          deadLettered += 1;
-          continue;
-        }
-        frames.push({ entry, raw: stored.raw });
-      }
-      if (frames.length === 0) continue;
-
-      try {
-        const outcome = await this.deps.sender.deliver(
+    try {
+      const outcome = await withDeadline(
+        this.deps.sender.deliver(
           peer,
           plane,
           frames.map((f) => f.raw),
-        );
-        const acceptedIds = new Set(outcome.accepted);
-        const rejectedById = new Map(outcome.rejected.map((r) => [r.contentId, r]));
+        ),
+        this.deps.deliverTimeoutMs ?? DEFAULT_DELIVER_TIMEOUT_MS,
+      );
+      const acceptedIds = new Set(outcome.accepted);
+      const rejectedById = new Map(outcome.rejected.map((r) => [r.contentId, r]));
 
-        for (const { entry } of frames) {
-          if (acceptedIds.has(entry.contentId)) {
-            await this.recordOutbound(entry, peer);
-            await this.deps.outbox.succeed(entry.id);
-            delivered += 1;
-            continue;
-          }
-          const rejection = rejectedById.get(entry.contentId);
-          if (rejection && !RETRYABLE_REJECTIONS.has(rejection.code)) {
-            // A permanent refusal. Retrying it forever would hide it; dead-lettering it
-            // puts it where an operator can see it.
-            await this.deps.outbox.fail(entry.id, null, `${rejection.code}: ${rejection.detail}`);
-            deadLettered += 1;
-            continue;
-          }
-          const retry = nextRetry(entry.attempts, nowMs);
-          // FD-15 — a peer's own hint beats our backoff schedule when it is longer. The
-          // peer knows its load; the schedule only knows how many times we have failed.
-          const nextAt =
-            retry.nextAttemptAtMs === null
-              ? null
-              : Math.max(retry.nextAttemptAtMs, nowMs + outcome.backpressureHintMs);
-          await this.deps.outbox.fail(
-            entry.id,
-            nextAt,
-            rejection ? `${rejection.code}: ${rejection.detail}` : 'peer did not acknowledge',
-          );
-          if (retry.deadLettered) deadLettered += 1;
-          else failed += 1;
+      for (const { entry } of frames) {
+        if (acceptedIds.has(entry.contentId)) {
+          await this.recordOutbound(entry, peer);
+          await this.deps.outbox.succeed(entry.id);
+          delivered += 1;
+          continue;
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'delivery failed';
-        for (const { entry } of frames) {
-          const retry = nextRetry(entry.attempts, nowMs);
-          await this.deps.outbox.fail(entry.id, retry.nextAttemptAtMs, message);
-          if (retry.deadLettered) {
-            deadLettered += 1;
-            await this.deps.alerts?.raise({
-              severity: AlertSeverity.WARNING,
-              code: 'outbox.dead-letter',
-              subject: peer.serverId,
-              detail: `${entry.contentId} gave up after ${entry.attempts + 1} attempts: ${message}`,
-              raisedAtMs: nowMs,
-            });
-          } else {
-            failed += 1;
-          }
+        const rejection = rejectedById.get(entry.contentId);
+        if (rejection && !RETRYABLE_REJECTIONS.has(rejection.code)) {
+          // A permanent refusal. Retrying it forever would hide it; dead-lettering it
+          // puts it where an operator can see it.
+          await this.deps.outbox.fail(entry.id, null, `${rejection.code}: ${rejection.detail}`);
+          deadLettered += 1;
+          continue;
+        }
+        const retry = nextRetry(entry.attempts, nowMs);
+        // FD-15 — a peer's own hint beats our backoff schedule when it is longer. The
+        // peer knows its load; the schedule only knows how many times we have failed.
+        const nextAt =
+          retry.nextAttemptAtMs === null
+            ? null
+            : Math.max(retry.nextAttemptAtMs, nowMs + outcome.backpressureHintMs);
+        await this.deps.outbox.fail(
+          entry.id,
+          nextAt,
+          rejection ? `${rejection.code}: ${rejection.detail}` : 'peer did not acknowledge',
+        );
+        if (retry.deadLettered) deadLettered += 1;
+        else failed += 1;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'delivery failed';
+      for (const { entry } of frames) {
+        const retry = nextRetry(entry.attempts, nowMs);
+        await this.deps.outbox.fail(entry.id, retry.nextAttemptAtMs, message);
+        if (retry.deadLettered) {
+          deadLettered += 1;
+          await this.deps.alerts?.raise({
+            severity: AlertSeverity.WARNING,
+            code: 'outbox.dead-letter',
+            subject: peer.serverId,
+            detail: `${entry.contentId} gave up after ${entry.attempts + 1} attempts: ${message}`,
+            raisedAtMs: nowMs,
+          });
+        } else {
+          failed += 1;
         }
       }
     }
 
-    return { attempted: leased.length, delivered, failed, deadLettered };
+    return { delivered, failed, deadLettered };
   }
 
   /**

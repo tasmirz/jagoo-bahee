@@ -52,6 +52,8 @@ Rules earned the hard way. Violating one of these has already cost time.
 
 | L-27 | **A phase marked ✅ without a gate that fails on purpose is a claim, not a fact.** `Plans/12-FRONTEND-UX-COVERAGE-PLAN.md` declared Phases 0–8 "implemented and validated" — the monoliths it said were split were 2000+ line files, the ~80-route tree didn't exist, the ~40 shared components numbered 12. Nothing ever asserted the plan's own claims against the tree, so a green summary hid the gap for an entire session's worth of prior work. L-11 was about a lint rule; this is the same defect one layer up, in a planning document instead of a config file. | PF-FRONTEND-UX-REBUILD |
 | L-27 | **A durability default that fails open reads as data loss, and reports itself `ready` while doing it.** `MONGO_URL` unset silently selected the in-memory doubles, and nothing loaded a `.env`, so `just dev` started Docker and then ignored it for months. Any adapter choice that trades durability for convenience must be visible at `/health/ready` and reachable by config the default dev command actually loads. | dev environment, reported as "communities disappear between logins"                |
+| L-29 | **Report the regime, not just the number.** The same system on the same hardware produced 589 ms and 10 000 ms for a first hop within an hour, and both were correct measurements of different questions — unloaded propagation, and a saturated send queue. A latency figure without its offered load is not a result. The burst number is the one that would have been quoted, because it was measured first and looked precise. | 8-node scale harness |
+| L-28 | **When several code paths observe the same remote state, an OLDER reading is not evidence of anything.** Four paths call `observePeerSth` and nothing orders their arrival, so a tree head captured at size 6 routinely lands after one captured at size 8. Compared as if ordered, that reads as a log rollback — the strongest tamper signal the system has — and BLOCKS an honest peer irrecoverably. Before treating a decrease as evidence, establish that the two readings are ordered; if the payload carries no ordering claim, the comparison cannot be made at all. | P3 container gate, TG-04/TG-06 |
 
 
 ---
@@ -2755,3 +2757,555 @@ feature, and both were things the node had been quietly supplying.
 **Not claimed:** still never exercised between two devices — the two phones available are on
 different subnets, so mDNS cannot see across them. Discovery, transport, local projection and
 prekey exchange have each been asserted in isolation and the path has never run end to end.
+
+---
+
+## 2026-08-18 — The bridge blocked its own island: a stale tree head read as a fork
+
+**Reported:** the P3 container gate had sat at **17/19** across three independent runs, always
+failing the same two TG-04 criteria — "the bridge reports itself ready (BR-01)" with reason
+*no uplink pair has a TRUSTED peer on both sides*, and the crossing assertion that depends on it.
+
+### What it was not
+
+Three plausible causes were ruled out by measurement before anything was changed, and each had
+looked convincing enough to fix blindly:
+
+- **Not peer persistence.** `FEDERATION_PEERS` arrives intact in the container, the declared keys
+  match what a1/a2/b1 actually derive, and `parsePeers` yields all three. Immediately after boot
+  `/v1/federation/peers` on the bridge returns **all three, all `TRUSTED`, with correct ASNs**.
+- **Not path selection.** `/v1/transport/uplinks` shows both uplinks `up` with asn 64501/64502 and
+  `ISP_LOCAL` live. Feeding the live uplink views and live peer records straight into `rankPaths`
+  resolves a1/a2 → `isp-a` and b1 → `isp-b`, exactly as TP-11 requires.
+- **Not a stale bridge cache.** `TransportSupervisor.tick` already rebuilds the peer→island map on
+  quiet probe rounds, and `/v1/transport/scope` reported `uplinksUp: 2, bridging: true` throughout.
+
+### What it was
+
+`/v1/federation/peers` **omits `BLOCKED` peers by design** — a directory naming who a node blocked
+is a list of targets. So "the bridge holds 1 of 3 peers" was never a persistence failure; it was
+two peers being hidden after being blocked. The database says so plainly:
+
+```
+_id: jbs13omv7ysrnh…  display_name: 'a1'  trust: 'BLOCKED'
+  blocked_reason: 'log fork detected: tree shrank from 8 to 6'
+_id: jbs1efjprum3pe…  display_name: 'a2'  trust: 'BLOCKED'
+  blocked_reason: 'log fork detected: tree shrank from 8 to 6'
+```
+
+Both island-A peers, the same reason, the same numbers. Neither log had been rewritten.
+
+**Four separate paths call `observePeerSth`** — the outbound announce handshake
+(`FederationSync.connect`), the inbound one (`FederationService.announce`), the `currentSth`
+carried on a peer record, and `gossip`. Each fetches a head at a different instant and **nothing
+orders their arrival.** So "gossip records size 8, then a reconnect delivers the size-6 head it
+captured moments earlier" is ordinary concurrency. Compared as though ordered, it reads as a tree
+that shrank — which is the single strongest tamper signal the system has, and demotes to `BLOCKED`
+pending an operator.
+
+TG-06 reproduces it on demand: it forces an uplink out of service and back, and the reconnect
+replays a head captured before the last gossip round. The bridge then had no `TRUSTED` peer on its
+island-A uplink, `bridgeReadiness` correctly refused, and TG-04's crossing could not be attributed.
+Every downstream symptom was a faithful report of a state produced by a false positive.
+
+**Fix.** `SignedTreeHead` carries a signed `timestampMs`, so the readings *can* be ordered. An
+observation older than the one already recorded is discarded as stale — returning `UNKNOWN`, and
+deliberately **not** recorded, because writing it back would roll the ledger to 6 and make the next
+honest observation at 8 look like the regression this one was not. A genuine rollback attack is
+untouched: it must present a head that is newer *and* smaller, which still trips `regressed`.
+
+**Gate:** `federation.e2e.spec.ts` — a smaller, older head must leave trust at `TRUSTED` and leave
+the ledger at 8. The existing "still blocks a genuine, correctly attributed regression" control
+uses equal timestamps and still returns `FORKED`, so the guard narrows the check without disabling
+it. Federation suite 30 → **31 passing**.
+
+**Lesson (L-28):** when several code paths observe the same remote state, an older reading is not
+evidence of anything. Establish that two readings are ordered before treating a decrease as proof;
+if the payload carries no ordering claim, the comparison cannot honestly be made. This is L-22 one
+layer down — that rule said a check that can BLOCK must verify the claim belongs to the peer it
+names, and this one says it must also verify the claim is *current*. Both failures produced a
+confident, specific, entirely wrong accusation against an innocent node.
+
+**Also worth keeping:** three separate hypotheses were disproved by querying the running system
+rather than by reading code, and each would have been a plausible-looking patch to a component
+that was working correctly. The `/v1/federation/peers` omission is a good rule that made the
+diagnosis harder — an operator surface that hides state for sound reasons still has to be
+remembered when reading that surface as evidence.
+
+---
+
+## 2026-08-18 — Multi-hop propagation, measured from projection timestamps, at 8 nodes
+
+**Built:** `backend/src/cli/scale-gen.ts` (parameterised N-node chain generator, 2–16 nodes) and
+`backend/src/cli/scale-measure.ts` (propagation latency from `envelopes.received_at_ms`).
+Wired as `pnpm scale:gen | scale:up | scale:measure | scale:down`. The generated compose file
+and `ops/results/` are gitignored — both are reproducible from the generator (L-01).
+
+### Why a chain, and why not a poller
+
+**A chain, not a mesh,** because hop count is the independent variable and a mesh destroys it:
+in a mesh every node is one hop from the origin, so the only thing varying is fanout width.
+In a chain `jb-n<i>` is reachable from `jb-n0` by exactly one path of exactly `i` hops.
+
+**Projection timestamps, not polling.** The project's first propagation figure — "623–857 ms,
+n = 5" — was produced by publishing on A and polling B over HTTP. That is an upper bound and
+nothing else: it charges the measurement for a poll interval plus a round trip, and cannot
+distinguish a node that projected instantly from one that projected just after the previous
+poll returned. Every node already writes `envelopes.received_at_ms` inside the same
+transaction as the projection and the witness append, so a hop's latency is a subtraction
+between two numbers the system recorded for its own reasons, with no observer in the path.
+
+**The clock assumption is load-bearing and is stated in the tool.** Subtracting timestamps
+across nodes is valid here only because every container shares the host clock, so skew is zero
+by construction. A distributed deployment needs NTP discipline and an error bar. That is a
+property of the harness, not of the system.
+
+### The result — 8 nodes, 200 samples, paced, zero loss
+
+| hop | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| p50 ms | 613 | 820 | 1753 | 2352 | 3355 | 3660 | 4125 |
+| p99 ms | 1104 | 2251 | 3341 | 3912 | 4913 | 5215 | 6115 |
+
+**200/200 envelopes reached hop 7.** Seven hops in 4.1 s median, 6.1 s p99.
+
+### The model, and its confirmation at a second operating point
+
+Per-hop cost is dominated by the outbox drain interval, not by the protocol. Predicted
+`drain/2 + fixed`; measured at two drain settings:
+
+| drain | 7-hop p50 | per hop | drain/2 | implied fixed |
+| --- | --- | --- | --- | --- |
+| 1000 ms | 4125 ms | 589 ms | 500 ms | **89 ms** |
+| 250 ms | 1373 ms | 196 ms | 125 ms | **71 ms** |
+
+The residual is stable at **71–89 ms across a 4× change in the queueing parameter**, which is
+the protocol's actual per-hop cost: verify, project, witness-append, re-enqueue. Everything
+above it is a scheduling choice an operator makes for battery and bandwidth reasons. The
+hop-1 minimum of 67 ms at 1000 ms drain says the same thing from the other side — the
+transfer itself is nearly free and the rest is waiting for the next drain tick.
+
+### Two things the run got wrong before it got them right
+
+**A burst is not a latency measurement.** Publishing 200 envelopes as fast as the origin
+accepted them (32 s) produced hop-1 p50 of 10.0 s and p95 of 173 s, while the MARGINAL cost of
+hops 2–7 stayed at 0.4–1.1 s. That shape is queueing, not propagation, and averaging it with
+the paced figures would have produced a number describing neither. `--pace` now exists and
+every run prints which regime it was.
+
+**The first diagnosis of that burst was wrong.** It was attributed to the origin's outbox
+saturating — but `federation-outbox.ts:159` already filters fanout by peer trust, so BULK is
+never enqueued to a `PROBATION` peer, and fanout was 1–2 peers, not 7. The likelier cause is
+the shared mongod, which `scale-gen.ts` names as a deliberate trade in its header and predicts
+will inflate reported latency. Eight nodes on one mongod is the harness's own limitation.
+
+**A useful non-finding.** Directory exchange grows every peer table to 7 within a minute
+(1–2 `TRUSTED`, 5–6 `PROBATION`), so a "chain" is a chain only for the traffic class the
+configured neighbours accept. Since a `PROBATION` peer takes classes 0–2 and a post is BULK,
+BULK still traverses only the TRUSTED adjacency — and the monotonic latency curve is the
+independent evidence that it did. Worth knowing before running the same harness on a class-0
+broadcast, where the topology would NOT be a chain.
+
+**Verified:** `tsc --noEmit` clean, `eslint` clean on both new files, 8/8 containers healthy,
+200/200 delivery at 1000 ms drain and 100/100 at 250 ms.
+
+**Lesson (L-29):** report the regime, not just the number. The same system on the same
+hardware produced 589 ms and 10 000 ms per first hop within an hour, and both were correct
+measurements of different questions. A latency figure without its offered load is not a
+result, and the burst number is the one that would have been quoted, because it was measured
+first and looked precise.
+
+---
+
+## 2026-08-19 — The ActivityPub baseline: measured, and deliberately generous to ActivityPub
+
+**Built:** `backend/src/cli/ap-baseline.ts`, wired as `pnpm ap:baseline`. It measures real
+federated `Create`/`Note` activities and puts them beside our canonical envelope sizes. This
+is the paper's only quantitative head-to-head, so the method matters more than the number.
+
+### Where the bytes come from
+
+Mastodon serves an actor's `outbox` as ActivityStreams 2.0 and its `orderedItems` are genuine
+`Create` activities **as that server emits them** — not a client-API projection and not a
+reconstruction. n = **80** activities across two independent stock instances (`mstdn.social`,
+`fosstodon.org`). A third, `hachyderm.io`, served no usable public outbox and the tool reports
+it as skipped rather than quietly proceeding with a thinner sample.
+
+**One adjustment, made visible rather than baked in.** In a collection the `@context` is hoisted
+to the collection and not repeated per item, but a `Create` POSTed to a remote inbox carries its
+own. Measuring the bare outbox item would therefore *understate* delivery. So the tool fetches a
+standalone status object from the same host — which returns the context that host actually uses
+— and re-attaches exactly those bytes. Both the bare and delivered figures are recorded.
+
+### The result
+
+| metric | p50 | p95 | min | max |
+| --- | --- | --- | --- | --- |
+| delivered bytes (with `@context`) | **4216** | 5259 | 2786 | 6909 |
+| delivered, gzipped | 1074 | 1295 | 786 | 1400 |
+| authored text bytes | 205 | 489 | 30 | 524 |
+| **protocol overhead** | **4015** | 4795 | 2756 | 6484 |
+| `@context` declaration alone | **927** | 927 | 927 | 927 |
+
+Both hosts independently emit a **927 B `@context`** — min = max = 927 on each — so it is a
+fixed, unavoidable per-activity cost of the stock dialect, not a property of one deployment.
+That single declaration is **4.2× our entire signed forum-post envelope**.
+
+| ours | total B | text B | overhead B | vs AP overhead |
+| --- | --- | --- | --- | --- |
+| check-in | 155 | 0 | 155 | **25.9×** |
+| Bangla broadcast | 243 | 66 | 177 | **22.7×** |
+| forum post | 220 | 14 | 206 | **19.5×** |
+
+### Two things the measurement had to get right to be honest
+
+**1. Content length is a confound, so the headline metric is content-independent.** Our
+`forum-post-full` fixture carries a *14-character* headline; the real Mastodon posts sampled run
+30–524 B of text. Comparing totals across that spread would measure how much people typed. The
+metric that leads is therefore **overhead = encoded bytes − authored UTF-8 bytes**, which is what
+a protocol designer actually controls. HTML tags in `content` are counted as overhead, not
+payload, because they are.
+
+**2. The first gzip figure was wrong in our favour and had to be redone.** Gzipping our envelope
+with a zero-filled signature gave 182 B and looked like a further win. A real Ed25519 signature is
+64 **incompressible** bytes; with `os.urandom(64)` the honest result is that **gzip makes our
+envelopes larger** — 155→166, 243→245, 220→243. Protobuf plus a random signature is already dense
+enough that a compressor has nothing to find. So the compressed comparison is AP-gzipped against
+our raw: **4.4×–6.9×**, not the ~20× the uncompressed figure suggests. Both belong in the paper;
+quoting only the uncompressed ratio is the kind of thing a reviewer finds and then stops believing
+the rest.
+
+### Three ways the tool flatters ActivityPub on purpose
+
+Stated in the header and to be stated in the paper, because a comparison that only cuts one way
+invites the reviewer to find the other way for us:
+
+1. **Authentication is excluded entirely.** Our bytes include a 64 B Ed25519 signature and are
+   self-authenticating at rest. Mastodon authenticates server-to-server with an **HTTP Signature
+   header** — transport-level, not part of the JSON, gone when the request ends, and *not*
+   verifiable by a third party against a stored object. AP is charged nothing for this. Adding
+   Linked Data Signatures, which is what would make the comparison structurally fair, only widens
+   the gap.
+2. No HTTP framing, TLS or connection setup on either side.
+3. One activity per measurement, though real delivery is per-follower fanout.
+
+**Lesson (L-30):** when a comparison favours you, spend the effort finding the version of it that
+favours you *least* and report that too. Here that meant compression (which erases three quarters
+of the advantage) and the confound of content length (which the naive total-vs-total framing
+hides). The 19.5× number is real but it is the *weakest* form of the claim to defend; 4.4×
+compressed, with authentication excluded in AP's favour, is the one that survives contact.
+
+**Not claimed:** nothing about throughput, CPU or extensibility. JSON-LD buys semantic
+interoperation and open extension that a fixed protobuf schema does not, and this measures none
+of it. The claim is narrow and stays narrow: per-message cost on a constrained link.
+
+**Verified:** `tsc --noEmit` clean, `eslint` clean on the new file, 80 samples from two hosts,
+`ops/results/ap-baseline.csv` + `ap-baseline-summary.json` written (gitignored, reproducible from
+the tool per L-01).
+
+---
+
+## 2026-08-19 — TG-04 is not a slow crossing. One unreachable peer stalls delivery to every other peer.
+
+**Reported:** the ISP container gate sits at **18/19**, failing only the TG-04 crossing. The
+standing read was that the post "does cross, but arrives after the gate's 120 s window", and the
+proposed remedy was to measure per-envelope latency for §6.3 rather than widen the timeout. Both
+halves of that read were wrong: the crossing is not slow, and the window is not the problem.
+
+### Measured, per envelope, from `received_at_ms` on three nodes
+
+The seeder publishes **three envelopes in dependency order** — `jb:key:certify:forum:v1`,
+`jb:community:create:v1`, `jb:post:create:v1` — and each must cross and project before the next
+is useful. Measuring the chain rather than the post is what made the shape visible:
+
+| seed | a1 → bridge | bridge → b1 | total |
+| --- | --- | --- | --- |
+| before the IX cut | 2.0 s | 1.2 s | **3.2 s** |
+| after the IX cut | **406.5 s** | 1.1 s | **407.6 s** |
+
+Two things fall out immediately. **The bridge is not the bottleneck** — it relays in ~1.1 s in both
+regimes, and BR-06 accounts the crossing correctly (`isp-a → isp-b`, 3 envelopes, 5418 B). And
+**all three post-cut envelopes arrived at the bridge within 173 ms of each other** after a
+406-second wait. That is not three dependent crossings costing ~135 s each. That is one stalled
+queue releasing a batch.
+
+### The state that named the cause
+
+While the gate was mid-flight, every row in a1's outbox was:
+
+```
+att=0  dead=false  due_in_ms=-153633     (12 rows, all priority 4, three peers)
+```
+
+**`attempts: 0`, overdue by 150 seconds.** At a 1000 ms drain interval that is ~150 missed ticks
+with not one recorded attempt. A stalled *retry* would show rising `attempts` and exponential
+backoff; zero attempts on an overdue row means the drain never reached these rows at all.
+
+### The mechanism
+
+`federation-outbox.ts:202`. One drain pass groups leased entries by `(peer, plane)` and then:
+
+```ts
+for (const [key, entries] of batches) {
+  ...
+  const outcome = await this.deps.sender.deliver(peer, plane, frames.map((f) => f.raw));
+```
+
+The batches are delivered **strictly serially**, and `deliver` carries **no deadline** — a grep for
+`deadline|timeout|AbortSignal` across the federation adapters and this file finds exactly one hit,
+`timeoutMs: 100` in `two-node-harness.ts`, a test double. So:
+
+1. `docker network disconnect` **blackholes** b1 rather than refusing it. Connects hang; they do
+   not fail fast with a RST.
+2. b1's rows were enqueued first, so b1 sorts first in the `Map` (insertion order).
+3. The pass blocks on the b1 `deliver` with no deadline, and **every later peer in the same pass
+   waits behind it** — including the bridge.
+4. ~406 s later the connect finally gives up, the loop advances, and the whole backlog flushes to
+   the bridge at once.
+
+This is **head-of-line blocking across peers**, and the peer it starves is the one whose entire
+purpose is to route around the partition that caused the stall.
+
+### Why this matters more than the gate criterion
+
+The failure mode is not "a crossing is slow under partition". It is: **when a peer becomes
+unreachable, delivery to still-reachable peers stops.** That is the exact scenario the system
+exists for, and the bridge is the victim. A node with three peers, one of which is behind the cut,
+degrades to roughly the availability of its *worst* peer instead of its best — the inverse of what
+a multi-homed design is supposed to buy.
+
+It also explains an old observation cleanly. The two-node case could never show this: with one
+peer there is no head of line to block.
+
+### Not yet fixed — and deliberately not patched blind
+
+The structural fix is to stop letting one peer's I/O gate another's: deliver to peers concurrently
+(the batches are already independent by construction — grouped by peer, and FG-10 plane separation
+is enforced when the batch is formed), and bound each `deliver` with a deadline so an unreachable
+peer costs one timeout rather than an unbounded stall. Both changes are small; neither should land
+without a test that **fails on purpose** first — one unreachable peer plus one reachable peer, and
+the assertion is that the reachable peer is delivered to within a bounded time. Every gate in this
+repo has that property and this one must too.
+
+**Do NOT widen the TG-04 timeout.** 120 s is a reasonable bound for a three-envelope crossing that
+takes 3.2 s when the path is healthy. Widening it would convert a correctly-failing gate into a
+green one that hides a partition-availability defect — which is L-20 in the other direction: not a
+green in-process gate hiding a deployed failure, but a green deployed gate hiding a real one.
+
+**Lesson (L-31):** an overdue queue entry with **zero attempts** is a different failure from a
+failing one, and the difference is diagnostic. Retries that fail tell you about the destination;
+work that was never attempted tells you about the scheduler. The standing explanation — "it
+crosses, just slowly" — was consistent with every observation available at the post level, and
+survived precisely because nobody had measured the envelope *underneath* the post. Measuring the
+dependency chain rather than its last link is what turned a timeout story into a defect.
+
+**Verified:** gate re-run on a stack recreated with `-v`, 18/19, sole failure TG-04 crossing;
+per-envelope timings above measured from `envelopes.received_at_ms` on `jagoo_a1`, `jagoo_bridge`
+and `jagoo_b1` (shared host clock, zero skew by construction, same assumption as `scale-measure`);
+outbox state read directly from `federation_outbox` during the stall.
+
+---
+
+## 2026-08-19 — P3 is green: 19/19, and the crossing went from 407.6 s to 2.1 s
+
+**Fixed:** the head-of-line blocking characterised in the previous entry (L-31). `pnpm gate:isp`
+now reports **"every criterion passed"** on a stack recreated with `-v`. This is the first time the
+P3 container gate has ever been green.
+
+### The fix, in two parts
+
+`federation-outbox.ts` — `drain()` used to iterate `batches` serially and `await` each
+`sender.deliver`, with no deadline anywhere on the production path.
+
+1. **Peers are drained concurrently.** The batches are already independent by construction: they
+   are grouped by `(peer, plane)`, and FG-10 plane separation is decided when the batch is *formed*
+   rather than checked afterwards. So `Promise.all` over the batch map is sound without any further
+   isolation, and concurrency stays bounded by the lease size (64). The per-peer body moved to
+   `deliverBatch`, which returns its own counts rather than mutating shared ones.
+2. **Each `deliver` is bounded by a deadline** (`deliverTimeoutMs`, default 15 s). A cut link
+   blackholes rather than refuses, so without a deadline the pass waits on the OS TCP retry
+   schedule — measured at ~406 s. The timeout turns that into one failed attempt with ordinary
+   backoff. `withDeadline` deliberately does **not** cancel the underlying call: `FederationSender`
+   takes no `AbortSignal`, so what is bounded is how long the *drain* waits, not how long the
+   transport tries. That is the honest scope of the change and it is stated in the code.
+
+### Measured, same harness as before
+
+| | before fix | after fix |
+| --- | --- | --- |
+| crossing after the IX cut (post) | 407 581 ms | **2 084 ms** |
+| the three-envelope chain | 406.5 / 406.5 / 406.6 s | 0.5 / 1.2 / 2.1 s |
+| comparable, islands healthy | 3.2 s | 1.5 / 1.5 / 1.9 s |
+| gate | 18/19 | **19/19** |
+
+**195× on the crossing**, and post-cut latency is now indistinguishable from the healthy path —
+which is the property the bridge was supposed to provide all along and never did.
+
+### Gate, and why it fails on purpose
+
+`core/app/federation-outbox.spec.ts`, three assertions. The negative case is the one that matters:
+one peer's `deliver` never settles until the test releases it (a blackholed route neither succeeds
+nor is refused), and the reachable peer is registered **second** so it sorts second in the batch map
+— the same ordering as the deployed failure. Against the serial implementation the first test fails
+with `expected [] to include 'jbs1reachable'` (the reachable peer got *nothing*) and the other two
+hang until vitest times them out. Against the fix all three pass in 123 ms.
+
+The second test also asserts the timed-out row is left **retryable** rather than lost, and the third
+asserts the ledger records `OUT` only for the peer that actually acknowledged (FD-05) — so the fix
+cannot pass by declaring success for a peer it never reached.
+
+**Verified:** backend **529 passing** / 13 skipped (526 + these 3), `tsc --noEmit` clean, `eslint`
+clean, `pnpm gate:isp` 19/19.
+
+**Lesson (L-32):** independence that exists *by construction* is worth spending a comment on,
+because it is what makes a concurrency change safe to make later. The batches were always
+per-peer and always plane-separated at formation time — the serial loop was not protecting anything,
+it was just the order the code happened to be written in. The dangerous version of this bug is the
+one where the loop *is* load-bearing and nobody wrote down why; here the invariant was already
+enforced upstream, which is the only reason a one-line change from `for` to `Promise.all` is
+defensible rather than reckless.
+
+---
+
+## 2026-08-19 — Measuring our own DoS claim found a defect in the error path
+
+**Reported:** the paper asserts that because pipeline steps 1–12 perform no database writes, an
+invalid-envelope flood cannot amplify into write load. That is a claim about a denial-of-service
+surface and it had never been measured. `backend/src/cli/flood.js` measures it.
+
+### Why mutate a real envelope rather than send garbage
+
+Random bytes are refused at step 2 for a few microseconds and prove nothing. The expensive path is a
+**well-formed** envelope with a wrong signature, because that one must be parsed, canonicality-checked
+and then Ed25519-verified before it can be refused. So the tool lifts a genuine envelope off the
+node's own log and mutates one byte inside the signed region — which invalidates the signature **and**
+changes the content id, so every request is novel and none can be short-circuited by dedupe.
+
+### The claim holds, and the histogram is the interesting part
+
+3000 mutated envelopes at concurrency 16 against `jb-a1`:
+
+| | before the fix below | after |
+| --- | --- | --- |
+| rejection throughput | 440 req/s | **730 req/s** |
+| writes to `jagoo_a1` | **0** | **0** |
+| envelope log | unchanged (6) | unchanged (6) |
+| HTTP 500 | **8** | **0** |
+| RSS | 86 → 61 MiB | idem |
+
+**The negative result has a control.** "The profiler logged no writes" is worthless if the profiler
+was off, so the same profile is checked for *reads*: 6 query ops were captured over the window. The
+profiler was live and there were no writes.
+
+**A counter nearly produced a false claim.** `db.serverStatus().opcounters` showed `update` rising by
+160 during the flood against +32 idle, which read as "the flood does cause writes". It is a
+**server-wide** counter and `mongo-a` also hosts `jagoo_a2` and `jagoo_bridge` — that traffic was a2
+and the bridge federating normally. Only the collection-level profiler, scoped to one database,
+answers the question that was actually asked.
+
+**Only 9% of the flood reached signature verification; 90% was shed by the rate limiter first.** The
+no-write property is real but it is the *second* line of defence, and a flood figure that did not say
+which step did the rejecting would overstate what pipeline ordering contributes. Reported that way in
+the paper.
+
+### The defect: malformed input returned 500, and the error path was the amplifier
+
+8 of 3000 came back as HTTP 500 with a protobuf stack trace per request.
+`envelope.controller.ts:142` decoded untrusted bytes **outside the pipeline**, purely to label a
+metric — and a raw decoder exception is not an `EnvelopeRejected`, so it fell past the typed-rejection
+branch. Note the *batch* path immediately above it was already guarded; only the single-envelope path
+was not.
+
+Three things made it worth a gate rather than a one-line patch:
+
+- a stack trace per request lets the caller choose how fast the node fills its own disk;
+- the same bytes arriving over federation were refused politely, so the two ingress paths disagreed
+  about what "malformed" means;
+- **it was costing throughput** — removing it took rejection from 440 to 730 req/s, so the error path
+  was itself the amplifier.
+
+**Gate:** `http.spec.ts` drives four adversarial encodings that are valid base64 but invalid protobuf
+(`illegal tag field 14 wire type 7`, truncated length-delimited, wire types 6 and 7). Each returned
+`expected 500 to be less than 500` before the change. Backend 529 → **533**.
+
+**Lesson (L-33):** measure the claim you are about to publish, especially the one that sounds
+structural. The no-write property was true, but the run that confirmed it also surfaced a 500 on
+adversarial input, a server-wide counter that nearly became a false finding, and the fact that the
+rate limiter — not the pipeline ordering — does most of the work. None of that was visible from
+reading the code, and all of it changes what the paper can honestly say.
+
+---
+
+## 2026-08-19 — The `anonymous` option went missing, and the next build put three names on page 1
+
+**Found by accident** while editing the paper: `\documentclass` had become
+`[sigconf,review]` — no `anonymous`. The built PDF carried **10 identity strings** and a byline
+reading the first author's full name. NSysS 2026 is strictly double-blind; that is a desk reject, and
+nothing warned. The build was clean, the page count was right, and the PDF looked finished.
+
+**Fixed** by restoring `[sigconf,anonymous]`, and by adding `paper/check-submission.sh` so this cannot
+depend on someone remembering. It fails loudly on: the missing class option; any identity string in
+`pdftotext` output; identifying PDF metadata; page count outside 6–8; unresolved refs or citations;
+LaTeX errors; and identifying entries in `references.bib` (self-citation being the other way identity
+leaks). Run it immediately before uploading.
+
+**Also removed the `review` option.** It is what draws the line numbers down the margins. ACM does not
+require it and the NSysS CFP does not ask for it — it is a reviewer convenience for citing "line 347".
+
+**Lesson (L-34):** a property that is invisible when correct and catastrophic when wrong needs a
+check that runs, not a habit. Anonymity has exactly that shape: the anonymised build and the
+de-anonymised build differ by one word in one line, both compile, and only one of them is
+submittable.
+
+---
+
+## 2026-08-19 — The sweep that had to be thrown away, and the accident that proved why
+
+**Built:** `ops/sweep.sh` (node-count and drain-interval sweeps) and `ops/sweep-analyse.py`
+(least-squares fit with R² for both). Ran 8 configurations. **Discarded every number.**
+
+### What went wrong
+
+The sweep degraded monotonically as it proceeded:
+
+| config | delivered | hop-1 p50 | max |
+| --- | --- | --- | --- |
+| n=2, d=500 (first) | 100/100 | 597 ms | 3.2 s |
+| n=4, d=500 | 100/100 | 1348 ms | 2.8 s |
+| n=8, d=500 | 70–100/100 | 9614 ms | 187 s |
+| n=12, d=500 | 91–93/100 | 64638 ms | 198 s |
+| n=4, d=250 | 88/100 | 39614 ms | 183 s |
+| **n=4, d=500 (again)** | 100/100 | **6630 ms** | 55 s |
+
+The last row is the whole finding. **The same configuration, run twice in one sweep, disagreed
+with itself by 5×.** A parameter sweep whose control disagrees with itself is measuring the
+harness, not the system. Re-running that configuration after a full `down -v` and a fresh
+bring-up returned it to **888 ms, 100/100** — so the varying quantity was accumulated host
+contention across repeated build/up/down cycles, not chain length and not the drain interval.
+
+The fit made it obvious in hindsight: R² fell from 0.98 (n=4) to 0.83 (n=8) to **0.33** (n=12),
+and n=12 produced a 67-second intercept. A linear model with a 67 s intercept is not a model.
+
+### Why it was nearly published anyway
+
+The numbers were *precise* — three significant figures, tidy CSV, a regression with R². Precision
+is not accuracy, and a sweep is exactly the shape of evidence that looks rigorous while being
+worthless. The only reason it was caught is that `run_one` happened to visit `n=4, drain=500`
+twice, in sweep A and again as the mid-point of sweep B. **That repeat was unplanned.** A sweep
+that visits each configuration once has no internal control at all and would have shipped.
+
+**Kept instead:** the original 8-node / 200-sample run taken on a clean host with 200/200
+delivery. The paper now states plainly why it reports one configuration rather than a sweep, and
+Limitations says this testbed cannot separate a parameter effect from its own contention beyond a
+single clean run.
+
+**Lesson (L-35):** put a repeated configuration in every sweep, deliberately, and check it against
+itself before reading anything else. Ordering effects across long benchmark runs are invisible
+within any single run, and every summary statistic in the run will look fine. The control costs
+one extra configuration; without it, "we swept N and fitted a line" is an unfalsifiable claim
+about your own hardware.
+
+**Also worth keeping:** a negative latency appeared once (`min=-867` at n=2), which is a
+cross-node timestamp subtraction landing on the wrong side of zero. Harmless at this scale and
+stated in the tool's header as the shared-clock assumption — but it is the same class of hazard
+as L-28, where two readings were compared without establishing that they were ordered.
