@@ -25,6 +25,12 @@
 \newcommand{\LEFTcircle}{\ensuremath{\odot}}
 \newcommand{\Circle}{\ensuremath{\circ}}
 
+%% Tighter float separation. The paper carries seven floats; acmart's defaults leave more
+%% air around each than a two-column layout of this density needs.
+\setlength{\textfloatsep}{9pt plus 2pt minus 2pt}
+\setlength{\floatsep}{9pt plus 2pt minus 2pt}
+\setlength{\intextsep}{9pt plus 2pt minus 2pt}
+
 \settopmatter{printacmref=false}
 \renewcommand\footnotetextcopyrightpermission[1]{}
 \pagestyle{plain}
@@ -219,10 +225,9 @@ v7~\cite{rfc9171} are the architectural ancestor of anything that must survive a
 are stored and forwarded over whatever bearer exists, with no assumption of an end-to-end path. BPv7
 is the one prior system that covers our entire ladder, and we say so plainly in
 \S\ref{sec:comparison}. What it does not supply is a content model, an identity model, or moderation.
-It is also weaker on integrity than is commonly assumed: BPv7 itself delegates all of it to
-BPSec~\cite{rfc9172}, whose use on any individual bundle is optional even though implementing it is
-mandatory, and whose only default security context is HMAC-SHA2 with symmetric keys~\cite{rfc9173}. A
-default-context integrity block is therefore not verifiable by a third party.
+It is also weaker on integrity than is commonly assumed: BPv7 delegates it to BPSec~\cite{rfc9172},
+whose use per bundle is optional and whose only default context is HMAC-SHA2 with symmetric
+keys~\cite{rfc9173} --- so a default-context integrity block is not third-party verifiable.
 
 \paragraph{Mesh messaging.} Serval's Rhizome~\cite{gardnerstephen2011serval} distributes signed
 bundles over ad-hoc links with no infrastructure whatsoever, and remains the strongest prior art for
@@ -287,11 +292,10 @@ the parsed object into Canonical JSON, and checks the signature against the resu
 The verifier therefore checks a signature against bytes it produced itself, and an intermediary may
 re-serialise an event freely without invalidating it.
 
-Cosmos SDK takes the opposite position and rejects canonicalisation outright, stating that
-verification ``is based on comparing the raw \texttt{TxBody} and \texttt{AuthInfo} bytes \ldots not
-based on any `canonicalization' algorithm which creates added complexity for clients in addition to
-preventing some forms of upgradeability''~\cite{cosmosadr020}. Whatever bytes the sender emitted are
-by construction the contract; there is nothing to reject.
+Cosmos SDK rejects canonicalisation outright: verification compares ``the raw \texttt{TxBody} and
+\texttt{AuthInfo} bytes \ldots not based on any `canonicalization' algorithm'', which it argues adds
+client complexity and prevents ``some forms of upgradeability''~\cite{cosmosadr020}. Whatever bytes
+the sender emitted are the contract; there is nothing to reject.
 
 We take the verification rule of the second and the insistence on a defined canonical form of the
 first, and order them differently. The signature is checked against \textbf{the bytes as they
@@ -322,43 +326,18 @@ response is a version bump rather than an in-place contract edit.
 
 \subsection{The validation pipeline}
 
-Every envelope, from every transport, runs an identical nineteen-step pipeline
-(Figure~\ref{fig:pipeline}). Two properties of its ordering carry most of the weight.
+Every envelope, from every transport, runs an identical nineteen-step pipeline. Two properties of
+its ordering carry most of the weight.
 
-\begin{figure}[t]
-\centering
-\begin{tikzpicture}[
-  font=\footnotesize,
-  box/.style={draw,rounded corners=1pt,minimum height=4.2mm,inner xsep=2pt},
-  >={Stealth[length=1.4mm]}
-]
-\node[box,fill=black!5] (a) at (0,0) {1--12\ \ parse, verify, dedupe, replay};
-\node[box,fill=black!12,below=2.2mm of a] (b) {13--15\ \ anti-abuse, authorise, validate};
-\node[box,fill=black!20,below=2.2mm of b] (c) {16--19\ \ apply, witness, receipt, fanout};
-\draw[->] (a) -- (b);
-\draw[->] (b) -- (c);
-\node[right=2mm of a,align=left,font=\scriptsize\itshape] {no database writes};
-\node[right=2mm of c,align=left,font=\scriptsize\itshape] {16--17 atomic};
-\end{tikzpicture}
-\caption{The ingress pipeline. Steps 1--12 perform no writes, so an invalid-envelope flood cannot
-amplify into database load. Steps 16 and 17 are atomic with respect to each other: a projected
-envelope missing from the Merkle log would be a transparency failure.}
-\label{fig:pipeline}
-\end{figure}
+\textbf{Steps 1--12 perform no database writes.} Everything through dedupe and replay completes
+before anything is persisted, so an invalid-envelope flood consumes CPU but cannot amplify into write
+load (\S\ref{sec:flood}).
 
-\textbf{Steps 1--12 perform no database writes.} Size, parse, version, domain, plane, algorithm
-policy, priority, clock, signature, certificate, dedupe and replay all complete before anything is
-persisted. An attacker flooding invalid envelopes therefore consumes CPU but cannot amplify into
-write load.
-
-\textbf{Steps 16 and 17 are atomic with respect to each other.} Projection and the append to the
-Merkle log occur in one transaction. An envelope visible in a projection but absent from the log
-would be exactly the transparency failure the log exists to prevent, so the storage layer must
-support multi-document transactions; this is a real deployment constraint and not an implementation
-detail.
-
-Each step is an independently testable pure function, and the pipeline is composed from them rather
-than written as one procedure.
+\textbf{Steps 16 and 17 are atomic with respect to each other.} Projection and the Merkle append
+occur in one transaction: an envelope visible in a projection but absent from the log is exactly the
+transparency failure the log exists to prevent. The storage layer must therefore support
+multi-document transactions --- a deployment constraint, not an implementation detail. Each step is
+an independently testable pure function.
 
 %% ────────────────────────────────────────────────────────────────────────────
 \section{Federating Across a Partition}
@@ -370,24 +349,24 @@ links.
 
 \subsection{Four rules that carry the weight}
 
-\paragraph{A peer's bytes are never re-encoded.} The transport uses a passthrough codec. Because the
-decoder establishes canonicality by re-encoding and comparing (\S\ref{sec:canonical}), any round trip
-through a generated codec in the network adapter would silently repair a non-canonical envelope from
-an untrusted peer, which would then validate --- the precise hazard the admission gate exists to
-foreclose, arriving over the network and bypassing the gate.
+\paragraph{A peer's bytes are never re-encoded.} The transport uses a passthrough codec. Since the
+decoder establishes canonicality by re-encoding and comparing (\S\ref{sec:canonical}), a round trip
+through a generated codec in the network adapter would silently repair an untrusted peer's
+non-canonical envelope into one that validates --- the exact hazard the admission gate exists to
+foreclose, arriving over the network and bypassing it.
 
 \paragraph{Trust bounds volume, never validity.} Inbound envelopes re-run all nineteen steps. A
 trusted peer's forged envelope is rejected exactly as a stranger's is. Trust determines quota and
 which priority classes a peer may push, and nothing else.
 
-\paragraph{Deduplication is a unique index, not a read-then-write.} The pair
-$(\textit{content\_id}, \textit{direction})$ is a uniqueness constraint in the database. A
-read-then-write check is unsound under the concurrency federation actually produces, where an
-overlapping activity stream and a backfill can deliver the same envelope simultaneously.
+\paragraph{Deduplication is a unique index, not a read-then-write.} $(\textit{content\_id},
+\textit{direction})$ is a uniqueness constraint in the database; a read-then-write check is unsound
+under the concurrency federation produces, where an overlapping stream and a backfill can deliver one
+envelope twice at once.
 
 \paragraph{An envelope is never relayed to its sender.} The pipeline carries the origin peer and
-excludes it from fanout. Content dedupe alone makes such a loop terminate, but it does not make it
-free: without this, every envelope pays a full round trip before being discarded.
+excludes it from fanout. Content dedupe makes such a loop terminate but not free: without this, every
+envelope pays a round trip before being discarded.
 
 \subsection{Two invariants, and the failures that produced them}
 
@@ -408,6 +387,27 @@ unaffected: what is skipped is a payment, not a check.
 A related consequence is that a peer exceeding quota is not disconnected. It would reconnect
 immediately, pay the handshake again, and arrive in the same state, so refusing costs more than
 accepting. The hint lets a well-behaved peer self-regulate, and a peer that ignores it is demoted.
+
+\subsection{Federating from a node nothing can dial}
+\label{sec:cgnat}
+
+Server-to-server delivery in ActivityPub, Matrix and the AT Protocol is a \emph{push to an address
+the receiver publishes}, so a node with no inbound reachability cannot receive at all unless a third
+party holds an address for it. In the deployments this paper is about that is the common case, not
+the corner case: a community node is a machine in somebody's home, behind carrier-grade NAT. We make
+reachability an asymmetry rather than a requirement --- a node may advertise \emph{no} endpoints and
+still federate both ways:
+
+\begin{itemize}\itemsep1pt
+  \item \textbf{outbound} is the durable outbox draining over a connection the node opened;
+  \item \textbf{inbound} is a resumable backfill the node \emph{requests}, also over a connection it
+    opened --- so nothing is pushed to it and nothing needs to reach it.
+\end{itemize}
+
+The property is asserted rather than argued: an unreachable node is introduced to a peer, the peer
+records it with an empty endpoint list and can never dial it, and the test then shows a post
+published on the unreachable node arriving at the peer, and a post published on the peer arriving at
+the unreachable node. Neither direction is initiated by the reachable side.
 
 \subsection{Fork detection when a consistency proof is unavailable}
 \label{sec:fork}
@@ -489,12 +489,11 @@ backlog cannot starve emergency broadcasts.
 \section{Adversary and Scope}
 \label{sec:adversary}
 
-We assume an adversary that controls routing within its own autonomous system, can withdraw or
-null-route prefixes, can perform deep packet inspection on transit it carries, can block by SNI, IP
-or DNS, can throttle selectively, can partition the country or one ISP from another, and can operate
-its own nodes and federate with honest ones. We assume it cannot break Ed25519 or SHA-256, cannot
-extract signing keys from an uncompromised device, is not a \emph{global} passive observer, and does
-not control a majority of the peer set.
+We assume an adversary that controls routing within its own autonomous system, can null-route
+prefixes, inspect and block transit it carries, throttle selectively, partition the country or one
+ISP from another, and operate its own nodes as a legitimate peer. We assume it cannot break Ed25519
+or SHA-256, cannot extract keys from an uncompromised device, is not a \emph{global} passive
+observer, and does not control a majority of the peer set.
 
 Within that model the design resists: content suppression by a server, since content is valid the
 instant its author signs it and withheld approval is removed as a mechanism rather than policed;
@@ -503,21 +502,19 @@ undetected log rewriting, via gossiped tree heads; write amplification from inva
 no-write prefix of the pipeline; and loss of reach under partition, via scope-aware path selection
 and bridging.
 
-We state the exclusions at full strength, because they are numerous and deliberate. There is
-\textbf{no traffic-analysis resistance}: no cover traffic, no mixing, and an observer on both islands
-can correlate flows. There is \textbf{no transport metadata protection}: an ISP sees that a node
-federates, roughly with whom, and how much. There is \textbf{no endpoint-compromise resistance}
-beyond revocation, and revocation only helps once it reaches peers, which is what the adversary is
-attacking. Fork detection \textbf{assumes an honest observer} exists to gossip a conflicting head.
-There is \textbf{no formal unlinkability proof} between the system's pseudonymous and identified
-identity planes; the separation is architectural and unaccompanied by an anonymity-set analysis.
-Sybil resistance is \textbf{deliberately not derived from identity} --- cost is the anti-abuse
-primitive, because requiring identity to stop spam hands the adversary a censorship lever --- which
-bounds the rate of abuse but not the number of identities.
+The exclusions are numerous and deliberate. There is \textbf{no traffic-analysis resistance} --- no
+cover traffic, no mixing, and an observer on both islands can correlate flows --- and \textbf{no
+transport metadata protection}: an ISP sees that a node federates, roughly with whom and how much.
+\textbf{Endpoint compromise} is out of scope beyond revocation, which only helps once it reaches
+peers, which is what the adversary is attacking. Fork detection \textbf{assumes one honest observer}
+gossips a conflicting head. There is \textbf{no formal unlinkability proof} between the pseudonymous
+and identified identity planes; the separation is architectural. And Sybil resistance is
+\textbf{deliberately not derived from identity} --- cost is the anti-abuse primitive, because
+requiring identity to stop spam hands the adversary a censorship lever --- so it bounds the rate of
+abuse, not the number of identities.
 
-Each exclusion could be bought, and each would be bought with availability or with the ability to run
-on a single-board computer over an intermittent link. Where a defence and reach conflict, we choose
-reach and state the limit.
+Each exclusion could be bought with availability, or with the ability to run on a single-board
+computer over an intermittent link. Where a defence and reach conflict we choose reach, and say so.
 
 %% ────────────────────────────────────────────────────────────────────────────
 \section{Evaluation}
@@ -568,17 +565,16 @@ on both and binds each outbound connection to the corresponding uplink's source 
 \paragraph{Why one configuration and not a sweep.} We attempted to sweep chain length and drain
 interval and discarded the result. One configuration happened to repeat, and it disagreed with
 itself: an identical four-node, 500\,ms run measured 1348\,ms at the first hop early in the sweep and
-6630\,ms later, with delivery falling to 88\%. Recreating the host returned it to 888\,ms and 100\%.
-The varying quantity was host contention, not the parameter. We therefore report one clean
-configuration rather than a sweep whose independent variable we could not isolate.
+6630\,ms later, with delivery falling to 88\%. Recreating the host returned it to 888\,ms and 100\%:
+the varying quantity was host contention, not the parameter. We report one clean configuration rather
+than a sweep whose independent variable we could not isolate.
 
 We measure propagation from the timestamp each node records when it stores an envelope, inside the
 same transaction as the projection. A hop's latency is therefore a subtraction between two numbers
-the system wrote for its own reasons, with no observer in the path. This is valid here only because
-all containers share the host clock, so skew is zero by construction; a geographically distributed
-deployment would need NTP discipline and an error bar. Our first propagation figure was produced by
-publishing on one node and polling another over HTTP, which reported 623--857\,ms; that number is an
-upper bound charged for a poll interval plus a round trip, and we discarded it.
+the system wrote for its own reasons, with no observer in the path. This is valid here only because all
+containers share the host clock, so skew is zero by construction; a distributed deployment would need
+NTP discipline and an error bar. An earlier figure obtained by polling over HTTP is an upper bound
+charged for a poll interval plus a round trip, and was discarded.
 
 \subsection{Cross-implementation agreement}
 \label{sec:eval-vectors}
@@ -595,6 +591,12 @@ objection that two implementations will eventually disagree.
 
 With the two-node deployment, a post published on one node projects on the other with an identical
 content identifier and an origin-derived community identifier, across fully independent datastores.
+Two recoverability properties are asserted rather than assumed. Rebuilding every populated collection
+from the envelope log alone reproduces it \emph{byte-identically}, so restoring a node needs the log
+and nothing else. And the client recomputes signature status and log inclusion on device from the
+provenance block, rejecting a receipt signed by a key other than the one it names, a tree head not
+covering the content, and a content identifier lifted from a \emph{different} envelope --- the
+relay-relabelling attack, refused on the client.
 The federation suite covers 31 assertions spanning admission, quota, streaming, resumable backfill,
 tree-head gossip with fork detection, and directory exchange.
 
@@ -674,12 +676,11 @@ Section~\ref{sec:design} claims that because steps 1--12 perform no database wri
 invalid envelopes costs CPU but cannot amplify into write load. That is a claim about a denial-of-service
 surface, so we measured it rather than asserting it.
 
-Random bytes would be a weak test: they are refused at parse for a few microseconds and never reach
-anything expensive. The costly case is a \emph{well-formed} envelope whose signature is wrong, because
-that one must be parsed, checked for canonicality and then verified before it can be refused. We
-therefore took a genuine envelope from the node's own log and mutated one byte inside the signed
-region, which both invalidates the signature and changes the content identifier --- so every request is
-a novel envelope and none can be short-circuited by deduplication.
+Random bytes are a weak test: they die at parse in microseconds. The costly case is a
+\emph{well-formed} envelope with a wrong signature, which must be parsed, checked for canonicality and
+verified before it can be refused. We took a genuine envelope from the node's own log and mutated one
+byte inside the signed region --- invalidating the signature and changing the content identifier, so
+every request is novel and none is short-circuited by deduplication.
 
 Against a single node, 3000 such envelopes at concurrency~16 were absorbed at \textbf{730\,req/s}, and
 the node's database recorded \textbf{zero writes}: the envelope log was unchanged, and a
@@ -816,8 +817,8 @@ HTTP Signature header that no third party can check against a stored object. A s
 comparison would widen the gap, not narrow it. We also measure no HTTP framing on either side, and
 count one activity where real delivery is per-follower fanout.
 
-This measures per-message cost on a constrained link and nothing else. JSON-LD buys extensibility and
-semantic interoperation that a fixed schema does not, and we measure none of that.
+This measures per-message cost on a constrained link and nothing else: JSON-LD buys extensibility
+and semantic interoperation a fixed schema does not, and we measure none of it.
 
 %% ────────────────────────────────────────────────────────────────────────────
 \section{Comparison with Related Systems}
@@ -830,34 +831,39 @@ turns on. Every cell was checked against the system's own specification.
 \begin{table}[t]
 \caption{Capability comparison. \CIRCLE~provided and specified, \LEFTcircle~partial, optional or
 non-normative, \Circle~not provided, $\ast$~implemented here but never observed end to end
-(\S\ref{sec:limitations}). \textsc{nf}~indicates the specification is silent.}
+(\S\ref{sec:limitations}). \textsc{nf}~indicates the specification is silent. \emph{No inbound} means
+a node with no reachable address still federates in both directions (\S\ref{sec:cgnat}).}
 \label{tab:matrix}
 \scriptsize
 \setlength{\tabcolsep}{3.2pt}
-\begin{tabular}{lccccccc}
+\begin{tabular}{lcccccccc}
 \toprule
- & L0--L3 & L4--L5 & signed & verify & no re- & log & tomb- \\
- & span & span & at rest & w/o srv & encode & gossip & stone \\
+ & L0--L3 & L4--L5 & no in- & signed & verify & no re- & log & tomb- \\
+ & span & span & bound & at rest & w/o srv & encode & gossip & stone \\
 \midrule
-DTN / BPv7        & \CIRCLE     & \CIRCLE     & \LEFTcircle & \Circle & \textsc{nf} & \textsc{nf} & --- \\
-Serval (Rhizome)  & \LEFTcircle & \CIRCLE     & \CIRCLE     & \CIRCLE & \textsc{nf} & \textsc{nf} & \Circle \\
-Bridgefy          & \Circle     & \LEFTcircle & \Circle     & \Circle & ---         & \Circle     & --- \\
-ActivityPub       & \LEFTcircle & \Circle     & \LEFTcircle & \Circle & \Circle     & \Circle     & \LEFTcircle \\
-Matrix            & \LEFTcircle & \Circle     & \CIRCLE     & \CIRCLE & \Circle     & \Circle     & \CIRCLE \\
-AT Protocol       & \Circle     & \Circle     & \CIRCLE     & \Circle & \CIRCLE     & \Circle     & \Circle \\
-\textbf{This work}& \CIRCLE     & $\ast$      & \CIRCLE     & \CIRCLE & \CIRCLE     & \CIRCLE     & \CIRCLE \\
+DTN / BPv7        & \CIRCLE     & \CIRCLE     & \CIRCLE & \LEFTcircle & \Circle & \textsc{nf} & \textsc{nf} & --- \\
+Serval (Rhizome)  & \LEFTcircle & \CIRCLE     & \CIRCLE & \CIRCLE     & \CIRCLE & \textsc{nf} & \textsc{nf} & \Circle \\
+Bridgefy          & \Circle     & \LEFTcircle & \CIRCLE & \Circle     & \Circle & ---         & \Circle     & --- \\
+ActivityPub       & \LEFTcircle & \Circle     & \Circle & \LEFTcircle & \Circle & \Circle     & \Circle     & \LEFTcircle \\
+Matrix            & \LEFTcircle & \Circle     & \Circle & \CIRCLE     & \CIRCLE & \Circle     & \Circle     & \CIRCLE \\
+AT Protocol       & \Circle     & \Circle     & \Circle & \CIRCLE     & \Circle & \CIRCLE     & \Circle     & \Circle \\
+\textbf{This work}& \CIRCLE     & $\ast$      & \CIRCLE & \CIRCLE     & \CIRCLE & \CIRCLE     & \CIRCLE     & \CIRCLE \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Four entries deserve comment because they cut against us. \textbf{DTN spans the whole ladder}, and
-more cheaply, because that is exactly what it was designed for; what it lacks is everything above the
-bearer. \textbf{Both DTN and Serval beat us on the lower rungs}, where our own entry is $\ast$ rather
-than \CIRCLE\ --- we have code but no observation, and they have deployments. \textbf{Serval verifies
-without a server more simply than we do}: its bundle identifier is the verification key, whereas we
-resolve a certificate. And \textbf{Matrix's redaction preserves more than is commonly assumed} --- the
-event remains in the graph with its identifier, sender, timestamp, parent links, hashes and
-signatures intact.
+Four entries cut against us. \textbf{DTN spans the whole ladder} and more cheaply, being designed for
+exactly that; what it lacks is everything above the bearer. \textbf{DTN and Serval both beat us on the
+lower rungs}, where our entry is $\ast$ --- we have code, they have deployments. \textbf{Serval
+verifies without a server more simply}: its bundle identifier \emph{is} the key, where we resolve a
+certificate. And \textbf{Matrix's redaction preserves more than is commonly assumed} --- the event
+stays in the graph with its identifier, sender, timestamp, parent links, hashes and signatures.
+
+The \emph{no inbound} column is where the federated systems separate from the rest. ActivityPub,
+Matrix and the AT Protocol all deliver by pushing to an address the receiver publishes, so a receiver
+behind carrier-grade NAT cannot participate without a third party holding an address for it. The
+store-and-forward systems score \CIRCLE\ here for the same reason we do: a property we share with
+DTN and Serval, not one we invented.
 
 Two entries are frequently misread in the other direction. ActivityPub scores \LEFTcircle\ on
 tombstoning because Activity Streams 2.0~\cite{activitystreams} does define a \texttt{Tombstone} type and the dominant
@@ -876,11 +882,10 @@ novelty --- is what this paper reports.
 \section{Limitations}
 \label{sec:limitations}
 
-\textbf{The lower rungs are unobserved.} L4 and L5 are implemented and unit-tested but have never
-been exercised end to end. No phone-to-phone mesh has run between two real handsets --- the available
-devices were on different subnets, so local discovery could not see across them --- no long-range
-radio stack has reached a running state on a device, and no physical radio drill has been performed.
-These are marked $\ast$ in Table~\ref{tab:matrix} and no claim in this paper depends on them.
+\textbf{The lower rungs are unobserved.} L4 and L5 are implemented and unit-tested but never
+exercised end to end: no phone-to-phone mesh between real handsets (the available devices were on
+different subnets, so discovery could not see across them), no radio stack running on a device, no
+physical drill. These are marked $\ast$ in Table~\ref{tab:matrix} and no claim here depends on them.
 
 \textbf{Everything is measured in containers on one host, and that host is a confound.} Clock skew is
 zero by construction, the network is a virtual bridge, and one storage engine is shared by several
@@ -892,8 +897,8 @@ therefore remain unswept, and no wide-area, lossy-link or real-radio measurement
 \textbf{Unlinkability is architectural, not proven.} The separation between identity planes has no
 formal argument and no anonymity-set analysis.
 
-\textbf{Single-operator testbed.} Every node was configured by us. We have not observed the trust
-dynamics --- probationary admission, vouching, demotion --- under independent operators, which is
+\textbf{Single-operator testbed.} Every node was configured by us, so the trust dynamics ---
+probationary admission, vouching, demotion --- are unobserved under independent operators, which is
 where they matter.
 
 %% ────────────────────────────────────────────────────────────────────────────
@@ -908,26 +913,17 @@ in-process harness can make, such as reading \texttt{/proc/net/tcp} to confirm w
 socket actually left from.
 
 \paragraph{An overdue queue entry with zero attempts is a different failure from a failing one.}
-This is the finding we would most want another team to take away. The container gate failed one
-criterion --- a post crossing after an exchange was cut --- and the standing explanation was that the
-crossing was merely slow. Measuring the three-envelope dependency chain instead of the post showed
-the crossing cost 3.2\,s before the cut and 407.6\,s after it, and that 406.5\,s of that was the
-origin node failing to hand off to the bridge, while the bridge itself relayed in 1.1\,s throughout.
-During the stall every outbound row sat at \emph{zero attempts} while overdue by 150 seconds. Retries
-that fail tell you about the destination; work never attempted tells you about the scheduler.
+This is the finding we would most want another team to take away. The bridged crossing of
+\S\ref{sec:eval} cost 407.6\,s after the cut, and the standing explanation was that it was merely
+slow. It was not: every outbound row sat at \emph{zero attempts} while overdue by 150 seconds.
+Retries that fail tell you about the destination; work never attempted tells you about the scheduler.
 
-The cause was that one drain pass delivered to peers serially with no deadline. A severed link
-blackholes rather than refuses, so a connection attempt to the unreachable peer neither succeeded nor
-errored, and every peer behind it in the same pass waited --- including the bridge, whose entire
-purpose is to route around the partition that caused the stall. A node with three peers degraded to
-the availability of its \emph{worst} peer instead of its best, inverting what multi-homing is
-supposed to buy.
-
-Delivering to peers concurrently and bounding each attempt with a deadline reduced the post-cut
-crossing from \textbf{407.6\,s to 2.1\,s}, a factor of 195, and took the container partition gate
-from 18 of 19 criteria to all 19. A two-peer deployment could never have exposed this: with one peer
-there is no head of line to block, which is why it survived both the single-node and the two-node
-phases and was caught only when a third peer became unreachable while the others stayed up.
+The cause was a drain pass that delivered to peers serially with no deadline. A severed link
+blackholes rather than refuses, so the attempt to the unreachable peer neither succeeded nor errored
+and every peer behind it waited --- including the bridge, whose purpose is to route around the
+partition that caused the stall. The node degraded to the availability of its \emph{worst} peer
+instead of its best, inverting what multi-homing buys. Draining peers concurrently under a deadline
+returned the crossing to 2.1\,s and the gate to 19 of 19.
 
 %% ────────────────────────────────────────────────────────────────────────────
 \section{Conclusion}
