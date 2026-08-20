@@ -1,0 +1,944 @@
+%% NSysS 2026 — full paper submission
+%% ACM sigconf. DOUBLE-BLIND: the `anonymous` option is load-bearing. Do not remove it,
+%% do not add \acks, and do not name the artefact or link a repository anywhere.
+\documentclass[sigconf,anonymous]{acmart}
+
+\usepackage{booktabs}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+%% One palette for every figure. Chosen to stay legible in greyscale print, which is
+%% how a reviewer is most likely to read it: the three series differ in lightness, not
+%% only in hue, and every series also carries a distinct mark.
+\definecolor{jbInk}{HTML}{1F2933}
+\definecolor{jbBlue}{HTML}{2C6E9B}
+\definecolor{jbTeal}{HTML}{3F8F7A}
+\definecolor{jbAmber}{HTML}{C6873B}
+\definecolor{jbRose}{HTML}{A8465F}
+\definecolor{jbMist}{HTML}{DDE3E8}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds}
+
+%% Capability glyphs. Math-mode rather than wasysym (which redefines glyphs acmart also
+%% defines) and rather than TikZ (which breaks inside \caption, a moving argument).
+\newcommand{\CIRCLE}{\ensuremath{\bullet}}
+\newcommand{\LEFTcircle}{\ensuremath{\odot}}
+\newcommand{\Circle}{\ensuremath{\circ}}
+
+%% Tighter float separation. The paper carries seven floats; acmart's defaults leave more
+%% air around each than a two-column layout of this density needs.
+\setlength{\textfloatsep}{9pt plus 2pt minus 2pt}
+\setlength{\floatsep}{9pt plus 2pt minus 2pt}
+\setlength{\intextsep}{9pt plus 2pt minus 2pt}
+
+\settopmatter{printacmref=false}
+\renewcommand\footnotetextcopyrightpermission[1]{}
+\pagestyle{plain}
+
+\AtBeginDocument{%
+  \providecommand\BibTeX{{\normalfont B\kern-0.5em{\scshape i\kern-0.25em b}\kern-0.8em\TeX}}}
+\setcopyright{none}
+\acmConference[NSysS 2026]{The 13th International Conference on Next-generation
+  Computing, Communication, Systems and Security}{December 17--19,
+  2026}{Cox's Bazar, Bangladesh}
+\acmYear{2026}
+\copyrightyear{2026}
+
+\begin{document}
+
+\title{Islands of Reach: Federated Content Delivery Across ISP-Level
+Network Partitions}
+
+%% ── AUTHORS ────────────────────────────────────────────────────────────────
+%% SUPPRESSED IN SUBMISSION. The `anonymous` option on \documentclass replaces this
+%% entire block with "Anonymous Author(s)". Verify with:
+%%     pdftotext main.pdf - | grep -i zihad     -> must print nothing
+%% For the camera-ready, delete `anonymous` from \documentclass.
+\author{Tasmir Hossain Zihad}
+\affiliation{%
+  \institution{Khulna University of Engineering \& Technology}
+  \department{Department of Computer Science and Engineering}
+  \city{Khulna}
+  \country{Bangladesh}}
+
+\author{Sarwad Hasan Siddiqui}
+\affiliation{%
+  \institution{Khulna University of Engineering \& Technology}
+  \department{Department of Computer Science and Engineering}
+  \city{Khulna}
+  \country{Bangladesh}}
+
+\author{Rezuan Mustafa Hasan}
+\affiliation{%
+  \institution{Khulna University of Engineering \& Technology}
+  \department{Department of Computer Science and Engineering}
+  \city{Khulna}
+  \country{Bangladesh}}
+
+\begin{abstract}
+Network shutdowns are not a switch but a ladder: the 2024 disruption in Bangladesh combined
+throttling, platform blocking, TLS interference and a five-day national blackout. Systems built for
+the open internet stop at the first rung. We present a federated content substrate that keeps
+operating as connectivity degrades from global reach, through a national partition, to isolated ISP
+islands rejoined by a multi-homed bridge. Every mutation is a self-authenticating signed envelope
+validated by an identical nineteen-step pipeline whatever transport carried it, so peer trust bounds
+volume and never validity. Admission cost is charged at the origin and a per-peer quota protects the
+receiver, because node-local anti-abuse secrets cannot gate federated content. We evaluate on a
+container testbed with independent datastores and separate address spaces, reporting multi-hop
+propagation latency, per-scope path selection, resident memory and encoded message sizes against a
+measured JSON-LD federation baseline. We also report a partition-availability defect that only a
+deployed multi-peer testbed could expose --- one unreachable peer stalled delivery to every reachable
+one, costing 407\,s per crossing until it was isolated and bounded --- and we state exactly which
+rungs of the ladder remain unmeasured, and why.
+\end{abstract}
+
+\begin{CCSXML}
+<ccs2012>
+<concept><concept_id>10003033.10003106.10003113</concept_id>
+<concept_desc>Networks~Network reliability</concept_desc>
+<concept_significance>500</concept_significance></concept>
+<concept><concept_id>10002978.10003014.10003017</concept_id>
+<concept_desc>Security and privacy~Distributed systems security</concept_desc>
+<concept_significance>300</concept_significance></concept>
+</ccs2012>
+\end{CCSXML}
+\ccsdesc[500]{Networks~Network reliability}
+\ccsdesc[300]{Security and privacy~Distributed systems security}
+
+\keywords{federation, network partitions, censorship resilience, delay-tolerant
+networking, transparency logs, canonical encoding}
+
+\maketitle
+
+%% ────────────────────────────────────────────────────────────────────────────
+\section{Introduction}
+
+Internet shutdowns are usually described as binary, and they are not. Measurements of the July--August
+2024 disruption in Bangladesh record a sequence of distinct technical conditions~\cite{ooni2024}:
+selective throttling, blocking of individual platforms, interference with TLS handshakes, and finally
+a national blackout lasting five days, followed by a period in which domestic connectivity returned
+while international transit did not. Each of these breaks a different assumption, and a system that
+handles one may fail completely at the next.
+
+We find it useful to name the conditions as rungs of a ladder. \textbf{L0} is unimpeded global reach.
+\textbf{L1} is a national partition: hosts inside the country can reach each other but not the
+outside. \textbf{L2} is an ISP island, where even domestic peering is severed and a network can reach
+only its own subscribers. \textbf{L3} is two or more such islands rejoined by an operator that holds
+transit on both. \textbf{L4} is a local segment with no infrastructure at all, and \textbf{L5} is
+long-range radio. Figure~\ref{fig:ladder} summarises the ladder and marks how far our evaluation
+reaches.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\scriptsize,
+  rung/.style={draw=jbInk,line width=0.4pt,minimum height=4.6mm,inner xsep=3pt,anchor=west},
+  ours/.style={rung,fill=jbTeal!22},
+  unob/.style={rung,fill=jbMist,dashed},
+  lbl/.style={font=\scriptsize\itshape,anchor=west,text=jbInk}
+]
+\def\W{40mm}
+\foreach \i/\name/\what/\sty in {
+  0/L0/global reach/ours,
+  1/L1/national partition/ours,
+  2/L2/ISP island/ours,
+  3/L3/bridged islands/ours,
+  4/L4/local mesh/unob,
+  5/L5/long-range radio/unob}
+{
+  \node[\sty,minimum width=\W] (r\i) at (0,{-\i*5.6mm}) {\makebox[\W][l]{\ \textbf{\name}\ \ \what}};
+}
+% who cuts each rung
+\node[lbl] at (42mm,0)        {—};
+\node[lbl] at (42mm,-5.6mm)   {transit withdrawn};
+\node[lbl] at (42mm,-11.2mm)  {domestic peering cut};
+\node[lbl] at (42mm,-16.8mm)  {operator bridges};
+\node[lbl] at (42mm,-22.4mm)  {no infrastructure};
+\node[lbl] at (42mm,-28.0mm)  {no IP at all};
+% coverage brackets
+\draw[jbTeal,line width=1pt] (-2.2mm,1.9mm) -- (-2.2mm,-18.7mm);
+\node[rotate=90,anchor=south,font=\scriptsize\bfseries,text=jbTeal]
+  at (-3.4mm,-8.4mm) {measured};
+\draw[jbInk!45,line width=1pt,dashed] (-2.2mm,-19.3mm) -- (-2.2mm,-30.1mm);
+\node[rotate=90,anchor=south,font=\scriptsize,text=jbInk!55]
+  at (-3.4mm,-24.7mm) {unobserved};
+\end{tikzpicture}
+\caption{The resilience ladder. Each rung is cut by a different action, and a system that survives
+one may fail entirely at the next. This paper measures L0--L3. L4 and L5 are implemented but have
+never been observed end to end (\S\ref{sec:limitations}), and no claim here rests on them.}
+\label{fig:ladder}
+\end{figure}
+
+The gap this paper addresses is that the two mature families of systems sit at opposite ends of this
+ladder and neither spans it. Federated social systems --- ActivityPub~\cite{activitypub},
+Matrix~\cite{matrixspec}, the AT Protocol~\cite{atproto} --- assume L0 and degrade to unavailability
+at L1, because federation is defined in terms of reaching a named remote host. Delay-tolerant and
+mesh systems --- DTN~\cite{fall2003dtn,rfc9171}, Serval~\cite{gardnerstephen2011serval},
+Bridgefy~\cite{albrecht2021bridgefy} --- begin at L4 and provide no content, identity or moderation
+model of the kind a public forum needs. A population under a shutdown needs the middle of the ladder,
+which is where neither family operates.
+
+We are explicit at the outset that the \emph{mechanisms} we use are not new. Content addressed by the
+hash of its canonical encoding, signed at rest, is Nostr~\cite{nostr} and Secure
+Scuttlebutt~\cite{tarr2019ssb}. Gossiped tree heads for detecting log rewriting is Certificate
+Transparency~\cite{rfc6962}. Separating credential issuance from credential verification is Privacy
+Pass~\cite{davidson2018privacypass}. Preferring the narrowest working path and keeping alternates warm
+is ICE~\cite{rfc8445} and MPTCP~\cite{rfc8684}. Our contribution is the composition, the invariants
+that composition forces, and what it costs when measured.
+
+\noindent This paper contributes:
+
+\begin{itemize}
+  \item \textbf{Canonicalisation as an \emph{admission} predicate, and the three-position design
+    space it completes.} Prior systems either canonicalise inside the verifier (Matrix) or refuse to
+    define a canonical form at all (Cosmos SDK). We show these are two of three positions, take the
+    third, and give the property it buys: no canonicalisation function is ever interposed between an
+    attacker and a verifier, so a re-encoding relay cannot silently \emph{repair} a malformed object
+    into a verifiable one (\S\ref{sec:canonical}).
+  \item \textbf{Fork detection that stays safe when a consistency proof cannot be fetched.} The CT
+    gossip literature resolves ambiguous tree-head pairs with a consistency proof. That proof is a
+    round trip to the peer whose reachability is in doubt --- unavailable exactly during a partition,
+    which is when fork detection is most likely to fire. We show the resulting false accusations are
+    real and severe (one uplink flap falsely blocked two of three honest peers), give a strictly
+    weaker rule that needs only a field the head already carries and no round trip, and show why the
+    obvious implementation of it reintroduces the bug (\S\ref{sec:fork}).
+  \item \textbf{Two federation invariants, each stated with the deployed failure that produced it}:
+    an identifier inside a federated payload must be derivable by any node from the signed bytes, and
+    admission cost must be charged at the origin because node-local anti-abuse secrets are meaningless
+    elsewhere (\S\ref{sec:federation}).
+  \item \textbf{A partition testbed, a resilience ladder that makes such systems comparable, and the
+    first measurements of this one} --- propagation swept over node count and queueing parameter,
+    bridged crossing under a severed exchange, resident memory against a single-board-computer budget,
+    encoded size against a measured ActivityPub baseline, and a denial-of-service surface measured
+    rather than asserted (\S\ref{sec:eval}).
+\end{itemize}
+
+%% ────────────────────────────────────────────────────────────────────────────
+\section{Related Work}
+\label{sec:related}
+
+Because this venue spans networking and security broadly, we introduce each concept rather than
+assuming it.
+
+\paragraph{Delay-tolerant networking.} DTN~\cite{fall2003dtn} and Bundle Protocol
+v7~\cite{rfc9171} are the architectural ancestor of anything that must survive a partition: bundles
+are stored and forwarded over whatever bearer exists, with no assumption of an end-to-end path. BPv7
+is the one prior system that covers our entire ladder, and we say so plainly in
+\S\ref{sec:comparison}. What it does not supply is a content model, an identity model, or moderation.
+It is also weaker on integrity than is commonly assumed: BPv7 delegates it to BPSec~\cite{rfc9172},
+whose use per bundle is optional and whose only default context is HMAC-SHA2 with symmetric
+keys~\cite{rfc9173} --- so a default-context integrity block is not third-party verifiable.
+
+\paragraph{Mesh messaging.} Serval's Rhizome~\cite{gardnerstephen2011serval} distributes signed
+bundles over ad-hoc links with no infrastructure whatsoever, and remains the strongest prior art for
+verification without a server: the bundle identifier \emph{is} the verification key. Bridgefy carries
+Bluetooth mesh messaging and was broken comprehensively in 2020~\cite{albrecht2021bridgefy}; its
+subsequent adoption of the Signal protocol fixed confidentiality but, by design, provides deniability
+rather than third-party verifiability~\cite{signalx3dh}, and broadcast messages remained
+unauthenticated in follow-up analysis~\cite{albrecht2022collective}.
+
+\paragraph{Federation over IP.} ActivityPub~\cite{activitypub} is the dominant federation protocol.
+Notably, it makes neither object signatures nor HTTP Signatures normative --- its authentication
+discussion is confined to a non-normative appendix which concedes that no strongly agreed mechanism
+existed at standardisation time. Interoperable authentication in deployed ActivityPub is therefore
+convention, and origin-validation defects follow from that~\cite{cve2024mastodon}.
+Matrix~\cite{matrixspec} does sign events, over a Canonical JSON form. The AT
+Protocol~\cite{atproto} is the closest prior composition to ours: signed commits over a Merkle search
+tree, with deterministic CBOR encoding. It differs from us on two axes we care about, discussed in
+\S\ref{sec:comparison}.
+
+\paragraph{Transparency logs.} Certificate Transparency~\cite{rfc6962} established the pattern we
+reuse: an append-only Merkle log~\cite{merkle1988} whose signed tree heads are gossiped, so that a
+participant which rewrites history is detectable by anyone comparing two heads. How to compare heads
+efficiently and safely is itself well studied --- gossip protocols for verifying log
+consistency~\cite{chuat2015gossip} and an aggregation-based design that discards a smaller head once
+one tree provably extends the other~\cite{dahlberg2018aggregation}. Both resolutions rest on obtaining
+a consistency proof; \S\ref{sec:fork} is about what to do in the window where that proof cannot be
+fetched, which in a partitioned network is not a rare case.
+
+\paragraph{Path selection.} ICE~\cite{rfc8445} and MPTCP~\cite{rfc8684} establish that maintaining
+several candidate paths and continuously preferring among them is more robust than failing over on
+demand. We apply the same reasoning to reachability \emph{scope} rather than to addresses.
+
+%% ────────────────────────────────────────────────────────────────────────────
+\section{Design}
+\label{sec:design}
+
+\subsection{One write path}
+
+The system exposes exactly one write endpoint. A post, a vote, a moderation action, a key revocation
+and a broadcast are all the same structure: an \emph{envelope} carrying a domain string, an author
+key, a timestamp, a priority class, an opaque body, and a signature. There is no per-feature write
+route, and adding a feature adds a registry row and a handler rather than a branch anywhere in the
+ingress path.
+
+The envelope's identifier is derived from its own bytes:
+\[
+\textit{id} = \textsc{base32}\big(\textsc{sha-256}(\textit{canonical}(\textit{fields}_{1..12}))\big)
+\]
+and the Ed25519~\cite{bernstein2012ed25519} signature covers those same bytes. Nothing about this
+identifier depends on which node computed it, which is what allows two independent instances to agree
+on identity without coordinating.
+
+\subsection{Canonical encoding as an admission gate}
+\label{sec:canonical}
+
+Canonical encoding is where our design differs most sharply from prior work, and the difference is
+not \emph{whether} to canonicalise but \emph{where in the pipeline} canonicalisation sits and what
+happens when it fails. Three positions exist in the literature.
+
+Matrix canonicalises \emph{at verification time}: the receiver strips signature fields, re-encodes
+the parsed object into Canonical JSON, and checks the signature against the result~\cite{matrixspec}.
+The verifier therefore checks a signature against bytes it produced itself, and an intermediary may
+re-serialise an event freely without invalidating it.
+
+Cosmos SDK rejects canonicalisation outright: verification compares ``the raw \texttt{TxBody} and
+\texttt{AuthInfo} bytes \ldots not based on any `canonicalization' algorithm'', which it argues adds
+client complexity and prevents ``some forms of upgradeability''~\cite{cosmosadr020}. Whatever bytes
+the sender emitted are the contract; there is nothing to reject.
+
+We take the verification rule of the second and the insistence on a defined canonical form of the
+first, and order them differently. The signature is checked against \textbf{the bytes as they
+arrived}. Separately, and \emph{before} verification, the decoder re-encodes the parsed message and
+compares; a mismatch is \textbf{rejected}, never repaired. Canonicalisation is thus not in the
+verification path at all --- it is an admission predicate:
+
+\begin{quote}
+Matrix canonicalises to decide \emph{what to verify against}; Cosmos declines to canonicalise at all;
+we canonicalise to decide \emph{what to admit}, and verify against what arrived.
+\end{quote}
+
+The hazard this forecloses is concrete. Under canonicalise-at-verify, a re-encoding intermediary
+silently \emph{repairs} a malformed object into a verifiable one; a prior version of this system was
+vulnerable to exactly that signature-confusion pattern. Under the Cosmos rule the hazard cannot arise
+because the question is never asked. Under ours it cannot arise because the answer is rejection.
+
+Protobuf serialisation ``is not (and cannot be) canonical''~\cite{protobufnotcanonical}, and that
+guidance warns against byte-equality as a proxy for \emph{message equality}, where differing bytes for
+one message give false negatives. We ask a narrower question --- \emph{is this the one accepted
+encoding?} --- for which a second valid form is not an inconvenience but precisely the thing to
+reject. Protobuf declining to define a canonical form is why a profile must define one and prove it
+across implementations (\S\ref{sec:eval-vectors}).
+
+We concede the cost that ADR-020 names: strictness impedes some forms of upgradeability. Unknown
+fields are not retained, so an old node cannot forward-carry a field it does not understand; the
+response is a version bump rather than an in-place contract edit.
+
+\subsection{The validation pipeline}
+
+Every envelope, from every transport, runs an identical nineteen-step pipeline. Two properties of
+its ordering carry most of the weight.
+
+\textbf{Steps 1--12 perform no database writes.} Everything through dedupe and replay completes
+before anything is persisted, so an invalid-envelope flood consumes CPU but cannot amplify into write
+load (\S\ref{sec:flood}).
+
+\textbf{Steps 16 and 17 are atomic with respect to each other.} Projection and the Merkle append
+occur in one transaction: an envelope visible in a projection but absent from the log is exactly the
+transparency failure the log exists to prevent. The storage layer must therefore support
+multi-document transactions --- a deployment constraint, not an implementation detail. Each step is
+an independently testable pure function.
+
+%% ────────────────────────────────────────────────────────────────────────────
+\section{Federating Across a Partition}
+\label{sec:federation}
+
+Federation is server-to-server only. Clients do not speak it, because operators choose their peers
+and clients do not, and because the protocol's connection profile degrades badly on lossy mobile
+links.
+
+\subsection{Four rules that carry the weight}
+
+\paragraph{A peer's bytes are never re-encoded.} The transport uses a passthrough codec. Since the
+decoder establishes canonicality by re-encoding and comparing (\S\ref{sec:canonical}), a round trip
+through a generated codec in the network adapter would silently repair an untrusted peer's
+non-canonical envelope into one that validates --- the exact hazard the admission gate exists to
+foreclose, arriving over the network and bypassing it.
+
+\paragraph{Trust bounds volume, never validity.} Inbound envelopes re-run all nineteen steps. A
+trusted peer's forged envelope is rejected exactly as a stranger's is. Trust determines quota and
+which priority classes a peer may push, and nothing else.
+
+\paragraph{Deduplication is a unique index, not a read-then-write.} $(\textit{content\_id},
+\textit{direction})$ is a uniqueness constraint in the database; a read-then-write check is unsound
+under the concurrency federation produces, where an overlapping stream and a backfill can deliver one
+envelope twice at once.
+
+\paragraph{An envelope is never relayed to its sender.} The pipeline carries the origin peer and
+excludes it from fanout. Content dedupe makes such a loop terminate but not free: without this, every
+envelope pays a round trip before being discarded.
+
+\subsection{Two invariants, and the failures that produced them}
+
+\paragraph{An identifier in a federated payload must be derivable from the signed bytes.} An earlier
+version derived a community identifier from the projecting node's own key. With one node this is
+indistinguishable from correct, because the projecting node \emph{is} the origin node. With two, the
+same signed envelope produced different community identifiers on each instance and the projections
+diverged permanently. The rule that replaced it is a question asked before any identifier is minted:
+\emph{would a different node, given only these bytes, compute the same value?}
+
+\paragraph{Admission cost is charged at the origin.} Proof-of-work, credit balances, blind credentials
+and epoch nullifiers are each keyed to one node deliberately. A proof minted at the origin is
+therefore not merely unverifiable elsewhere --- it is meaningless elsewhere. Charging again on receipt
+makes every anti-abuse-gated domain unfederatable. Cost is paid once, at origin; the receiver's
+protection is a per-peer, per-class quota with an explicit backpressure hint. Verification is
+unaffected: what is skipped is a payment, not a check.
+
+A related consequence is that a peer exceeding quota is not disconnected. It would reconnect
+immediately, pay the handshake again, and arrive in the same state, so refusing costs more than
+accepting. The hint lets a well-behaved peer self-regulate, and a peer that ignores it is demoted.
+
+\subsection{Federating from a node nothing can dial}
+\label{sec:cgnat}
+
+Server-to-server delivery in ActivityPub, Matrix and the AT Protocol is a \emph{push to an address
+the receiver publishes}, so a node with no inbound reachability cannot receive at all unless a third
+party holds an address for it. In the deployments this paper is about that is the common case, not
+the corner case: a community node is a machine in somebody's home, behind carrier-grade NAT. We make
+reachability an asymmetry rather than a requirement --- a node may advertise \emph{no} endpoints and
+still federate both ways:
+
+\begin{itemize}\itemsep1pt
+  \item \textbf{outbound} is the durable outbox draining over a connection the node opened;
+  \item \textbf{inbound} is a resumable backfill the node \emph{requests}, also over a connection it
+    opened --- so nothing is pushed to it and nothing needs to reach it.
+\end{itemize}
+
+The property is asserted rather than argued: an unreachable node is introduced to a peer, the peer
+records it with an empty endpoint list and can never dial it, and the test then shows a post
+published on the unreachable node arriving at the peer, and a post published on the peer arriving at
+the unreachable node. Neither direction is initiated by the reachable side.
+
+\subsection{Fork detection when a consistency proof is unavailable}
+\label{sec:fork}
+
+A transparency log lets a participant detect a peer that rewrote history: tree heads are signed and
+gossiped, and a head smaller than one already seen suggests entries were removed. This is the
+Certificate Transparency construction~\cite{rfc6962} and we adopt it unchanged.
+
+\paragraph{What the gossip literature already settles.} Comparing tree heads pairwise is known to be
+subtle, and the CT gossip protocols address it directly: an STH-only gossip design observes that when
+one tree provably \emph{extends} another, the smaller head can be discarded without reducing the
+chance of detecting an attack~\cite{dahlberg2018aggregation}, and efficient gossip protocols for
+exactly this consistency check are well studied~\cite{chuat2015gossip}. The resolution in that
+literature is a \textbf{consistency proof} between the two heads.
+
+\paragraph{What a partition changes.} A consistency proof must be fetched from the log. That is a
+round trip to the very peer whose reachability is in question --- and in our setting the peer may be
+behind the cut that is being routed around, which is precisely when fork detection is most likely to
+fire. So the standard resolution is available exactly when it is least needed.
+
+The failure this produces is not a missed detection but a false one, which is worse. In our node four
+independent code paths observe a peer's head: the outbound handshake, the inbound handshake, a head
+carried on a peer record, and the gossip round. Each samples at a different instant and nothing
+sequences their arrival, so \emph{gossip records size 8, then a reconnect delivers the size-6 head it
+captured moments earlier} is ordinary concurrency. Compared pairwise without a proof, it reads as a
+tree that shrank. Because a fork is the strongest signal the system has, the peer is demoted to a
+state only an operator can lift --- so a node partitions itself from honest peers, during a partition,
+on evidence it manufactured. In our deployed four-node testbed one uplink flap produced this against
+\textbf{two of three peers at once}, both with the same manufactured reason (\emph{tree shrank from 8
+to 6}), and neither log had been rewritten.
+
+\paragraph{A rule that costs no round trip.} Signed tree heads already carry a signed timestamp, so
+the readings can be ordered without asking anyone anything. Let $(t, n)$ be the timestamp and size of
+an incoming head and $(t_0, n_0)$ the recorded one:
+
+\begin{enumerate}\itemsep1pt
+  \item if $t < t_0$ the reading is stale: return \textsc{unknown}, and \textbf{do not record it};
+  \item otherwise if $n < n_0$ the tree regressed: report \textsc{forked};
+  \item otherwise record $(t, n)$ and report \textsc{ok}.
+\end{enumerate}
+
+This does not replace a consistency proof --- it is strictly weaker, and a node that can reach the
+peer should still fetch one. What it does is remove the false accusations in the window where no proof
+can be obtained, which is the window that matters here.
+
+\paragraph{Clause 1's second half is the part that is easy to get wrong.} The natural implementation
+discards the stale reading by overwriting the record with it, or by recording it and comparing next
+time. Both reintroduce the bug one step later: writing $(t,n)$ back rolls the ledger to size~6, so a
+later honest observation is compared against a value that should never have been stored. The stale
+reading must leave no trace.
+
+\paragraph{Genuine rollback is untouched, and we assert both directions.} An attacker must now present
+a head that is both newer \emph{and} smaller, which still trips clause 2. The regression test asserts
+that a smaller-and-older head leaves trust intact and leaves the recorded size at 8, \emph{and} that a
+smaller head with an equal-or-newer timestamp still reports \textsc{forked}. Without the second
+assertion the guard would be indistinguishable from deleting the check.
+
+\subsection{Convergence under reordering}
+
+Two nodes may receive the same set of signed envelopes in different orders. Any projection that
+folds them in arrival order will therefore diverge. We found this in a vote handler, which merged by
+arrival: two nodes receiving the same two signed votes in opposite orders disagreed permanently on
+both the stored value and the derived score. The fix is to impose a total order using only fields
+inside the signed envelope --- here $(\textit{created\_at\_ms}, \textit{content\_id})$ --- so that
+every node folds identically regardless of delivery order. The property is asserted over \emph{every
+permutation} of a conflicting set rather than over one arrival order, because a test that fixes the
+order cannot distinguish an order-independent fold from a lucky one.
+
+\subsection{Bridging two islands}
+
+At L3, two ISP islands are severed from each other but a node holds transit on both. That node binds
+each outbound federation connection to the source address of the corresponding uplink, and relays
+between islands only when it has a trusted peer on each side. Crossings are quota-accounted per
+uplink pair rather than per peer, so an island with three nodes is not charged three times for one
+link's traffic, and bulk traffic draws on a bucket capped at half the pair's grant so that a bulk
+backlog cannot starve emergency broadcasts.
+
+%% ────────────────────────────────────────────────────────────────────────────
+\section{Adversary and Scope}
+\label{sec:adversary}
+
+We assume an adversary that controls routing within its own autonomous system, can null-route
+prefixes, inspect and block transit it carries, throttle selectively, partition the country or one
+ISP from another, and operate its own nodes as a legitimate peer. We assume it cannot break Ed25519
+or SHA-256, cannot extract keys from an uncompromised device, is not a \emph{global} passive
+observer, and does not control a majority of the peer set.
+
+Within that model the design resists: content suppression by a server, since content is valid the
+instant its author signs it and withheld approval is removed as a mechanism rather than policed;
+tampering by a relay, since signatures cover received bytes and non-canonical encodings are rejected;
+undetected log rewriting, via gossiped tree heads; write amplification from invalid floods, via the
+no-write prefix of the pipeline; and loss of reach under partition, via scope-aware path selection
+and bridging.
+
+The exclusions are numerous and deliberate. There is \textbf{no traffic-analysis resistance} --- no
+cover traffic, no mixing, and an observer on both islands can correlate flows --- and \textbf{no
+transport metadata protection}: an ISP sees that a node federates, roughly with whom and how much.
+\textbf{Endpoint compromise} is out of scope beyond revocation, which only helps once it reaches
+peers, which is what the adversary is attacking. Fork detection \textbf{assumes one honest observer}
+gossips a conflicting head. There is \textbf{no formal unlinkability proof} between the pseudonymous
+and identified identity planes; the separation is architectural. And Sybil resistance is
+\textbf{deliberately not derived from identity} --- cost is the anti-abuse primitive, because
+requiring identity to stop spam hands the adversary a censorship lever --- so it bounds the rate of
+abuse, not the number of identities.
+
+Each exclusion could be bought with availability, or with the ability to run on a single-board
+computer over an intermittent link. Where a defence and reach conflict we choose reach, and say so.
+
+%% ────────────────────────────────────────────────────────────────────────────
+\section{Evaluation}
+\label{sec:eval}
+
+\subsection{Testbed}
+
+Measurements come from container testbeds on one host. The partition testbed runs four nodes across
+three networks, two of which are declared internal so that no route exists between them except
+through the bridging node (Figure~\ref{fig:testbed}); each island has its own database and cache,
+and the islands occupy separate address spaces. The scale testbed generates an $N$-node federation chain, $2 \le N \le 16$,
+in which node $i$ is reachable from node $0$ by exactly one path of exactly $i$ hops.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\scriptsize,
+  node/.style={draw,rounded corners=1pt,minimum width=7mm,minimum height=4.5mm},
+  br/.style={draw,rounded corners=1pt,fill=black!10,minimum width=9mm,minimum height=4.5mm},
+  lbl/.style={font=\scriptsize\itshape},
+  >={Stealth[length=1.3mm]}
+]
+% island A
+\node[node] (a1) at (0,0.55) {a1};
+\node[node] (a2) at (0,-0.55) {a2};
+\draw (a1) -- (a2);
+\node[lbl,above=0.5mm of a1] {island A \textperiodcentered\ AS 64501};
+% bridge
+\node[br] (b) at (2.15,0) {bridge};
+% island B
+\node[node] (b1) at (4.3,0) {b1};
+\node[lbl,above=0.5mm of b1] {island B \textperiodcentered\ AS 64502};
+\draw (a1) -- (b);
+\draw (a2) -- (b);
+\draw (b)  -- (b1);
+% severed exchange
+\draw[dashed] (a1) to[out=35,in=145] node[pos=0.5,above,lbl] {exchange} (b1);
+\draw[line width=0.7pt] (2.15,0.83) -- (2.55,1.17);
+\draw[line width=0.7pt] (2.55,0.83) -- (2.15,1.17);
+\node[lbl,right=0.5mm of b,yshift=-3.5mm] {two source addrs};
+\end{tikzpicture}
+\caption{The partition testbed. Islands A and B occupy separate address spaces on networks declared
+internal, so no route exists between them once the exchange is cut. The bridging node holds transit
+on both and binds each outbound connection to the corresponding uplink's source address.}
+\label{fig:testbed}
+\end{figure}
+
+\paragraph{Why one configuration and not a sweep.} We attempted to sweep chain length and drain
+interval and discarded the result. One configuration happened to repeat, and it disagreed with
+itself: an identical four-node, 500\,ms run measured 1348\,ms at the first hop early in the sweep and
+6630\,ms later, with delivery falling to 88\%. Recreating the host returned it to 888\,ms and 100\%:
+the varying quantity was host contention, not the parameter. We report one clean configuration rather
+than a sweep whose independent variable we could not isolate.
+
+We measure propagation from the timestamp each node records when it stores an envelope, inside the
+same transaction as the projection. A hop's latency is therefore a subtraction between two numbers
+the system wrote for its own reasons, with no observer in the path. This is valid here only because all
+containers share the host clock, so skew is zero by construction; a distributed deployment would need
+NTP discipline and an error bar. An earlier figure obtained by polling over HTTP is an upper bound
+charged for a poll interval plus a round trip, and was discarded.
+
+\subsection{Cross-implementation agreement}
+\label{sec:eval-vectors}
+
+The admission gate of \S\ref{sec:canonical} is only viable if the accepted encoding is genuinely
+agreed across implementations; otherwise it becomes a compatibility bug that rejects honest peers.
+Three independent implementations of the canonical encoder --- in TypeScript, Rust and Python, written
+against the specification rather than ported from one another --- agree byte-for-byte on all 16
+conformance vectors, including field omission, NFC normalisation, domain separation and plane
+separation cases. This is what makes strictness affordable, and it is the answer to the natural
+objection that two implementations will eventually disagree.
+
+\subsection{Correctness under partition}
+
+With the two-node deployment, a post published on one node projects on the other with an identical
+content identifier and an origin-derived community identifier, across fully independent datastores.
+Two recoverability properties are asserted rather than assumed. Rebuilding every populated collection
+from the envelope log alone reproduces it \emph{byte-identically}, so restoring a node needs the log
+and nothing else. And the client recomputes signature status and log inclusion on device from the
+provenance block, rejecting a receipt signed by a key other than the one it names, a tree head not
+covering the content, and a content identifier lifted from a \emph{different} envelope --- the
+relay-relabelling attack, refused on the client.
+The federation suite covers 31 assertions spanning admission, quota, streaming, resumable backfill,
+tree-head gossip with fork detection, and directory exchange.
+
+\subsection{Multi-hop propagation}
+
+Figure~\ref{fig:hops} reports an eight-node chain, 200 paced samples, with a 1000\,ms outbox drain
+interval. All 200 envelopes reached hop~7, and the seven-hop median is 4125\,ms against a p99 of
+6115\,ms.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=\columnwidth, height=42mm,
+  font=\scriptsize,
+  xlabel={hop count}, ylabel={latency (ms)},
+  xlabel near ticks, ylabel near ticks,
+  xmin=0.6, xmax=7.4, ymin=0, ymax=6600,
+  xtick={1,2,3,4,5,6,7},
+  ytick={0,2000,4000,6000},
+  grid=major, grid style={jbMist},
+  axis line style={jbInk}, tick label style={text=jbInk},
+  legend style={at={(0.02,0.98)},anchor=north west,draw=jbMist,
+                font=\scriptsize,row sep=-1pt,inner sep=2pt},
+  legend cell align=left
+]
+\addplot[jbBlue,mark=*,mark size=1.4pt,line width=0.7pt]
+  coordinates {(1,613)(2,820)(3,1753)(4,2352)(5,3355)(6,3660)(7,4125)};
+\addlegendentry{p50}
+\addplot[jbRose,mark=triangle*,mark size=1.8pt,line width=0.7pt,dashed]
+  coordinates {(1,1104)(2,2251)(3,3341)(4,3912)(5,4913)(6,5215)(7,6115)};
+\addlegendentry{p99}
+\end{axis}
+\end{tikzpicture}
+\caption{Propagation latency by hop count. Eight-node chain, 200 paced samples, zero loss: all 200
+envelopes reached hop~7. Growth is linear in hop count, and the slope is set by the outbox drain
+interval rather than by the protocol.}
+\label{fig:hops}
+\end{figure}
+
+Per-hop cost is dominated by the drain interval rather than by the protocol. Predicting
+$\textit{drain}/2 + \textit{fixed}$ and measuring at two operating points isolates the constant: at a
+1000\,ms drain the seven-hop median implies 589\,ms per hop and a fixed residual of 89\,ms; at 250\,ms
+it implies 196\,ms per hop and a residual of 71\,ms. The residual is stable at \textbf{71--89\,ms
+across a fourfold change in the queueing parameter}, and represents the protocol's real per-hop cost:
+verify, project, append to the witness log, re-enqueue. Everything above it is a scheduling choice an
+operator makes for battery and bandwidth reasons.
+
+\textbf{We report the offered-load regime with every figure, because it dominates the result.}
+Publishing the same 200 envelopes as fast as the origin accepted them produced a first-hop median of
+10.0\,s and a 95th percentile of 173\,s, while the \emph{marginal} cost of hops 2--7 remained at
+0.4--1.1\,s. That shape is queueing and contention on a shared database, not propagation. Both are
+correct measurements of different questions, and averaging them would describe neither.
+
+\subsection{Bridged crossing}
+
+Crossing an ISP boundary is not one envelope. A newly-published post that a receiving island can
+render depends on the author's certificate and the community record, so three envelopes must cross
+and project in dependency order --- a distinction that matters, because measuring only the post
+conceals where the time goes (\S\ref{sec:lessons}).
+
+With the exchange severed and the bridge carrying all traffic between islands, the three envelopes
+arrive on the far island 0.5\,s, 1.2\,s and 2.1\,s after publication. The comparable figures with
+both islands healthy are 1.5\,s, 1.5\,s and 1.9\,s, so \textbf{cutting the exchange does not
+meaningfully degrade crossing latency} once traffic is routed through the bridge. The container
+partition gate passes all 19 criteria.
+
+Inside the bridging container, \texttt{/proc/net/tcp} shows established federation sockets leaving
+from \emph{both} configured source addresses, which is the assertion no in-process harness can make.
+Per-direction accounting confirms the crossing is attributed to the correct uplink pair, and the
+reserved-capacity check confirms bulk traffic drew on a bucket capped at half the pair grant.
+
+\subsection{An invalid-envelope flood does not become write load}
+\label{sec:flood}
+
+Section~\ref{sec:design} claims that because steps 1--12 perform no database writes, a flood of
+invalid envelopes costs CPU but cannot amplify into write load. That is a claim about a denial-of-service
+surface, so we measured it rather than asserting it.
+
+Random bytes are a weak test: they die at parse in microseconds. The costly case is a
+\emph{well-formed} envelope with a wrong signature, which must be parsed, checked for canonicality and
+verified before it can be refused. We took a genuine envelope from the node's own log and mutated one
+byte inside the signed region --- invalidating the signature and changing the content identifier, so
+every request is novel and none is short-circuited by deduplication.
+
+Against a single node, 3000 such envelopes at concurrency~16 were absorbed at \textbf{730\,req/s}, and
+the node's database recorded \textbf{zero writes}: the envelope log was unchanged, and a
+collection-level profiler --- which captured read operations over the same window, confirming it was
+live --- logged no insert, update or delete. Resident memory fell from 86\,MiB to 61\,MiB as the
+garbage collector caught up, and CPU returned to idle immediately.
+
+The rejection histogram is more interesting than the throughput, and we report it because it changes
+what the number means. Only 9\% of the flood reached signature verification; \textbf{90\% was shed by
+the per-peer rate limiter first}, before any asymmetric cryptography was performed. The no-write
+property is therefore real but is the \emph{second} line of defence, and a flood measurement that did
+not report which step did the rejecting would overstate what the pipeline ordering contributes.
+
+\paragraph{The measurement also found a defect, which is why it was worth doing.} Eight of the 3000
+responses were HTTP 500 rather than a typed rejection. The write endpoint decoded untrusted bytes
+\emph{outside} the pipeline in order to label a metric, and a raw decoder exception is not a typed
+rejection, so it escaped the error branch --- emitting a stack trace per request and letting the caller
+choose how fast the node filled its own disk. The same bytes arriving over federation were refused
+politely, so the two ingress paths disagreed about what malformed meant. Decoding for a label now
+falls back to a constant, and a regression test drives four adversarial encodings that each returned
+500 before the change. Fixing it also raised the flood-rejection rate from 440 to 730\,req/s, because
+the node had been spending the difference constructing stack traces --- the error path was itself the
+amplifier.
+
+\subsection{Read path and footprint}
+
+With a keep-alive client in a single process, the read path sustains 228\,req/s at concurrency~1
+(p50 4.1\,ms), 750\,req/s at concurrency~8 (p50 9.4\,ms) and 688\,req/s at concurrency~32 (p50
+44.2\,ms). We note that measuring this with one process per request instead reported 144\,ms, which
+was timing process creation rather than the server.
+
+An idle federating node holds \textbf{62\,MiB} resident, rising to \textbf{233\,MiB} at 54\% CPU
+under a sustained bulk crossing. With the database (147\,MiB) and cache (3.7\,MiB) co-resident the
+total is roughly \textbf{384\,MiB} against a 512\,MB single-board-computer target. That is
+\emph{tight rather than comfortable}, and the database dominates it --- a deployment on constrained
+hardware should expect storage, not the node, to be the binding constraint.
+
+\subsection{Encoded size against a measured ActivityPub baseline}
+
+Encoded envelopes, including a 64-byte signature, are 155\,B for a check-in, 220\,B for a forum post
+and 243\,B for a Bangla-language broadcast. To make this a comparison rather than an isolated fact we
+measured \textbf{80 real \texttt{Create}/\texttt{Note} activities} from two independent stock
+ActivityPub instances, taken from actor outboxes so they are as the servers emit them. Because a
+collection hoists the JSON-LD context to the collection while an activity delivered to a remote inbox
+carries its own, we re-attached the context each host actually serves on a standalone object.
+
+\begin{table}[t]
+\caption{Encoded size, ours versus 80 real ActivityPub activities. Overhead excludes authored text,
+which is a confound: our fixture carries a 14-character headline while the sampled posts carry
+30--524\,B.}
+\label{tab:size}
+\small
+\begin{tabular}{lrrr}
+\toprule
+ & p50 & min & max \\
+\midrule
+ActivityPub delivered (B)      & 4216 & 2786 & 6909 \\
+\quad of which authored text   &  205 &   30 &  524 \\
+\quad of which JSON-LD context &  927 &  927 &  927 \\
+\textbf{ActivityPub overhead (B)} & \textbf{4015} & 2756 & 6484 \\
+ActivityPub, gzipped (B)       & 1074 &  786 & 1400 \\
+\midrule
+Ours, check-in / post / broadcast (B) & \multicolumn{3}{r}{155 / 220 / 243} \\
+\textbf{Ours, overhead (B)}    & \multicolumn{3}{r}{\textbf{155 / 206 / 177}} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=\columnwidth, height=46mm,
+  font=\scriptsize,
+  xbar, xmode=log,
+  bar width=2.4mm,
+  %% bar shift=0pt is load-bearing: without it, several xbar series are shifted off
+  %% their own categories and the tick labels stop lining up with the bars.
+  bar shift=0pt,
+  xmin=100, xmax=40000,
+  xlabel={bytes (log scale)},
+  xlabel near ticks,
+  xtick={100,1000,10000},
+  xticklabels={$10^2$,$10^3$,$10^4$},
+  %% ytick=data collects categories only from the FIRST ddplot, which silently drops
+  %% the labels for every later series. List them explicitly instead.
+  symbolic y coords={ck,post,bc,ctx,gz,ovh,dlv},
+  ytick={ck,post,bc,ctx,gz,ovh,dlv},
+  yticklabels={%
+    ours: check-in,
+    ours: forum post,
+    ours: broadcast,
+    AP: \texttt{@context} only,
+    AP: gzipped,
+    AP: overhead,
+    AP: delivered},
+  y tick label style={font=\scriptsize},
+  nodes near coords, nodes near coords style={font=\tiny,text=jbInk,xshift=1pt},
+  point meta=explicit symbolic,
+  grid=major, grid style={jbMist},
+  axis line style={jbInk}, tick label style={text=jbInk},
+  enlarge y limits=0.10,
+]
+\addplot[fill=jbTeal!55,draw=jbTeal] coordinates {
+  (155,ck)   [155]
+  (220,post) [220]
+  (243,bc)   [243]};
+\addplot[fill=jbAmber!50,draw=jbAmber] coordinates {(927,ctx) [927]};
+\addplot[fill=jbBlue!35,draw=jbBlue]   coordinates {(1074,gz) [1074]};
+\addplot[fill=jbRose!45,draw=jbRose]   coordinates {
+  (4015,ovh) [4015]
+  (4216,dlv) [4216]};
+\end{axis}
+\end{tikzpicture}
+\caption{Encoded size, ours (teal) against 80 real ActivityPub activities (medians). The JSON-LD
+\texttt{@context} declaration alone --- identical on both sampled hosts --- is 4.2$\times$ our entire
+signed forum post. Note the log scale, and that ActivityPub is charged nothing here for
+authentication while our figures include a 64\,B signature.}
+\label{fig:size}
+\end{figure}
+
+Figure~\ref{fig:size} and Table~\ref{tab:size} report overhead --- encoded bytes minus authored text --- because content
+length is a confound and overhead is what a protocol designer controls. On that measure the ratio is
+\textbf{19.5$\times$--25.9$\times$}. The JSON-LD context declaration alone, identical on both hosts at
+927\,B, exceeds our entire signed forum post by a factor of 4.2.
+
+\textbf{Two qualifications keep this honest.} First, compression removes most of the advantage: the
+ActivityPub payload gzips to a 1074\,B median, whereas our envelopes do \emph{not} compress --- a
+random 64-byte signature is incompressible and gzip makes all three of ours larger (220\,B becomes
+243\,B). The compressed comparison is therefore \textbf{4.4$\times$--6.9$\times$}, and we quote both.
+Second, we charge ActivityPub nothing for authentication, although our figures include a signature
+that makes the envelope verifiable at rest; deployed ActivityPub authenticates with a transport-level
+HTTP Signature header that no third party can check against a stored object. A structurally fair
+comparison would widen the gap, not narrow it. We also measure no HTTP framing on either side, and
+count one activity where real delivery is per-follower fanout.
+
+This measures per-message cost on a constrained link and nothing else: JSON-LD buys extensibility
+and semantic interoperation a fixed schema does not, and we measure none of it.
+
+%% ────────────────────────────────────────────────────────────────────────────
+\section{Comparison with Related Systems}
+\label{sec:comparison}
+
+No quantitative baseline exists for "operates across an ISP partition", so we compare capabilities.
+Table~\ref{tab:matrix} scores prior systems on the ladder and on the integrity properties this design
+turns on. Every cell was checked against the system's own specification.
+
+\begin{table}[t]
+\caption{Capability comparison. \CIRCLE~provided and specified, \LEFTcircle~partial, optional or
+non-normative, \Circle~not provided, $\ast$~implemented here but never observed end to end
+(\S\ref{sec:limitations}). \textsc{nf}~indicates the specification is silent. \emph{No inbound} means
+a node with no reachable address still federates in both directions (\S\ref{sec:cgnat}).}
+\label{tab:matrix}
+\scriptsize
+\setlength{\tabcolsep}{3.2pt}
+\begin{tabular}{lcccccccc}
+\toprule
+ & L0--L3 & L4--L5 & no in- & signed & verify & no re- & log & tomb- \\
+ & span & span & bound & at rest & w/o srv & encode & gossip & stone \\
+\midrule
+DTN / BPv7        & \CIRCLE     & \CIRCLE     & \CIRCLE & \LEFTcircle & \Circle & \textsc{nf} & \textsc{nf} & --- \\
+Serval (Rhizome)  & \LEFTcircle & \CIRCLE     & \CIRCLE & \CIRCLE     & \CIRCLE & \textsc{nf} & \textsc{nf} & \Circle \\
+Bridgefy          & \Circle     & \LEFTcircle & \CIRCLE & \Circle     & \Circle & ---         & \Circle     & --- \\
+ActivityPub       & \LEFTcircle & \Circle     & \Circle & \LEFTcircle & \Circle & \Circle     & \Circle     & \LEFTcircle \\
+Matrix            & \LEFTcircle & \Circle     & \Circle & \CIRCLE     & \CIRCLE & \Circle     & \Circle     & \CIRCLE \\
+AT Protocol       & \Circle     & \Circle     & \Circle & \CIRCLE     & \Circle & \CIRCLE     & \Circle     & \Circle \\
+\textbf{This work}& \CIRCLE     & $\ast$      & \CIRCLE & \CIRCLE     & \CIRCLE & \CIRCLE     & \CIRCLE     & \CIRCLE \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Four entries cut against us. \textbf{DTN spans the whole ladder} and more cheaply, being designed for
+exactly that; what it lacks is everything above the bearer. \textbf{DTN and Serval both beat us on the
+lower rungs}, where our entry is $\ast$ --- we have code, they have deployments. \textbf{Serval
+verifies without a server more simply}: its bundle identifier \emph{is} the key, where we resolve a
+certificate. And \textbf{Matrix's redaction preserves more than is commonly assumed} --- the event
+stays in the graph with its identifier, sender, timestamp, parent links, hashes and signatures.
+
+The \emph{no inbound} column is where the federated systems separate from the rest. ActivityPub,
+Matrix and the AT Protocol all deliver by pushing to an address the receiver publishes, so a receiver
+behind carrier-grade NAT cannot participate without a third party holding an address for it. The
+store-and-forward systems score \CIRCLE\ here for the same reason we do: a property we share with
+DTN and Serval, not one we invented.
+
+Two entries are frequently misread in the other direction. ActivityPub scores \LEFTcircle\ on
+tombstoning because Activity Streams 2.0~\cite{activitystreams} does define a \texttt{Tombstone} type and the dominant
+implementation does keep a table by that name --- but nothing serves it, no such object is emitted,
+and its only reader is a replay guard. The AT Protocol scores \Circle\ on verification without a
+server because although its commits are signed, neither the signature nor the commit indicates the
+key type or the public key used; that must be fetched from an external identity directory, which a
+shutdown removes. It scores \Circle\ on tombstoning by its own explicit statement that record
+deletion leaves no trace of previous contents~\cite{atproto}.
+
+No column in Table~\ref{tab:matrix} is novel on its own. What no prior system holds is all six
+simultaneously \emph{while spanning L0--L3}, and the engineering cost of that combination --- not its
+novelty --- is what this paper reports.
+
+%% ────────────────────────────────────────────────────────────────────────────
+\section{Limitations}
+\label{sec:limitations}
+
+\textbf{The lower rungs are unobserved.} L4 and L5 are implemented and unit-tested but never
+exercised end to end: no phone-to-phone mesh between real handsets (the available devices were on
+different subnets, so discovery could not see across them), no radio stack running on a device, no
+physical drill. These are marked $\ast$ in Table~\ref{tab:matrix} and no claim here depends on them.
+
+\textbf{Everything is measured in containers on one host, and that host is a confound.} Clock skew is
+zero by construction, the network is a virtual bridge, and one storage engine is shared by several
+nodes. This is not merely a caveat: as \S\ref{sec:eval} reports, repeating one configuration late in a
+sweep changed its first-hop median by a factor of five, so this testbed cannot separate a parameter
+effect from its own contention beyond a single clean run. Chain length and queueing parameter
+therefore remain unswept, and no wide-area, lossy-link or real-radio measurement exists.
+
+\textbf{Unlinkability is architectural, not proven.} The separation between identity planes has no
+formal argument and no anonymity-set analysis.
+
+\textbf{Single-operator testbed.} Every node was configured by us, so the trust dynamics ---
+probationary admission, vouching, demotion --- are unobserved under independent operators, which is
+where they matter.
+
+%% ────────────────────────────────────────────────────────────────────────────
+\section{Lessons}
+\label{sec:lessons}
+
+\paragraph{Bugs have a minimum topology.} The identifier defect of \S\ref{sec:federation} needed two
+nodes, and the delivery stall below needed three, one of them unreachable while the others stayed up.
+Neither suite was weak; the topologies were. Relatedly, our in-process partition suite passed all 22
+assertions while the container gate failed --- the assertions that earned their place are the ones no
+in-process harness can make, such as reading \texttt{/proc/net/tcp} to confirm which source address a
+socket actually left from.
+
+\paragraph{An overdue queue entry with zero attempts is a different failure from a failing one.}
+This is the finding we would most want another team to take away. The bridged crossing of
+\S\ref{sec:eval} cost 407.6\,s after the cut, and the standing explanation was that it was merely
+slow. It was not: every outbound row sat at \emph{zero attempts} while overdue by 150 seconds.
+Retries that fail tell you about the destination; work never attempted tells you about the scheduler.
+
+The cause was a drain pass that delivered to peers serially with no deadline. A severed link
+blackholes rather than refuses, so the attempt to the unreachable peer neither succeeded nor errored
+and every peer behind it waited --- including the bridge, whose purpose is to route around the
+partition that caused the stall. The node degraded to the availability of its \emph{worst} peer
+instead of its best, inverting what multi-homing buys. Draining peers concurrently under a deadline
+returned the crossing to 2.1\,s and the gate to 19 of 19.
+
+%% ────────────────────────────────────────────────────────────────────────────
+\section{Conclusion}
+
+Availability under partition is a design ordering, not a feature. Holding it first forces specific
+and sometimes uncomfortable choices: identifiers derived from signed bytes rather than from the node
+that stores them, admission cost charged once at the origin rather than re-verified on receipt,
+canonical encoding used to admit rather than to verify, and a rejection where a more forgiving system
+would repair. We have shown that this composition operates from global reach down to bridged ISP
+islands, measured what it costs in latency, memory and bytes, and reported a partition-availability
+defect that only a deployed multi-peer testbed could expose. The rungs below the ISP island remain
+implemented and unobserved, and closing that gap on real devices and real radios is the work we think
+matters next.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+\end{document}

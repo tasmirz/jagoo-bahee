@@ -4,6 +4,11 @@ A **federated, censorship-resistant community platform** that degrades gracefull
 internet, through ISP-level blocking, to a complete national blackout — and keeps working at every
 step.
 
+The Forum scope and the wider platform, including Tor, Signal, offline transfer, audit-log workflow,
+threat model, diagrams and measured results, are documented in
+[PROJECT-OVERVIEW.md](PROJECT-OVERVIEW.md). A printable version is available as
+[proposal.pdf](proposal.pdf).
+
 It looks like a forum: communities, posts, threaded comments, votes, moderation, messaging.
 Underneath, **every mutation is a self-authenticating signed envelope** whose validity does not
 depend on any server. That single property is what lets the same content travel over HTTP, gRPC,

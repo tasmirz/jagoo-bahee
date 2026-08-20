@@ -1,0 +1,234 @@
+%% NSysS 2026 submission — bibliography
+%% Double-blind: nothing here may identify the authors or the artefact.
+
+@techreport{rfc9171,
+  author      = {Burleigh, Scott and Fall, Kevin and Birrane, Edward J.},
+  title       = {Bundle Protocol Version 7},
+  number      = {RFC 9171},
+  institution = {Internet Engineering Task Force},
+  year        = {2022},
+  doi         = {10.17487/RFC9171}
+}
+
+@techreport{rfc9172,
+  author      = {Birrane, Edward J. and McKeever, Kenneth},
+  title       = {Bundle Protocol Security ({BPSec})},
+  number      = {RFC 9172},
+  institution = {Internet Engineering Task Force},
+  year        = {2022},
+  doi         = {10.17487/RFC9172}
+}
+
+@techreport{rfc9173,
+  author      = {Birrane, Edward J. and White, Alex and Heiner, Sarah},
+  title       = {Default Security Contexts for Bundle Protocol Security ({BPSec})},
+  number      = {RFC 9173},
+  institution = {Internet Engineering Task Force},
+  year        = {2022},
+  doi         = {10.17487/RFC9173}
+}
+
+@techreport{rfc8445,
+  author      = {Keranen, Ari and Holmberg, Christer and Rosenberg, Jonathan},
+  title       = {Interactive Connectivity Establishment ({ICE}): A Protocol for
+                 Network Address Translator ({NAT}) Traversal},
+  number      = {RFC 8445},
+  institution = {Internet Engineering Task Force},
+  year        = {2018},
+  doi         = {10.17487/RFC8445}
+}
+
+@techreport{rfc8684,
+  author      = {Ford, Alan and Raiciu, Costin and Handley, Mark and
+                 Bonaventure, Olivier and Paasch, Christoph},
+  title       = {{TCP} Extensions for Multipath Operation with Multiple Addresses},
+  number      = {RFC 8684},
+  institution = {Internet Engineering Task Force},
+  year        = {2020},
+  doi         = {10.17487/RFC8684}
+}
+
+@techreport{rfc6962,
+  author      = {Laurie, Ben and Langley, Adam and Kasper, Emilia},
+  title       = {Certificate Transparency},
+  number      = {RFC 6962},
+  institution = {Internet Engineering Task Force},
+  year        = {2013},
+  doi         = {10.17487/RFC6962}
+}
+
+@inproceedings{fall2003dtn,
+  author    = {Fall, Kevin},
+  title     = {A Delay-Tolerant Network Architecture for Challenged Internets},
+  booktitle = {Proceedings of the 2003 Conference on Applications, Technologies,
+               Architectures, and Protocols for Computer Communications (SIGCOMM)},
+  pages     = {27--34},
+  year      = {2003},
+  doi       = {10.1145/863955.863960}
+}
+
+@inproceedings{gardnerstephen2011serval,
+  author    = {Gardner-Stephen, Paul},
+  title     = {The Serval Project: Practical Wireless Ad-Hoc Mobile Telecommunications},
+  booktitle = {Rural, Remote and Humanitarian Telecommunications},
+  year      = {2011}
+}
+
+@inproceedings{albrecht2021bridgefy,
+  author    = {Albrecht, Martin R. and Blasco, Jorge and Jensen, Rikke Bjerg and
+               Mareková, Lenka},
+  title     = {Mesh Messaging in Large-Scale Protests: Breaking Bridgefy},
+  booktitle = {Topics in Cryptology -- CT-RSA 2021},
+  pages     = {375--398},
+  year      = {2021},
+  doi       = {10.1007/978-3-030-75539-3_16}
+}
+
+@inproceedings{albrecht2022collective,
+  author    = {Albrecht, Martin R. and Blasco, Jorge and Jensen, Rikke Bjerg and
+               Mareková, Lenka},
+  title     = {Collective Information Security in Large-Scale Urban Protests:
+               the Case of Hong Kong},
+  booktitle = {30th USENIX Security Symposium},
+  year      = {2021}
+}
+
+@misc{activitypub,
+  author       = {Webber, Christopher Lemmer and Tallon, Jessica and
+                  Shepherd, Erin and Guy, Amy and Prodromou, Evan},
+  title        = {{ActivityPub}},
+  howpublished = {W3C Recommendation},
+  year         = {2018},
+  note         = {\url{https://www.w3.org/TR/activitypub/}}
+}
+
+@misc{activitystreams,
+  author       = {Snell, James M. and Prodromou, Evan},
+  title        = {{Activity Streams 2.0}},
+  howpublished = {W3C Recommendation},
+  year         = {2017},
+  note         = {\url{https://www.w3.org/TR/activitystreams-core/}}
+}
+
+@misc{matrixspec,
+  author       = {{The Matrix.org Foundation}},
+  title        = {{Matrix} Specification, Version 1.11},
+  year         = {2024},
+  note         = {\url{https://spec.matrix.org/v1.11/}}
+}
+
+@misc{atproto,
+  author       = {{Bluesky Social}},
+  title        = {{AT Protocol} Repository Specification},
+  year         = {2026},
+  note         = {\url{https://atproto.com/specs/repository}}
+}
+
+@misc{nostr,
+  author       = {{fiatjaf}},
+  title        = {{NIP-01}: Basic Protocol Flow Description},
+  year         = {2023},
+  note         = {\url{https://github.com/nostr-protocol/nips/blob/master/01.md}}
+}
+
+@inproceedings{tarr2019ssb,
+  author    = {Tarr, Dominic and Lavoie, Erick and Meyer, Aljoscha and
+               Tschudin, Christian},
+  title     = {Secure Scuttlebutt: An Identity-Centric Protocol for
+               Subjective and Decentralized Applications},
+  booktitle = {Proceedings of the 6th ACM Conference on Information-Centric
+               Networking (ICN)},
+  pages     = {1--11},
+  year      = {2019},
+  doi       = {10.1145/3357150.3357396}
+}
+
+@inproceedings{davidson2018privacypass,
+  author    = {Davidson, Alex and Goldberg, Ian and Sullivan, Nick and
+               Tankersley, George and Valsorda, Filippo},
+  title     = {Privacy Pass: Bypassing Internet Challenges Anonymously},
+  booktitle = {Proceedings on Privacy Enhancing Technologies},
+  volume    = {2018},
+  number    = {3},
+  pages     = {164--180},
+  year      = {2018},
+  doi       = {10.1515/popets-2018-0026}
+}
+
+@misc{cosmosadr020,
+  author       = {{Cosmos SDK}},
+  title        = {{ADR-020}: Protocol Buffer Transaction Encoding},
+  year         = {2020},
+  note         = {\url{https://github.com/cosmos/cosmos-sdk/blob/main/docs/architecture/adr-020-protobuf-transaction-encoding.md}}
+}
+
+@misc{protobufnotcanonical,
+  author       = {{Google}},
+  title        = {Protobuf Serialization Is Not Canonical},
+  year         = {2024},
+  note         = {\url{https://protobuf.dev/programming-guides/serialization-not-canonical/}}
+}
+
+@misc{ooni2024,
+  author       = {{Open Observatory of Network Interference}},
+  title        = {Bangladesh: Internet Shutdowns and Social Media Blocking
+                  Amid Student Protests},
+  year         = {2024},
+  note         = {\url{https://ooni.org/post/2024-bangladesh-internet-shutdowns/}}
+}
+
+@article{bernstein2012ed25519,
+  author  = {Bernstein, Daniel J. and Duif, Niels and Lange, Tanja and
+             Schwabe, Peter and Yang, Bo-Yin},
+  title   = {High-Speed High-Security Signatures},
+  journal = {Journal of Cryptographic Engineering},
+  volume  = {2},
+  number  = {2},
+  pages   = {77--89},
+  year    = {2012},
+  doi     = {10.1007/s13389-012-0027-1}
+}
+
+@misc{signalx3dh,
+  author       = {Marlinspike, Moxie and Perrin, Trevor},
+  title        = {The {X3DH} Key Agreement Protocol},
+  year         = {2016},
+  note         = {\url{https://signal.org/docs/specifications/x3dh/}}
+}
+
+@inproceedings{merkle1988,
+  author    = {Merkle, Ralph C.},
+  title     = {A Digital Signature Based on a Conventional Encryption Function},
+  booktitle = {Advances in Cryptology --- CRYPTO '87},
+  pages     = {369--378},
+  year      = {1988},
+  doi       = {10.1007/3-540-48184-2_32}
+}
+
+@inproceedings{cve2024mastodon,
+  author    = {{MITRE}},
+  title     = {{CVE-2024-23832}: Insufficient Origin Validation in {Mastodon}},
+  booktitle = {Common Vulnerabilities and Exposures},
+  year      = {2024},
+  note      = {\url{https://nvd.nist.gov/vuln/detail/CVE-2024-23832}}
+}
+
+@inproceedings{chuat2015gossip,
+  author    = {Chuat, Laurent and Szalachowski, Pawel and Perrig, Adrian and
+               Laurie, Ben and Messeri, Eran},
+  title     = {Efficient Gossip Protocols for Verifying the Consistency of
+               Certificate Logs},
+  booktitle = {2015 IEEE Conference on Communications and Network Security (CNS)},
+  pages     = {415--423},
+  year      = {2015},
+  doi       = {10.1109/CNS.2015.7346853}
+}
+
+@inproceedings{dahlberg2018aggregation,
+  author    = {Dahlberg, Rasmus and Pulls, Tobias},
+  title     = {Aggregation-Based Certificate Transparency Gossip},
+  booktitle = {Proceedings of the 13th International Conference on Availability,
+               Reliability and Security (ARES)},
+  year      = {2018},
+  doi       = {10.1145/3230833.3230869}
+}
