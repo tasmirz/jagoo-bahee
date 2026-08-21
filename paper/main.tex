@@ -460,6 +460,80 @@ This is evidence, not immutable storage. It proves prior acknowledgement, but ca
 without a receipt, compel service, or recover a body after every copy is destroyed. An ALS can also
 withhold its copy; replication helps only when clients and auditors are independent.
 
+\subsection{Additive labels as an open taxonomy}
+\label{sec:classify}
+
+Moderation here is already additive: a \texttt{Label} is a signed opinion about content that is
+already published, never a precondition for publishing it, and removal leaves a tombstone rather
+than an absence. What is easy to miss is that this already holds at the protocol level, not only
+as policy. A label's category field is a free string rather than a closed enumeration, its
+model or moderator identifier is likewise free text, and an \emph{unscoped} label needs no
+community's permission to publish at all --- a third-party fact-checker or community moderation
+team writes one exactly as the local instance would, over the same one write path
+(\S\ref{sec:design}). No vocabulary and no publishing key is privileged by the protocol.
+
+We take this as evidence that the same mechanism generalises past a single safety verdict. A
+node behind a partition benefits from surfacing \emph{who is asking for help} at least as much as
+\emph{what should be hidden}, so we specify --- but, in the sense that \S\ref{sec:intro} states the
+Signal plane to define the system boundary rather than to enlarge the evaluation claim, do not here
+evaluate --- an extension from one closed verdict to open
+\texttt{(taxonomy, label, score)} triples covering sentiment, topical intent and language. A
+taxonomy this node has never seen before still canonicalises, signs, verifies and federates,
+because it is carried as data rather than adopted as protocol; publishing it costs a registry row
+and a handler, and the admission path in Figure~\ref{fig:pipeline} gains no new step, because an
+assertion is an ordinary envelope through the ordinary path (Figure~\ref{fig:classify}). What
+changes for a client is only which taxonomies a given node advertises, over a manifest it is free
+to ignore.
+
+Two consequences follow directly from reusing rather than extending the write path, and neither is
+specific to sentiment or intent. First, whatever classifier an operator runs cannot gate a post,
+because nothing between \S\ref{sec:canonical} and \S\ref{sec:als} consults one; the worst it can do
+is answer late or not at all, which is the same failure mode \S\ref{sec:related} already accepts
+for any labeller. Second, no one classifier's output is structurally load-bearing: the taxonomy it
+speaks is metadata a reader may act on, not a gate a publisher must pass.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  font=\tiny,
+  box/.style={draw=jbInk,line width=0.3pt,rounded corners=1pt,minimum height=6mm,
+              text width=15mm,align=center,inner sep=1.6pt},
+  wbox/.style={box,text width=24mm},
+  note/.style={font=\tiny,align=center,text=jbInk!85},
+  >={Stealth[length=1.3mm]}
+]
+\node[box,fill=jbBlue!10]  (author) at (0,0)   {\textbf{author}\\sign, publish};
+\node[box,fill=jbTeal!12]  (wp1)    at (2.35,0) {\textbf{one write path}\\ordinary admission};
+\node[box,fill=jbAmber!14] (rcpt)   at (4.7,0)  {\textbf{receipt}\\unaffected};
+\draw[->,jbInk] (author) -- (wp1);
+\draw[->,jbInk] (wp1) -- (rcpt);
+
+\node[wbox,fill=jbMist!55] (clf) at (2.35,-1.55)
+  {\textbf{operator's classifier}\\any model, any taxonomy};
+\draw[->,dashed,jbRose,line width=0.4pt] (wp1.south) --
+  node[right,note,pos=0.42]{after commit,\\async} (clf.north);
+
+\node[wbox,fill=jbTeal!12] (wp2) at (2.35,-3.15)
+  {\textbf{one write path}\\\texttt{(taxonomy, label, score)}};
+\draw[->,jbRose,line width=0.4pt] (clf) -- (wp2);
+
+\node[wbox,fill=jbBlue!10] (manifest) at (2.35,-4.55)
+  {\textbf{capability manifest}\\client renders what this node emits};
+\draw[->,jbInk] (wp2) -- (manifest);
+\end{tikzpicture}
+\caption{Publishing is unaffected by classification: the top row is the ordinary write path and
+returns its receipt whether or not any classifier ever runs. An accepted post's content ID is
+handed to an operator-chosen classifier only afterward and off the critical path; its opinion
+re-enters through the same write path as an ordinary envelope, carrying an open taxonomy rather
+than a fixed vocabulary, and a capability manifest tells a client which taxonomies this particular
+node speaks. This design is specified, not evaluated.}
+\label{fig:classify}
+\Description{A publish path from author through the one write path to a receipt, unaffected by
+classification. A dashed arrow leaves the write path after commit toward an operator-chosen
+classifier, whose opinion re-enters through the same write path as an open taxonomy triple and
+is exposed to clients through a capability manifest.}
+\end{figure}
+
 
 %% ---------------------------------------------------------------------------
 \section{Federating Across a Partition}
@@ -729,7 +803,10 @@ operator showed every valid object. The sociotechnical threats remain sharper. A
 moderation decision can still be abusive; an instance can defederate; a dominant client, seed list or
 label provider can become a de facto censor; and brigading, disinformation, illegal content,
 moderator burnout and operator legal pressure are governance failures rather than signature failures.
-Replication can also preserve personal or dangerous material that a victim needs removed. The design
+No labeller or classifier holds protocol privilege over another (\S\ref{sec:classify}), which
+narrows this risk but does not close it: a dominant \emph{client} can still decide which
+labellers a reader ever sees. Replication can also preserve personal or dangerous material that a
+victim needs removed. The design
 makes censorship attributable where evidence survives; it does not make moderation fair or global
 erasure possible.
 
@@ -1076,6 +1153,11 @@ includes Tor client access, local WebRTC exchange, offline bundles, a separate i
 plane and an optional Reticulum sidecar. None contributes to the L0--L3 measurements. We have not
 measured Tor bootstrap or blocking resistance, local peer exchange, radio delivery, encrypted
 messaging or crisis-report usability under interference.
+
+\textbf{The open-taxonomy labelling extension (\S\ref{sec:classify}) is specified, not measured.}
+No classifier is deployed against it and no client renders a capability manifest; nothing in
+\S\ref{sec:eval} reflects it, and the claim made for it is only that it reuses the write path
+unchanged.
 
 %% ---------------------------------------------------------------------------
 \section{Conclusion}

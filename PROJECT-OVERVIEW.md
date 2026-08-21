@@ -345,11 +345,22 @@ Four rules prevent federation from weakening local verification:
 Content identifiers used by federated payloads must be derivable from signed bytes. A node-local
 identifier would cause two servers to project the same signed event under different names.
 
-Nodes keep durable outbound queues. They stream recent work while connected and use resumable
-backfill after disconnection. A node behind carrier-grade NAT can still participate in both
-directions: it sends queued work over a connection it opens and requests inbound history over that
-same outbound reachability. A reverse tunnel through a trusted peer is available when deployment
-policy permits it.
+Propagation is push-first, not a cache that fetches an item on request. The instant a server accepts
+an envelope, it decides which of its peers are eligible for it — by trust level, identity plane and
+traffic class — and queues one delivery per eligible peer, always excluding whichever peer supplied
+the envelope. This is closer to flooding gossip than to point-to-point replication, and deduplication
+(rule 3) is what makes flooding affordable rather than a source of runaway traffic: it is enforced
+twice, both as a database constraint rather than a check-then-write race — once globally, by content
+identifier, so the same signed bytes arriving by several paths collapse into one stored object; and
+once per federation direction, so bookkeeping about who sent or received an object cannot double-count
+a delivery that happens to race a catch-up request.
+
+Nodes keep durable outbound queues that drain by priority and retry with backoff. They also stream
+recent work live while connected and, on every reconnect, request a resumable backfill by log
+position before resuming the live stream, so a gap never silently loses what was published while a
+peer was unreachable. A node behind carrier-grade NAT can still participate in both directions because
+push and this catch-up pull are both connections it opens outward: no inbound port, no port
+forwarding. A reverse tunnel through a trusted peer is available when deployment policy permits it.
 
 ## 8. Transparency and fork detection
 
@@ -512,6 +523,25 @@ Replication also creates a real conflict with privacy and safety: personal, ille
 material may survive after a victim asks for removal. The protocol has no global appeal court or
 global erasure mechanism.
 
+### 11.1 An open taxonomy for labels and classification
+
+A label's category and its issuing model or moderator identifier are already free strings rather
+than a fixed list built into the protocol, and an unscoped label needs no community's permission to
+publish at all — a third-party fact-checker or community moderation team writes one exactly as the
+home server would. No vocabulary and no publishing key is privileged by the write path.
+
+A design extension — specified but not yet built, deployed or evaluated — generalises this past a
+single safety verdict. It carries sentiment, topical intent and language as open
+`(taxonomy, label, score)` triples instead of a closed enumeration, so a taxonomy the network has
+never seen before still canonicalises, signs, verifies and federates: it travels as data rather than
+being adopted as protocol. Publishing it costs one registry row and one handler; the admission
+pipeline in §5 gains no new step, because an assertion is an ordinary envelope through the ordinary
+write path. What changes for a client is only which taxonomies a given server advertises, over a
+small capability manifest it is free to ignore. Because nothing between signature verification and
+body validation ever consults a classifier, an operator's chosen model — any model, on-device or
+hosted — can never gate a post; the worst it can do is answer late or not at all, the same failure
+mode already accepted for any labeller.
+
 ## 12. Threat model
 
 The adversary may control national or ISP routing, block by DNS, IP or SNI, throttle selected traffic,
@@ -662,6 +692,9 @@ The next phase should concentrate on evidence that a single-host container setup
 7. Define governance for default seeds, audit services, label providers, appeals and harmful-content
    handling.
 8. Measure the financial and moderation cost of keeping independent nodes and bridges operating.
+9. Build and evaluate the open-taxonomy classification extension in §11.1 (sentiment, intent and
+   language labelling): a reference classifier, the capability manifest a client reads, and a
+   conformance suite so a third-party classifier can be verified rather than merely trusted.
 
 ## 18. Terminology
 
@@ -679,6 +712,8 @@ The next phase should concentrate on evidence that a single-host container setup
 | Bridge | A verifying multi-homed node authorised to relay across an uplink pair. |
 | Pseudonymity | Participation through public keys without civil identity; it does not imply traffic anonymity. |
 | Tombstone | A signed record that content was removed or hidden under a policy. |
+| Assertion | An open `(taxonomy, label, score)` triple used by the label and classification extension in §11.1; unlike a verdict, the taxonomy is data rather than a fixed protocol enumeration. |
+| Capability manifest | A short document a server publishes describing which label and classification taxonomies it emits, so a client can render an unfamiliar one honestly instead of dropping it. |
 
 ## 19. Companion material
 
@@ -691,4 +726,5 @@ The next phase should concentrate on evidence that a single-host container setup
 - [Censorship-resistance literature audit](Code%20Implementation/NSYSS-2026-CENSORSHIP-RESISTANCE-SOURCES.md)
 - [Portable audit-certificate decision](Code%20Implementation/ADR-009-PORTABLE-AUDIT-CERTIFICATES.md)
 - [ISP availability plan](Code%20Implementation/P3-ISP-AVAILABILITY-PLAN.md)
+- [Content classification plan](Code%20Implementation/PC-CLASSIFICATION-PLAN.md)
 - [Build and measurement history](Code%20Implementation/BUILD-LOG.md)
