@@ -1,73 +1,64 @@
 # NSysS 2026 submission
 
-`main.tex` — full paper, ACM `sigconf`, **double-blind**.
+`main.tex` is the anonymous ACM `sigconf` source. The checked deliverable is
+`output/pdf/nsyss2026-paper.pdf`: **6 pages**, with no unresolved references or citations.
 
 ## Build
 
 ```bash
-latexmk -pdf main.tex      # produces main.pdf
-latexmk -C                 # clean
+latexmk -pdf main.tex
+bash check-submission.sh output/pdf/nsyss2026-paper.pdf
 ```
 
-Requires `acmart` (TeX Live / MiKTeX ship it). Current output: **9 pages**, 0 unresolved
-references, 0 unresolved citations.
+A complete TeX Live or MiKTeX installation is recommended. The repository includes the conference's
+`acmart.cls` and `ACM-Reference-Format.bst`.
 
-## Before submitting — check these, they are desk-reject risks
+## Submission checks
 
-- [ ] **`anonymous` stays in `\documentclass`.** It is what suppresses author identity. Do not
-      remove it to "see how it looks" and forget to put it back.
-- [ ] **No system name, no repository URL, no acknowledgements anywhere.** The paper never names the
-      artefact; keep it that way. There is deliberately no `\acks` block.
-- [ ] **Cite venue-adjacent work in the third person.** Two of the most closely related papers are
-      co-authored by the NSysS 2026 general contact — cite them, and cite them as strangers.
-- [ ] **Page limit is 9.** The CFP page says 6–8; the Author Instructions say 9, and 14 of 35
-      accepted papers in the last two editions exceed 8. Nine is operative, and the draft is at it.
-- [ ] **Rewrite the prose in your own voice before submitting.** The Author Instructions state
-      submissions are screened with a plagiarism checker *and* an AI detector. Treat this draft as a
-      complete, factually-checked skeleton — every number in it is measured and every citation is
-      verified — but not as final copy.
+- Keep `anonymous` in `\documentclass` and do not add acknowledgements, author affiliations, the
+  project name, or a repository URL to the review copy.
+- NSysS requires **6--8 pages including references**. Do not rely on the older draft's nine-page
+  interpretation; the publishability review is authoritative for this version.
+- Keep the neutral title and the phrase **partition tolerant under surviving IP paths**. The evidence
+  does not support a blanket censorship-resistance or total-blackout claim.
+- Report signed receipts as evidence of acknowledged acceptance, not prevention of refusal or
+  admission censorship.
+- Treat growing transparency-log heads as pending until a consistency proof is implemented.
+- Lead the ActivityPub comparison with the gzip-aware 4.4--6.9× range; the 19.5--25.9× raw range is
+  secondary and caveated.
 
-## Where the numbers come from
+## Evidence used in the paper
 
-Every quantitative claim traces to something reproducible in the repository. Nothing here is
-estimated or carried over from an earlier draft.
-
-| Claim in the paper | Source |
+| Claim | Repository evidence |
 | --- | --- |
-| 3 implementations agree on 16 canonical vectors | `pnpm vectors` |
-| 8-node chain, 200 samples, 7 hops p50 4125 ms | `pnpm scale:gen 8 && scale:up && scale:measure` |
-| per-hop residual 71–89 ms across a 4× drain change | same, two drain settings |
-| burst regime: hop-1 p50 10 s, p95 173 s | same, unpaced — **never average with the paced run** |
-| bridged crossing 0.5 / 1.2 / 2.1 s after the cut | `ops/isp-compose.yml` + `crossing` measurement |
-| partition gate 19/19 | `pnpm ops:isp && pnpm gate:isp` |
-| invalid flood 730 req/s with zero writes | adversarial envelope flood at concurrency 16 |
-| read path 228 / 750 / 688 req/s | keep-alive client, single process |
-| RSS 62 MiB idle, 233 MiB under bulk crossing | `docker stats` during TG-05 |
-| wire sizes 155 / 220 / 243 B | `tools/vectors/expected.json` + 64 B Ed25519 |
-| ActivityPub n=80, overhead p50 4015 B, context 927 B | `pnpm ap:baseline` |
-| capability matrix cells | `Code Implementation/NSYSS-2026-CAPABILITY-MATRIX-SOURCES.md` |
+| TypeScript, Rust, and Python agree on 16 canonical vectors | `pnpm vectors` |
+| 85 focused tests: 29 ingress, 3 outbox, 31 federation, 22 ISP | focused backend Vitest suites |
+| 8-node chain, 200/200 at hop 7; p50 4.125 s, p99 6.115 s | scale harness and preserved measurements |
+| route-cut gate 19/19; certificate/community/post in 0.5/1.2/2.1 s | `ops/isp-compose.yml` and gate output |
+| old 407.6 s post path reduced to 2.1 s | serial versus per-peer concurrent drain records |
+| malformed run 730 requests/s and zero invalid-object writes | 3,000-request ingress run |
+| 90% rate-limited; about 9% reached signature verification | rejection-class counters from that run |
+| ActivityPub comparison over 80 activities | measured ActivityPub baseline |
 
-## Two things the paper deliberately does not claim
+The first two gates were rerun for this revision. The Docker deployment numbers are preserved results;
+the paper explicitly notes the lack of repeated-run distributions and confidence intervals.
 
-- **No mesh, radio or off-grid claim.** Reticulum and phone-to-phone mesh are outside the project and
-  paper. The reachability ladder ends at L3: ISP islands joined by a multi-homed IP bridge.
-- **No novelty for the mechanisms.** Signed content at rest, tree-head gossip, issuance/verification
-  separation and narrowest-path preference are all prior art and are cited as such in the sentence
-  that introduces each. The claim is the composition and its measured cost.
+## Scope boundaries
 
-## Related working documents
+- The four-node deployment is a virtual topology on one physical host, not a field shutdown or WAN
+  experiment.
+- A bridge is a visible, explicitly trusted, validating server. It is neither a covert transport nor
+  a defense against operator coercion, DPI whitelisting, traffic analysis, eclipse, or a total outage.
+- Origin admission pricing protects the local origin. A malicious origin can omit its own price, so
+  receivers rely on peer and traffic-class quotas.
+- The invalid-envelope run demonstrates admission ordering and zero invalid-object write
+  amplification; it does not demonstrate denial-of-service resistance.
+- Quantitative results from encounter, voice-channel, trace-driven, and server-federated systems use
+  different substrates and denominators. Table 2 is context, not a performance leaderboard.
 
-- `Code Implementation/NSYSS-2026-PAPER-PLAN.md` — outline, budget, claim-to-evidence table
-- `Code Implementation/NSYSS-2026-PAPER-S5-ADVERSARY-AND-SCOPE.md` — §5 content spec
-- `Code Implementation/NSYSS-2026-PAPER-S7-CAPABILITY-MATRIX.md` — §7 cells and footnotes
-- `Code Implementation/NSYSS-2026-CAPABILITY-MATRIX-SOURCES.md` — verbatim primary sources
-- `Code Implementation/NSYSS-2026-CENSORSHIP-RESISTANCE-SOURCES.md` — literature and claim audit
-- `Code Implementation/NSYSS-2026-THREAT-MODEL-AUDIT.md` — technical and sociological threat audit
+## Primary working documents
 
-## Figures and presentation
-
-- `figures-draft.tex` / `figures-draft.pdf` — twelve large-format figure drafts, including the ALS
-  workflow as Figure L
-- `Islands-of-Reach-Presentation.pptx` — editable 15-slide presentation
-- `Islands-of-Reach-Presentation.pdf` — rendered presentation handout
-- `build_presentation.py` — reproducible presentation source
+- `../NSYSS-2026-PUBLISHABILITY-REVIEW.md`
+- `../ieee paper/deep-research-report.md`
+- `../related-papers/literature_review.md`
+- `../related-papers/comparison.md`
