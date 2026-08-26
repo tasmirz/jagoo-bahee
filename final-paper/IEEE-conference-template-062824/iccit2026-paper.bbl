@@ -62,6 +62,12 @@ A.~Pradeep, H.~Javaid, R.~Williams, A.~Rault, D.~Choffnes, S.~Le~Blond, and
   devices,'' \emph{Proceedings on Privacy Enhancing Technologies}, vol. 2022,
   no.~3, pp. 247--267, 2022.
 
+\bibitem{hossmann2011twimight}
+T.~Hossmann, P.~Carta, D.~Schatzmann, F.~Legendre, P.~Gunningberg, and
+  C.~Rohner, ``Twitter in disaster mode: Security architecture,'' in
+  \emph{Proceedings of the First ACM Workshop on Privacy and Security in Mobile
+  Systems}, 2011.
+
 \bibitem{activitypub}
 C.~L. Webber, J.~Tallon, E.~Shepherd, A.~Guy, and E.~Prodromou,
   ``{ActivityPub},'' W3C Recommendation, 2018,
@@ -84,12 +90,6 @@ D.~Tarr, E.~Lavoie, A.~Meyer, and C.~Tschudin, ``Secure scuttlebutt: An
   identity-centric protocol for subjective and decentralized applications,'' in
   \emph{Proceedings of the 6th ACM Conference on Information-Centric Networking
   (ICN)}, 2019, pp. 1--11.
-
-\bibitem{hossmann2011twimight}
-T.~Hossmann, P.~Carta, D.~Schatzmann, F.~Legendre, P.~Gunningberg, and
-  C.~Rohner, ``Twitter in disaster mode: Security architecture,'' in
-  \emph{Proceedings of the First ACM Workshop on Privacy and Security in Mobile
-  Systems}, 2011.
 
 \bibitem{sharma2023dolphin}
 P.~K. Sharma, R.~Sharma, K.~Singh, M.~Maity, and S.~Chakravarty, ``{Dolphin}: A
