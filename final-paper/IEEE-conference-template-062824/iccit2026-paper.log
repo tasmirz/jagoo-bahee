@@ -1,12 +1,13 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.2) (preloaded format=pdflatex 2026.3.5)  26 AUG 2026 23:25
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026/Arch Linux) (preloaded format=pdflatex 2026.8.27)  27 AUG 2026 01:14
 entering extended mode
  restricted \write18 enabled.
+ file:line:error style messages enabled.
  %&-line parsing enabled.
-**./iccit2026-paper.tex
-(iccit2026-paper.tex
+**/home/user/Projects/jagoo-bahee/final-paper/IEEE-conference-template-062824/iccit2026-paper.tex
+(/home/user/Projects/jagoo-bahee/final-paper/IEEE-conference-template-062824/iccit2026-paper.tex
 LaTeX2e <2025-11-01>
 L3 programming layer <2026-01-19>
-(IEEEtran.cls
+(./IEEEtran.cls
 Document Class: IEEEtran 2015/08/26 V1.8b by Michael Shell
 -- See the "IEEEtran_HOWTO" manual for usage information.
 -- http://www.michaelshell.org/tex/ieeetran/
@@ -17,17 +18,16 @@ Document Class: IEEEtran 2015/08/26 V1.8b by Michael Shell
 \@IEEEtrantmpcountB=\count276
 \@IEEEtrantmpcountC=\count277
 \@IEEEtrantmptoksA=\toks17
-LaTeX Font Info:    Trying to load font information for OT1+ptm on input line 5
-03.
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/psnfss\ot1ptm.fd
+LaTeX Font Info:    Trying to load font information for OT1+ptm on input line 503.
+(/usr/share/texmf-dist/tex/latex/psnfss/ot1ptm.fd
 File: ot1ptm.fd 2001/06/04 font definitions for OT1/ptm.
 )
+** ATTENTION: Single column mode is not typically used with IEEE publications.
 -- Using 210mm x 297mm (a4) paper.
 -- Using PDF output.
 \@IEEEnormalsizeunitybaselineskip=\dimen151
 -- This is a 10 point document.
-LaTeX Encoding Info:    Redeclaring text command \textunderscore (encoding ?) o
-n input line 937.
+LaTeX Encoding Info:    Redeclaring text command \textunderscore (encoding ?) on input line 937.
 \CLASSINFOnormalsizebaselineskip=\dimen152
 \CLASSINFOnormalsizeunitybaselineskip=\dimen153
 \IEEEnormaljot=\dimen154
@@ -35,52 +35,42 @@ LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <5> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1090.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <5> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1090.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <7> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1090.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <7> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1090.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <8> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1090.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <8> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1090.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <9> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1090.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <9> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1090.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <10> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1090.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <10> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1090.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <11> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1090.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <11> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1090.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <12> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1090.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <12> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1090.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <17> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1090.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <17> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1090.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <20> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1090.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <20> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1090.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <24> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1090.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <24> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1090.
-
 \IEEEquantizedlength=\dimen155
 \IEEEquantizedlengthdiff=\dimen156
 \IEEEquantizedtextheightdiff=\dimen157
@@ -115,29 +105,61 @@ LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <24> not available
 \IEEEPARstartletwidth=\dimen171
 \c@IEEEbiography=\count289
 \@IEEEtranrubishbin=\box54
-) (C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/cite\cite.sty
+) (/usr/share/texmf-dist/tex/latex/koma-script/scrextend.sty
+Package: scrextend 2026/02/02 v3.49.2 KOMA-Script package (extend other classes with features of KOMA-Script classes)
+ (/usr/share/texmf-dist/tex/latex/koma-script/scrkbase.sty
+Package: scrkbase 2026/02/02 v3.49.2 KOMA-Script package (KOMA-Script-dependent basics and keyval usage)
+ (/usr/share/texmf-dist/tex/latex/koma-script/scrbase.sty
+Package: scrbase 2026/02/02 v3.49.2 KOMA-Script package (KOMA-Script-independent basics and keyval usage)
+ (/usr/share/texmf-dist/tex/latex/koma-script/scrlfile.sty
+Package: scrlfile 2026/02/02 v3.49.2 KOMA-Script package (file load hooks)
+ (/usr/share/texmf-dist/tex/latex/koma-script/scrlfile-hook.sty
+Package: scrlfile-hook 2026/02/02 v3.49.2 KOMA-Script package (using LaTeX hooks)
+ (/usr/share/texmf-dist/tex/latex/koma-script/scrlogo.sty
+Package: scrlogo 2026/02/02 v3.49.2 KOMA-Script package (logo)
+))) (/usr/share/texmf-dist/tex/latex/graphics/keyval.sty
+Package: keyval 2022/05/29 v1.15 key=value parser (DPC)
+\KV@toks@=\toks18
+)
+Applying: [2021/05/01] Usage of raw or classic option list on input line 254.
+Already applied: [0000/00/00] Usage of raw or classic option list on input line 370.
+))) (/usr/share/texmf-dist/tex/latex/xcolor/xcolor.sty
+Package: xcolor 2024/09/29 v3.02 LaTeX color extensions (UK)
+ (/usr/share/texmf-dist/tex/latex/graphics-cfg/color.cfg
+File: color.cfg 2016/01/02 v1.6 sample color configuration
+)
+Package xcolor Info: Driver file: pdftex.def on input line 274.
+ (/usr/share/texmf-dist/tex/latex/graphics-def/pdftex.def
+File: pdftex.def 2025/09/29 v1.2d Graphics/color driver for pdftex
+) (/usr/share/texmf-dist/tex/latex/graphics/mathcolor.ltx)
+Package xcolor Info: Model `cmy' substituted by `cmy0' on input line 1349.
+Package xcolor Info: Model `hsb' substituted by `rgb' on input line 1353.
+Package xcolor Info: Model `RGB' extended on input line 1365.
+Package xcolor Info: Model `HTML' substituted by `rgb' on input line 1367.
+Package xcolor Info: Model `Hsb' substituted by `hsb' on input line 1368.
+Package xcolor Info: Model `tHsb' substituted by `hsb' on input line 1369.
+Package xcolor Info: Model `HSB' substituted by `hsb' on input line 1370.
+Package xcolor Info: Model `Gray' substituted by `gray' on input line 1371.
+Package xcolor Info: Model `wave' substituted by `hsb' on input line 1372.
+) (/usr/share/texmf-dist/tex/latex/cite/cite.sty
 LaTeX Info: Redefining \cite on input line 302.
 LaTeX Info: Redefining \nocite on input line 332.
 Package: cite 2015/02/27  v 5.5
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/amsmath\amsmath.sty
+) (/usr/share/texmf-dist/tex/latex/amsmath/amsmath.sty
 Package: amsmath 2025/07/09 v2.17z AMS math features
 \@mathmargin=\skip52
 
 For additional information on amsmath, use the `?' option.
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/amsmath\amstext.sty
+(/usr/share/texmf-dist/tex/latex/amsmath/amstext.sty
 Package: amstext 2024/11/17 v2.01 AMS text
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/amsmath\amsgen.sty
+ (/usr/share/texmf-dist/tex/latex/amsmath/amsgen.sty
 File: amsgen.sty 1999/11/30 v2.0 generic functions
-\@emptytoks=\toks18
+\@emptytoks=\toks19
 \ex@=\dimen172
-))
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/amsmath\amsbsy.sty
+)) (/usr/share/texmf-dist/tex/latex/amsmath/amsbsy.sty
 Package: amsbsy 1999/11/29 v1.2d Bold Symbols
 \pmbraise@=\dimen173
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/amsmath\amsopn.sty
+) (/usr/share/texmf-dist/tex/latex/amsmath/amsopn.sty
 Package: amsopn 2022/04/08 v2.04 operator names
 )
 \inf@bad=\count290
@@ -170,83 +192,48 @@ LaTeX Info: Redefining \Relbar on input line 970.
 \dotsspace@=\muskip17
 \c@parentequation=\count297
 \dspbrk@lvl=\count298
-\tag@help=\toks19
+\tag@help=\toks20
 \row@=\count299
 \column@=\count300
 \maxfields@=\count301
-\andhelp@=\toks20
+\andhelp@=\toks21
 \eqnshift@=\dimen175
 \alignsep@=\dimen176
 \tagshift@=\dimen177
 \tagwidth@=\dimen178
 \totwidth@=\dimen179
 \lineht@=\dimen180
-\@envbody=\toks21
+\@envbody=\toks22
 \multlinegap=\skip53
 \multlinetaggap=\skip54
-\mathdisplay@stack=\toks22
+\mathdisplay@stack=\toks23
 LaTeX Info: Redefining \[ on input line 2950.
 LaTeX Info: Redefining \] on input line 2951.
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\amssymb.sty
+) (/usr/share/texmf-dist/tex/latex/amsfonts/amssymb.sty
 Package: amssymb 2013/01/14 v3.01 AMS font symbols
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\amsfonts.sty
+ (/usr/share/texmf-dist/tex/latex/amsfonts/amsfonts.sty
 Package: amsfonts 2013/01/14 v3.01 Basic AMSFonts support
 \symAMSa=\mathgroup4
 \symAMSb=\mathgroup5
 LaTeX Font Info:    Redeclaring math symbol \hbar on input line 98.
 LaTeX Font Info:    Overwriting math alphabet `\mathfrak' in version `bold'
 (Font)                  U/euf/m/n --> U/euf/b/n on input line 106.
-))
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/graphics\graphicx.sty
+)) (/usr/share/texmf-dist/tex/latex/graphics/graphicx.sty
 Package: graphicx 2024/12/31 v1.2e Enhanced LaTeX Graphics (DPC,SPQR)
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/graphics\keyval.sty
-Package: keyval 2022/05/29 v1.15 key=value parser (DPC)
-\KV@toks@=\toks23
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/graphics\graphics.sty
+ (/usr/share/texmf-dist/tex/latex/graphics/graphics.sty
 Package: graphics 2024/08/06 v1.4g Standard LaTeX Graphics (DPC,SPQR)
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/graphics\trig.sty
+ (/usr/share/texmf-dist/tex/latex/graphics/trig.sty
 Package: trig 2023/12/02 v1.11 sin cos tan (DPC)
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/graphics-cfg\graphics.
-cfg
+) (/usr/share/texmf-dist/tex/latex/graphics-cfg/graphics.cfg
 File: graphics.cfg 2016/06/04 v1.11 sample graphics configuration
 )
 Package graphics Info: Driver file: pdftex.def on input line 106.
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/graphics-def\pdftex.de
-f
-File: pdftex.def 2025/09/29 v1.2d Graphics/color driver for pdftex
-))
+)
 \Gin@req@height=\dimen181
 \Gin@req@width=\dimen182
-) (C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/base\textcomp.sty
+) (/usr/share/texmf-dist/tex/latex/base/textcomp.sty
 Package: textcomp 2024/04/24 v2.1b Standard LaTeX package
-) (C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/xcolor\xcolor.sty
-Package: xcolor 2024/09/29 v3.02 LaTeX color extensions (UK)
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/graphics-cfg\color.cfg
-File: color.cfg 2016/01/02 v1.6 sample color configuration
-)
-Package xcolor Info: Driver file: pdftex.def on input line 274.
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/graphics\mathcolor.ltx
-)
-Package xcolor Info: Model `cmy' substituted by `cmy0' on input line 1349.
-Package xcolor Info: Model `hsb' substituted by `rgb' on input line 1353.
-Package xcolor Info: Model `RGB' extended on input line 1365.
-Package xcolor Info: Model `HTML' substituted by `rgb' on input line 1367.
-Package xcolor Info: Model `Hsb' substituted by `hsb' on input line 1368.
-Package xcolor Info: Model `tHsb' substituted by `hsb' on input line 1369.
-Package xcolor Info: Model `HSB' substituted by `hsb' on input line 1370.
-Package xcolor Info: Model `Gray' substituted by `gray' on input line 1371.
-Package xcolor Info: Model `wave' substituted by `hsb' on input line 1372.
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/booktabs\booktabs.sty
+) (/usr/share/texmf-dist/tex/latex/booktabs/booktabs.sty
 Package: booktabs 2020/01/12 v1.61803398 Publication quality tables
 \heavyrulewidth=\dimen183
 \lightrulewidth=\dimen184
@@ -265,10 +252,9 @@ Package: booktabs 2020/01/12 v1.61803398 Publication quality tables
 \@thisruleclass=\count304
 \@lastruleclass=\count305
 \@thisrulewidth=\dimen195
-) (C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/tools\tabularx.sty
+) (/usr/share/texmf-dist/tex/latex/tools/tabularx.sty
 Package: tabularx 2023/12/11 v2.12a `tabularx' package (DPC)
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/tools\array.sty
+ (/usr/share/texmf-dist/tex/latex/tools/array.sty
 Package: array 2025/09/25 v2.6n Tabular extension package (FMi)
 \col@sep=\dimen196
 \ar@mcellbox=\box57
@@ -285,46 +271,22 @@ Package: array 2025/09/25 v2.6n Tabular extension package (FMi)
 \TX@delta=\dimen258
 \TX@cols=\count306
 \TX@ftn=\toks25
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/pgf/frontendlayer\tikz
-.sty
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/pgf/basiclayer\pgf.sty
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/pgf/utilities\pgfrcs.s
-ty
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/utilities\pgfuti
-l-common.tex
+) (/usr/share/texmf-dist/tex/latex/pgf/frontendlayer/tikz.sty (/usr/share/texmf-dist/tex/latex/pgf/basiclayer/pgf.sty (/usr/share/texmf-dist/tex/latex/pgf/utilities/pgfrcs.sty (/usr/share/texmf-dist/tex/generic/pgf/utilities/pgfutil-common.tex
 \pgfutil@everybye=\toks26
 \pgfutil@tempdima=\dimen259
 \pgfutil@tempdimb=\dimen260
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/utilities\pgfuti
-l-latex.def
+) (/usr/share/texmf-dist/tex/generic/pgf/utilities/pgfutil-latex.def
 \pgfutil@abb=\box59
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/utilities\pgfrcs
-.code.tex
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf\pgf.revision.tex
-)
+) (/usr/share/texmf-dist/tex/generic/pgf/utilities/pgfrcs.code.tex (/usr/share/texmf-dist/tex/generic/pgf/pgf.revision.tex)
 Package: pgfrcs 2025-08-29 v3.1.11a (3.1.11a)
 ))
 Package: pgf 2025-08-29 v3.1.11a (3.1.11a)
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/pgf/basiclayer\pgfcore
-.sty
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/pgf/systemlayer\pgfsys
-.sty
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/systemlayer\pgfs
-ys.code.tex
+ (/usr/share/texmf-dist/tex/latex/pgf/basiclayer/pgfcore.sty (/usr/share/texmf-dist/tex/latex/pgf/systemlayer/pgfsys.sty (/usr/share/texmf-dist/tex/generic/pgf/systemlayer/pgfsys.code.tex
 Package: pgfsys 2025-08-29 v3.1.11a (3.1.11a)
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/utilities\pgfkey
-s.code.tex
+ (/usr/share/texmf-dist/tex/generic/pgf/utilities/pgfkeys.code.tex
 \pgfkeys@pathtoks=\toks27
 \pgfkeys@temptoks=\toks28
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/utilities\pgfkey
-slibraryfiltered.code.tex
+ (/usr/share/texmf-dist/tex/generic/pgf/utilities/pgfkeyslibraryfiltered.code.tex
 \pgfkeys@tmptoks=\toks29
 ))
 \pgf@x=\dimen261
@@ -347,76 +309,32 @@ slibraryfiltered.code.tex
 \t@pgf@tokb=\toks31
 \t@pgf@tokc=\toks32
 \pgf@sys@id@count=\count311
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/systemlayer\pgf.
-cfg
+ (/usr/share/texmf-dist/tex/generic/pgf/systemlayer/pgf.cfg
 File: pgf.cfg 2025-08-29 v3.1.11a (3.1.11a)
 )
 Driver file for pgf: pgfsys-pdftex.def
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/systemlayer\pgfs
-ys-pdftex.def
+ (/usr/share/texmf-dist/tex/generic/pgf/systemlayer/pgfsys-pdftex.def
 File: pgfsys-pdftex.def 2025-08-29 v3.1.11a (3.1.11a)
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/systemlayer\pgfs
-ys-common-pdf.def
+ (/usr/share/texmf-dist/tex/generic/pgf/systemlayer/pgfsys-common-pdf.def
 File: pgfsys-common-pdf.def 2025-08-29 v3.1.11a (3.1.11a)
-)))
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/systemlayer\pgfs
-yssoftpath.code.tex
+))) (/usr/share/texmf-dist/tex/generic/pgf/systemlayer/pgfsyssoftpath.code.tex
 File: pgfsyssoftpath.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgfsyssoftpath@smallbuffer@items=\count312
 \pgfsyssoftpath@bigbuffer@items=\count313
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/systemlayer\pgfs
-ysprotocol.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/systemlayer/pgfsysprotocol.code.tex
 File: pgfsysprotocol.code.tex 2025-08-29 v3.1.11a (3.1.11a)
-))
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-re.code.tex
+)) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcore.code.tex
 Package: pgfcore 2025-08-29 v3.1.11a (3.1.11a)
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfmath.cod
-e.tex
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfmathutil
-.code.tex)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfmathpars
-er.code.tex
+ (/usr/share/texmf-dist/tex/generic/pgf/math/pgfmath.code.tex (/usr/share/texmf-dist/tex/generic/pgf/math/pgfmathutil.code.tex) (/usr/share/texmf-dist/tex/generic/pgf/math/pgfmathparser.code.tex
 \pgfmath@dimen=\dimen271
 \pgfmath@count=\count314
 \pgfmath@box=\box60
 \pgfmath@toks=\toks33
 \pgfmath@stack@operand=\toks34
 \pgfmath@stack@operation=\toks35
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfmathfunc
-tions.code.tex)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfmathfunc
-tions.basic.code.tex)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfmathfunc
-tions.trigonometric.code.tex)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfmathfunc
-tions.random.code.tex)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfmathfunc
-tions.comparison.code.tex)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfmathfunc
-tions.base.code.tex)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfmathfunc
-tions.round.code.tex)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfmathfunc
-tions.misc.code.tex)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfmathfunc
-tions.integerarithmetics.code.tex)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfmathcalc
-.code.tex)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfmathfloa
-t.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.code.tex) (/usr/share/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.basic.code.tex) (/usr/share/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.trigonometric.code.tex) (/usr/share/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.random.code.tex) (/usr/share/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.comparison.code.tex) (/usr/share/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.base.code.tex) (/usr/share/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.round.code.tex) (/usr/share/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.misc.code.tex) (/usr/share/texmf-dist/tex/generic/pgf/math/pgfmathfunctions.integerarithmetics.code.tex) (/usr/share/texmf-dist/tex/generic/pgf/math/pgfmathcalc.code.tex) (/usr/share/texmf-dist/tex/generic/pgf/math/pgfmathfloat.code.tex
 \c@pgfmathroundto@lastzeros=\count315
-))
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfint.code
-.tex)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-repoints.code.tex
+)) (/usr/share/texmf-dist/tex/generic/pgf/math/pgfint.code.tex) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcorepoints.code.tex
 File: pgfcorepoints.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgf@picminx=\dimen272
 \pgf@picmaxx=\dimen273
@@ -432,130 +350,75 @@ File: pgfcorepoints.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgf@yy=\dimen283
 \pgf@zx=\dimen284
 \pgf@zy=\dimen285
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-repathconstruct.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcorepathconstruct.code.tex
 File: pgfcorepathconstruct.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgf@path@lastx=\dimen286
 \pgf@path@lasty=\dimen287
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-repathusage.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcorepathusage.code.tex
 File: pgfcorepathusage.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgf@shorten@end@additional=\dimen288
 \pgf@shorten@start@additional=\dimen289
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-rescopes.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcorescopes.code.tex
 File: pgfcorescopes.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgfpic=\box61
 \pgf@hbox=\box62
 \pgf@layerbox@main=\box63
 \pgf@picture@serial@count=\count316
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-regraphicstate.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcoregraphicstate.code.tex
 File: pgfcoregraphicstate.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgflinewidth=\dimen290
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-retransformations.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcoretransformations.code.tex
 File: pgfcoretransformations.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgf@pt@x=\dimen291
 \pgf@pt@y=\dimen292
 \pgf@pt@temp=\dimen293
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-requick.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcorequick.code.tex
 File: pgfcorequick.code.tex 2025-08-29 v3.1.11a (3.1.11a)
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-reobjects.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcoreobjects.code.tex
 File: pgfcoreobjects.code.tex 2025-08-29 v3.1.11a (3.1.11a)
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-repathprocessing.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcorepathprocessing.code.tex
 File: pgfcorepathprocessing.code.tex 2025-08-29 v3.1.11a (3.1.11a)
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-rearrows.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcorearrows.code.tex
 File: pgfcorearrows.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgfarrowsep=\dimen294
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-reshade.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcoreshade.code.tex
 File: pgfcoreshade.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgf@max=\dimen295
 \pgf@sys@shading@range@num=\count317
 \pgf@shadingcount=\count318
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-reimage.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcoreimage.code.tex
 File: pgfcoreimage.code.tex 2025-08-29 v3.1.11a (3.1.11a)
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-reexternal.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcoreexternal.code.tex
 File: pgfcoreexternal.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgfexternal@startupbox=\box64
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-relayers.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcorelayers.code.tex
 File: pgfcorelayers.code.tex 2025-08-29 v3.1.11a (3.1.11a)
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-retransparency.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcoretransparency.code.tex
 File: pgfcoretransparency.code.tex 2025-08-29 v3.1.11a (3.1.11a)
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-repatterns.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcorepatterns.code.tex
 File: pgfcorepatterns.code.tex 2025-08-29 v3.1.11a (3.1.11a)
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/basiclayer\pgfco
-rerdf.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/basiclayer/pgfcorerdf.code.tex
 File: pgfcorerdf.code.tex 2025-08-29 v3.1.11a (3.1.11a)
-)))
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/modules\pgfmodul
-eshapes.code.tex
+))) (/usr/share/texmf-dist/tex/generic/pgf/modules/pgfmoduleshapes.code.tex
 File: pgfmoduleshapes.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgfnodeparttextbox=\box65
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/modules\pgfmodul
-eplot.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/modules/pgfmoduleplot.code.tex
 File: pgfmoduleplot.code.tex 2025-08-29 v3.1.11a (3.1.11a)
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/pgf/compatibility\pgfc
-omp-version-0-65.sty
+) (/usr/share/texmf-dist/tex/latex/pgf/compatibility/pgfcomp-version-0-65.sty
 Package: pgfcomp-version-0-65 2025-08-29 v3.1.11a (3.1.11a)
 \pgf@nodesepstart=\dimen296
 \pgf@nodesepend=\dimen297
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/pgf/compatibility\pgfc
-omp-version-1-18.sty
+) (/usr/share/texmf-dist/tex/latex/pgf/compatibility/pgfcomp-version-1-18.sty
 Package: pgfcomp-version-1-18 2025-08-29 v3.1.11a (3.1.11a)
-))
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/pgf/utilities\pgffor.s
-ty
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/pgf/utilities\pgfkeys.
-sty
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/utilities\pgfkey
-s.code.tex))
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/pgf/math\pgfmath.sty
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/math\pgfmath.cod
-e.tex))
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/utilities\pgffor
-.code.tex
+)) (/usr/share/texmf-dist/tex/latex/pgf/utilities/pgffor.sty (/usr/share/texmf-dist/tex/latex/pgf/utilities/pgfkeys.sty (/usr/share/texmf-dist/tex/generic/pgf/utilities/pgfkeys.code.tex)) (/usr/share/texmf-dist/tex/latex/pgf/math/pgfmath.sty (/usr/share/texmf-dist/tex/generic/pgf/math/pgfmath.code.tex)) (/usr/share/texmf-dist/tex/generic/pgf/utilities/pgffor.code.tex
 Package: pgffor 2025-08-29 v3.1.11a (3.1.11a)
 \pgffor@iter=\dimen298
 \pgffor@skip=\dimen299
 \pgffor@stack=\toks36
 \pgffor@toks=\toks37
-))
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendlayer/ti
-kz\tikz.code.tex
+)) (/usr/share/texmf-dist/tex/generic/pgf/frontendlayer/tikz/tikz.code.tex
 Package: tikz 2025-08-29 v3.1.11a (3.1.11a)
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/libraries\pgflib
-raryplothandlers.code.tex
+ (/usr/share/texmf-dist/tex/generic/pgf/libraries/pgflibraryplothandlers.code.tex
 File: pgflibraryplothandlers.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgf@plot@mark@count=\count319
 \pgfplotmarksize=\dimen300
@@ -576,50 +439,31 @@ File: pgflibraryplothandlers.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \tikznumberofchildren=\count321
 \tikznumberofcurrentchild=\count322
 \tikz@fig@count=\count323
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/modules\pgfmodul
-ematrix.code.tex
+ (/usr/share/texmf-dist/tex/generic/pgf/modules/pgfmodulematrix.code.tex
 File: pgfmodulematrix.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgfmatrixcurrentrow=\count324
 \pgfmatrixcurrentcolumn=\count325
 \pgf@matrix@numberofcolumns=\count326
 )
 \tikz@expandcount=\count327
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendlayer/ti
-kz/libraries\tikzlibrarytopaths.code.tex
+ (/usr/share/texmf-dist/tex/generic/pgf/frontendlayer/tikz/libraries/tikzlibrarytopaths.code.tex
 File: tikzlibrarytopaths.code.tex 2025-08-29 v3.1.11a (3.1.11a)
-)))
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/url\url.sty
+))) (/usr/share/texmf-dist/tex/latex/url/url.sty
 \Urlmuskip=\muskip18
 Package: url 2013/09/16  ver 3.4  Verb mode for urls, etc.
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/libraries\pgflib
-raryarrows.meta.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/libraries/pgflibraryarrows.meta.code.tex
 File: pgflibraryarrows.meta.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgfarrowinset=\dimen309
 \pgfarrowlength=\dimen310
 \pgfarrowwidth=\dimen311
 \pgfarrowlinewidth=\dimen312
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendlayer/ti
-kz/libraries\tikzlibrarycalc.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/frontendlayer/tikz/libraries/tikzlibrarycalc.code.tex
 File: tikzlibrarycalc.code.tex 2025-08-29 v3.1.11a (3.1.11a)
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendlayer/ti
-kz/libraries\tikzlibraryfit.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/frontendlayer/tikz/libraries/tikzlibraryfit.code.tex
 File: tikzlibraryfit.code.tex 2025-08-29 v3.1.11a (3.1.11a)
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendlayer/ti
-kz/libraries\tikzlibrarypositioning.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/frontendlayer/tikz/libraries/tikzlibrarypositioning.code.tex
 File: tikzlibrarypositioning.code.tex 2025-08-29 v3.1.11a (3.1.11a)
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendlayer/ti
-kz/libraries\tikzlibrarydecorations.pathreplacing.code.tex
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/frontendlayer/ti
-kz/libraries\tikzlibrarydecorations.code.tex
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/modules\pgfmodul
-edecorations.code.tex
+) (/usr/share/texmf-dist/tex/generic/pgf/frontendlayer/tikz/libraries/tikzlibrarydecorations.pathreplacing.code.tex (/usr/share/texmf-dist/tex/generic/pgf/frontendlayer/tikz/libraries/tikzlibrarydecorations.code.tex (/usr/share/texmf-dist/tex/generic/pgf/modules/pgfmoduledecorations.code.tex
 \pgfdecoratedcompleteddistance=\dimen313
 \pgfdecoratedremainingdistance=\dimen314
 \pgfdecoratedinputsegmentcompleteddistance=\dimen315
@@ -630,35 +474,29 @@ edecorations.code.tex
 \pgfdecorationsegmentlength=\dimen319
 )
 \tikz@lib@dec@box=\box70
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/generic/pgf/libraries/decora
-tions\pgflibrarydecorations.pathreplacing.code.tex))
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/l3backend\l3backend-pd
-ftex.def
+) (/usr/share/texmf-dist/tex/generic/pgf/libraries/decorations/pgflibrarydecorations.pathreplacing.code.tex)) (/usr/share/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def
 File: l3backend-pdftex.def 2025-10-09 L3 backend support: PDF output (pdfTeX)
 \l__color_backend_stack_int=\count329
-) (iccit2026-paper.aux)
+) (./iccit2026-paper.aux)
 \openout1 = `iccit2026-paper.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
-LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
-LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 27.
-LaTeX Font Info:    ... okay on input line 27.
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 39.
+LaTeX Font Info:    ... okay on input line 39.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 39.
+LaTeX Font Info:    ... okay on input line 39.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 39.
+LaTeX Font Info:    ... okay on input line 39.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 39.
+LaTeX Font Info:    ... okay on input line 39.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 39.
+LaTeX Font Info:    ... okay on input line 39.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 39.
+LaTeX Font Info:    ... okay on input line 39.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 39.
+LaTeX Font Info:    ... okay on input line 39.
 
--- Lines per column: 56 (exact).
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/context/base/mkii\supp-pdf.m
-kii
+-- Lines per column: 26 (approximate, difference = 10.0pt).
+(/usr/share/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
 [Loading MPS to PDF converter (version 2006.09.02).]
 \scratchcounter=\count330
 \scratchdimen=\dimen320
@@ -671,98 +509,169 @@ kii
 \MPnumerator=\count334
 \makeMPintoPDFobject=\count335
 \everyMPtoPDFconversion=\toks39
-)
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/epstopdf-pkg\epstopdf-
-base.sty
+) (/usr/share/texmf-dist/tex/latex/epstopdf-pkg/epstopdf-base.sty
 Package: epstopdf-base 2020-01-24 v2.11 Base part for package epstopdf
-Package epstopdf-base Info: Redefining graphics rule for `.eps' on input line 4
-85.
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/00miktex\epstopdf-sys.
-cfg
-File: epstopdf-sys.cfg 2021/03/18 v2.0 Configuration of epstopdf for MiKTeX
+Package epstopdf-base Info: Redefining graphics rule for `.eps' on input line 485.
+ (/usr/share/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg
+File: epstopdf-sys.cfg 2010/07/13 v1.3 Configuration of (r)epstopdf for TeX Live
 ))
-LaTeX Font Info:    Trying to load font information for U+msa on input line 53.
-
- (C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsa.fd
+LaTeX Font Info:    Calculating math sizes for size <18.25012> on input line 65.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 65.
+ (/usr/share/texmf-dist/tex/latex/amsfonts/umsa.fd
 File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 53.
-
- (C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsb.fd
+LaTeX Font Info:    Trying to load font information for U+msb on input line 65.
+ (/usr/share/texmf-dist/tex/latex/amsfonts/umsb.fd
 File: umsb.fd 2013/01/14 v3.01 AMS symbols B
-)
-Underfull \vbox (badness 10000) has occurred while \output is active []
-
- [1{C:/Users/Sarwad/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map}{C:/Users/
-Sarwad/AppData/Local/Programs/MiKTeX/fonts/enc/dvips/base/8r.enc}
-
-
-]
-Underfull \hbox (badness 10000) in paragraph at lines 135--142
-[]\OT1/ptm/b/n/10 Accountability. \OT1/ptm/m/n/10 Cer-tifi-cate Trans-parency e
-s-tab-lished
+) [1{/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map}{/usr/share/texmf-dist/fonts/enc/dvips/base/8r.enc}] [2] [3]
+LaTeX Font Info:    Calculating math sizes for size <20> on input line 111.
+ [4]
+Overfull \hbox (12.836pt too wide) in paragraph at lines 138--146
+[]\OT1/ptm/b/n/20 Blackout com-mu-ni-ca-tion. \OT1/ptm/m/n/20 Anix, Rangzen, Moby, and Twimight
  []
 
-
-Underfull \hbox (badness 1776) in paragraph at lines 172--177
-[]\OT1/ptm/m/n/10 Strict-decode-then-verify-what-arrived is long-established
+[5] [6]
+Overfull \hbox (3.21436pt too wide) in paragraph at lines 184--189
+[]\OT1/ptm/m/n/20 Strict-decode-then-verify-what-arrived is long-established prac-
  []
 
-LaTeX Font Info:    Trying to load font information for TS1+ptm on input line 1
-81.
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/psnfss\ts1ptm.fd
+LaTeX Font Info:    Trying to load font information for TS1+ptm on input line 193.
+(/usr/share/texmf-dist/tex/latex/psnfss/ts1ptm.fd
 File: ts1ptm.fd 2001/06/04 font definitions for TS1/ptm.
-)
-[2]
-LaTeX Font Info:    Trying to load font information for OT1+pcr on input line 3
-09.
- (C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/psnfss\ot1pcr.fd
+) [7]
+Overfull \hbox (10.61499pt too wide) in paragraph at lines 242--248
+\OT1/ptm/m/n/20 or-di-nary de-liv-ery and re-cov-ery. \OT1/ptm/m/sc/20 De-liver \OT1/ptm/m/n/20 pushes a batch, \OT1/ptm/m/sc/20 Strea-
+ []
+
+[8] [9]
+LaTeX Font Info:    Calculating math sizes for size <13.33344> on input line 272.
+
+Overfull \hbox (4.8749pt too wide) in paragraph at lines 305--310
+[]\OT1/ptm/m/n/20 We eval-u-ate five ques-tions: whether in-de-pen-dent en-coders agree
+ []
+
+[10]
+LaTeX Font Info:    Trying to load font information for OT1+pcr on input line 321.
+ (/usr/share/texmf-dist/tex/latex/psnfss/ot1pcr.fd
 File: ot1pcr.fd 2001/06/04 font definitions for OT1/pcr.
-)
-Underfull \hbox (badness 4366) in paragraph at lines 305--315
-[]\OT1/ptm/b/n/10 Route-cut ex-per-i-ment. \OT1/ptm/m/n/10 Four ap-pli-ca-tion 
-nodes, two
+) [11] [12]
+Overfull \hbox (5.73387pt too wide) in paragraph at lines 363--370
+\OT1/ptm/m/n/20 suites ad-di-tion-ally ex-er-cise in-valid sig-na-tures, non-canonical byte
  []
 
-[3]
-Underfull \hbox (badness 10000) in paragraph at lines 335--345
-[]\OT1/ptm/b/n/10 Encoding com-par-i-son. \OT1/ptm/m/n/10 We col-lected 80 real
-
- []
-
-
-Underfull \hbox (badness 4242) in paragraph at lines 335--345
-\OT1/pcr/m/n/10 Create\OT1/ptm/m/n/10 /\OT1/pcr/m/n/10 Note \OT1/ptm/m/n/10 ac-
-tiv-i-ties from the pub-lic out-boxes of
+[13] [14] [15]
+Overfull \hbox (10.89543pt too wide) in paragraph at lines 437--450
+\OT1/pcr/m/n/20 @context \OT1/ptm/m/n/20 declaration---minimum equal to max-i-mum on each---
  []
 
 
-Underfull \hbox (badness 3271) in paragraph at lines 335--345
-\OT1/ptm/m/n/10 fram-ing, TLS, per-follower fan-out, shared dic-tio-nar-ies,
+Overfull \hbox (2.87407pt too wide) in paragraph at lines 437--450
+\OT1/ptm/m/it/20 larger\OT1/ptm/m/n/20 ---so the hon-est com-par-i-son is gzipped Ac-tiv-i-ty-Pub against
+ []
+
+[16]
+Overfull \hbox (0.99557pt too wide) in paragraph at lines 477--477
+[]|\OT1/ptm/b/n/13.33344 Dimension| 
  []
 
 
-Underfull \hbox (badness 3989) in paragraph at lines 335--345
-\OT1/ptm/m/n/10 and---most significantly---authentication, since our bytes
- []
-
-[4]
-Underfull \hbox (badness 1484) in paragraph at lines 465--465
-\OT1/ptm/m/n/7 dian 1,074B (range 786--1,400B); \OT1/pcr/m/n/7 @context
+Underfull \hbox (badness 10000) in paragraph at lines 477--477
+[]|\OT1/ptm/b/n/13.33344 Measured
  []
 
 
-Underfull \hbox (badness 2617) in paragraph at lines 465--465
-[]|\OT1/ptm/m/n/7 Harder rolling up-grades and more cross-
+Underfull \hbox (badness 10000) in paragraph at lines 477--477
+[]|\OT1/ptm/m/n/13.33344 Raw signed en-velopes:
  []
 
 
-Underfull \hbox (badness 1584) in paragraph at lines 465--465
-[]|\OT1/ptm/m/n/7 Authentication de-pends on de-ploy-ment pro-file;
+Underfull \hbox (badness 10000) in paragraph at lines 477--477
+\OT1/ptm/m/n/13.33344 check-in 155B, fo-rum
  []
 
-(iccit2026-paper.bbl [5])
+
+Underfull \hbox (badness 10000) in paragraph at lines 477--477
+\OT1/ptm/m/n/13.33344 post 220B, broad-cast
+ []
+
+
+Underfull \hbox (badness 1824) in paragraph at lines 477--477
+\OT1/ptm/m/n/13.33344 243B; gzip en-larges all
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 477--477
+[]|\OT1/ptm/m/n/13.33344 Delivered JSON-LD
+ []
+
+
+Underfull \hbox (badness 1496) in paragraph at lines 477--477
+\OT1/ptm/m/n/13.33344 me-dian 4,216B, gzipped
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 477--477
+\OT1/ptm/m/n/13.33344 me-dian 1,074B (range
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 477--477
+[]|\OT1/ptm/m/n/13.33344 Ratio 4.4--6.9$\OMS/cmsy/m/n/14.4 ^^B$\OT1/ptm/m/n/13.33344 ;
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 477--477
+\OT1/ptm/m/n/13.33344 rep-re-sen-ta-tion only---
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 477--477
+\OT1/ptm/m/n/13.33344 HTTP, TLS, fan-out,
+ []
+
+
+Underfull \hbox (badness 7925) in paragraph at lines 477--477
+\OT1/ptm/m/n/13.33344 AP au-then-ti-ca-tion all
+ []
+
+
+Overfull \hbox (31.11542pt too wide) in paragraph at lines 477--477
+[]|\OT1/ptm/b/n/13.33344 Interoperability| 
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 477--477
+\OT1/ptm/m/n/13.33344 and more cross-
+ []
+
+
+Overfull \hbox (3.95557pt too wide) in paragraph at lines 477--477
+[]|\OT1/ptm/b/n/13.33344 Operations| 
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 477--477
+[]|\OT1/ptm/m/n/13.33344 Generated codecs and
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 477--477
+\OT1/ptm/m/n/13.33344 canonical-byte tool-ing
+ []
+
+
+Underfull \hbox (badness 1960) in paragraph at lines 477--477
+[]|\OT1/ptm/m/n/13.33344 Higher de-bug-ging and
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 477--477
+[]|\OT1/ptm/b/n/13.33344 Integrity
+ []
+
+[17] [18] [19] [20] (./iccit2026-paper.bbl [21]
+LaTeX Font Info:    Calculating math sizes for size <16.66687> on input line 27.
+ [22] [23])
 
 ** Conference Paper **
 Before submitting the final camera ready copy, remember to:
@@ -774,38 +683,25 @@ Before submitting the final camera ready copy, remember to:
  uses only Type 1 fonts and that every step in the generation
  process uses the appropriate paper size.
 
-[6] (iccit2026-paper.aux)
+[24] (./iccit2026-paper.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2026-01-19>
  ***********
  ) 
 Here is how much of TeX's memory you used:
- 15491 strings out of 467867
- 322579 string characters out of 5417851
- 713422 words of memory out of 5000000
- 44079 multiletter control sequences out of 15000+600000
- 674566 words of font info for 134 fonts, out of 8000000 for 9000
- 1141 hyphenation exceptions out of 8191
- 84i,11n,94p,414b,772s stack positions out of 10000i,1000n,20000p,200000b,200000s
-<C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm
-/cmmi10.pfb><C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1/public/a
-msfonts/cm/cmmi7.pfb><C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1
-/public/amsfonts/cm/cmr10.pfb><C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fo
-nts/type1/public/amsfonts/cm/cmr5.pfb><C:/Users/Sarwad/AppData/Local/Programs/M
-iKTeX/fonts/type1/public/amsfonts/cm/cmsy10.pfb><C:/Users/Sarwad/AppData/Local/
-Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy7.pfb><C:/Users/Sarwad/AppDa
-ta/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmsy9.pfb><C:/Users/Sar
-wad/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmti10.pfb><C:
-/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1/urw/courier/ucrr8a.pfb>
-<C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utmb8a.pfb
-><C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utmbi8a.p
-fb><C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utmr8a.
-pfb><C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utmri8
-a.pfb>
-Output written on iccit2026-paper.pdf (6 pages, 187591 bytes).
+ 16472 strings out of 469515
+ 335696 string characters out of 5470807
+ 734002 words of memory out of 5000000
+ 44809 multiletter control sequences out of 15000+600000
+ 697919 words of font info for 193 fonts, out of 8000000 for 9000
+ 14 hyphenation exceptions out of 8191
+ 108i,11n,107p,488b,788s stack positions out of 10000i,1000n,20000p,200000b,200000s
+</usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi12.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmr9.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmti12.pfb></usr/share/texmf-dist/fonts/type1/urw/courier/ucrr8a.pfb></usr/share/texmf-dist/fonts/type1/urw/times/utmb8a.pfb></usr/share/texmf-dist/fonts/type1/urw/times/utmr8a.pfb></usr/share/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
+Output written on iccit2026-paper.pdf (24 pages, 147393 bytes).
 PDF statistics:
- 90 PDF objects out of 1000 (max. 8388607)
+ 130 PDF objects out of 1000 (max. 8388607)
+ 85 compressed objects within 1 object stream
  0 named destinations out of 1000 (max. 500000)
  13 words of extra memory for PDF output out of 10000 (max. 10000000)
 

@@ -1,43 +1,46 @@
 \relax 
+\providecommand*\new@tpo@label[2]{}
 \citation{bischof2023shutdowns,ooni2025bangladesh}
 \citation{baltra2024connectivity}
+\@writefile{toc}{\contentsline {section}{\numberline {I}Introduction}{2}{}\protected@file@percent }
 \citation{wustrow2011telex,bocovich2024snowflake}
 \citation{kamali2025anix,lerner2016rangzen,pradeep2022moby,hossmann2011twimight}
 \citation{activitypub}
 \citation{matrixspec,atproto}
 \citation{nostr,tarr2019ssb}
-\@writefile{toc}{\contentsline {section}{\numberline {I}Introduction}{1}{}\protected@file@percent }
 \citation{kamali2025anix,lerner2016rangzen,pradeep2022moby,hossmann2011twimight}
 \citation{sharma2023dolphin}
 \citation{rfc6962,rfc9162}
 \citation{haeberlen2007peerreview,syta2016cosi}
+\@writefile{toc}{\contentsline {section}{\numberline {II}Background and Research Gap}{5}{}\protected@file@percent }
+\newlabel{sec:background}{{II}{5}{}{section.2}{}}
 \citation{bernstein2012ed25519}
 \citation{protobufnotcanonical}
-\@writefile{toc}{\contentsline {section}{\numberline {II}Background and Research Gap}{2}{}\protected@file@percent }
-\newlabel{sec:background}{{II}{2}{}{section.2}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {III}System Design}{2}{}\protected@file@percent }
-\newlabel{sec:design}{{III}{2}{}{section.3}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-A}}Architecture}{2}{}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Admission pipeline. State changes begin only after the cheap byte and validity checks have all succeeded.}}{2}{}\protected@file@percent }
-\newlabel{fig:pipeline}{{1}{2}{}{figure.1}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-B}}Signed objects and admission}{2}{}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Route-cut topology. Four application nodes span two isolated network segments joined by a shared exchange, which the experiment withdraws mid-run. The bridge is an application server, not an IP forwarder.}}{3}{}\protected@file@percent }
-\newlabel{fig:topology}{{2}{3}{}{figure.2}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-C}}Partition-aware federation}{3}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {IV}Methodology}{3}{}\protected@file@percent }
-\newlabel{sec:method}{{IV}{3}{}{section.4}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {V}Results}{4}{}\protected@file@percent }
-\newlabel{sec:results}{{V}{4}{}{section.5}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-A}}Correctness and convergence}{4}{}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Measured per-hop latency across the eight-node chain at a 1{,}000\,ms drain interval, from in-transaction timestamps. All 200 envelopes reached hop 7.}}{4}{}\protected@file@percent }
-\newlabel{fig:chain}{{3}{4}{}{figure.3}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-B}}Latency scaling and admission cost}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {III}System Design}{6}{}\protected@file@percent }
+\newlabel{sec:design}{{III}{6}{}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-A}}Architecture}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-B}}Signed objects and admission}{7}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Admission pipeline. State changes begin only after the cheap byte and validity checks have all succeeded.}}{8}{}\protected@file@percent }
+\newlabel{fig:pipeline}{{1}{8}{}{figure.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {III-C}}Partition-aware federation}{9}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Route-cut topology. Four application nodes span two isolated network segments joined by a shared exchange, which the experiment withdraws mid-run. The bridge is an application server, not an IP forwarder.}}{10}{}\protected@file@percent }
+\newlabel{fig:topology}{{2}{10}{}{figure.2}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {IV}Methodology}{10}{}\protected@file@percent }
+\newlabel{sec:method}{{IV}{10}{}{section.4}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {V}Results}{13}{}\protected@file@percent }
+\newlabel{sec:results}{{V}{13}{}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-A}}Correctness and convergence}{13}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {\mbox  {V-B}}Latency scaling and admission cost}{15}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Measured per-hop latency across the eight-node chain at a 1{,}000\,ms drain interval, from in-transaction timestamps. All 200 envelopes reached hop 7.}}{16}{}\protected@file@percent }
+\newlabel{fig:chain}{{3}{16}{}{figure.3}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {VI}Discussion and Limitations}{17}{}\protected@file@percent }
+\newlabel{sec:limits}{{VI}{17}{}{section.6}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Measured representation size and design trade-offs against ActivityPub. The byte sample is 80 real \texttt  {Create}/\texttt  {Note} activities from two stock deployments. Ratios compare gzipped ActivityPub against raw signed envelopes, which do not compress.}}{18}{}\protected@file@percent }
+\newlabel{tab:tradeoff}{{I}{18}{}{table.1}{}}
 \bibstyle{IEEEtran}
 \bibdata{../../paper/references}
 \bibcite{bischof2023shutdowns}{1}
-\@writefile{toc}{\contentsline {section}{\numberline {VI}Discussion and Limitations}{5}{}\protected@file@percent }
-\newlabel{sec:limits}{{VI}{5}{}{section.6}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {VII}Conclusion}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {VII}Conclusion}{21}{}\protected@file@percent }
 \bibcite{ooni2025bangladesh}{2}
 \bibcite{baltra2024connectivity}{3}
 \bibcite{wustrow2011telex}{4}
@@ -47,6 +50,7 @@
 \bibcite{pradeep2022moby}{8}
 \bibcite{hossmann2011twimight}{9}
 \bibcite{activitypub}{10}
+\@writefile{toc}{\contentsline {section}{References}{22}{}\protected@file@percent }
 \bibcite{matrixspec}{11}
 \bibcite{atproto}{12}
 \bibcite{nostr}{13}
@@ -58,7 +62,4 @@
 \bibcite{syta2016cosi}{19}
 \bibcite{bernstein2012ed25519}{20}
 \bibcite{protobufnotcanonical}{21}
-\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Measured representation size and design trade-offs against ActivityPub. The byte sample is 80 real \texttt  {Create}/\texttt  {Note} activities from two stock deployments. Ratios compare gzipped ActivityPub against raw signed envelopes, which do not compress.}}{6}{}\protected@file@percent }
-\newlabel{tab:tradeoff}{{I}{6}{}{table.1}{}}
-\@writefile{toc}{\contentsline {section}{References}{6}{}\protected@file@percent }
-\gdef \@abspage@last{6}
+\gdef \@abspage@last{24}
