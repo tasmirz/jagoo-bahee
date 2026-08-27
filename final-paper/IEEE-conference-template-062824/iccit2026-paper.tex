@@ -348,49 +348,24 @@ HTTP Signatures are transport level and vanish with the request.
 
 \subsection{Correctness and convergence}
 
-All three implementations agreed on 16 of 16 canonical vectors and rejected every negative vector as
-specified. The focused suites additionally exercise invalid signatures, non-canonical byte layouts,
-replay, missing authorisation dependencies, concurrent duplicate delivery, receipts signed by the
-wrong key, invalid inclusion proofs, stale tree heads, and equal-size log conflicts. Sixteen vectors
-plainly do not exhaust protobuf's edge cases; what they establish is that three independently
-written implementations can be held to one byte-exact profile, which is the property a relay network
-depends on.
 
-The route-cut gate passed all 19 assertions. Source-binding verification via kernel TCP state
-confirmed established federation connections leaving the bridge from both configured addresses,
-10.90.1.30 and 10.90.2.30---an assertion no in-process harness can make, because in process there
-are no sockets to inspect. After direct inter-island reachability was withdrawn, island B received
-the certificate 0.5\,s, the community 1.2\,s, and the post 2.1\,s after publication, in dependency
-order, by way of the bridge. The control matters as much as the result: the same chain measured with
-the exchange intact took 1.5, 1.5, and 1.9\,s, so the relayed path is not merely functional but
-within a factor of two of the direct one. These are single preserved runs, not distributions.
+Every implementations agreed on all the 16 canonical vectors and rejected all the negative ones as specified. The additional tests also checked invalid signatures, incorrect byte formats, replay attacks, missing permissions, duplicate messages, wrong signing keys, invalid proofs, outdated tree heads, and conflicting logs. Sixteen vectors cannot cover every protobuf's edge cases. However, they show that those three independently developed implementations follow exactly the same byte-level rules. This is essential for a relay network to work reliably.
 
-That number was earned rather than observed. An earlier build passed 18 of 19, and the crossing it
-did complete took 407.6\,s, with every outbox row still recording zero delivery attempts. The cause
-was serial per-peer draining with no deadline: one blackholed peer stalled delivery to every other
-peer in the same pass, including the bridge, whose entire purpose was to route around the partition
-causing the stall. Draining peers concurrently and bounding each delivery reduced the crossing to
-2.1\,s, a factor of 195. The defect is invisible to a two-peer harness by construction---it requires
-three peers, one of which becomes unreachable while the others remain up---and this is our
-strongest argument for evaluating federation on a deployed multi-peer testbed rather than in
-process.
+
+The route-cut test passes all 19 checks. The TCP connection check also confirmed that the federation connections used both configured addresses, 10.90.1.30 and 10.90.2.30. But this could only be verified with real network sockets, not an in-process test. When direct communication between the islands was disabled, Island B still received the certificate after 0.5\,s, the community after 1.2\,s, and the post after 2.1\,s. This follows their dependency order through the bridge. For comparison, with the direct connection still available, the same items took 1.5\,s, 1.5\,s, and 1.9\,s. So the bridge worked correctly and was still within about twice the speed of the direct connection.These are results from single test runs, and not statistical averages.
+
+The 2.1\,s result was achieved through a specific fix and was not just simply observed. An earlier version passed 18 of 19 tests, but the one successful crossing took 407.6\,s, with all outbox records still showing zero delivery attempts. The problem was that peers were contacted sequentially with no time limit. If one peer was unreachable, it blocked delivery to all the others. This includes the bridge that was supposed to bypass the network failure. We were able to fix this by delivering to peers concurrently and adding a time limit to each delivery. This reduced the crossing time from 407.6\,s to 2.1\,s, which is a 195× improvement.
+
 
 \subsection{Latency scaling and admission cost}
 
-All 200 envelopes traversed the eight-node chain to hop 7. End-to-end median latency was 4.125\,s
-and the 99th percentile 6.115\,s, with the per-hop distribution in Fig.~\ref{fig:chain}. The curve
-is more informative than its endpoint. Per-hop cost is dominated by the outbox drain interval rather
-than by the protocol, predicting roughly $\mathit{drain}/2$ plus a fixed term; at a 1{,}000\,ms drain
-the seven hops cost 589\,ms each, implying an 89\,ms fixed component, and at 250\,ms they cost
-196\,ms each, implying 71\,ms. A residual stable at 71--89\,ms across a fourfold change in the
-queueing parameter is the protocol's genuine per-hop cost---verify, project, append, re-enqueue---and
-everything above it is a scheduling choice an operator makes for bandwidth and battery reasons.
-Contention on the shared database process and the absence of wide-area delay both mean this curve
-should not be read as a prediction for an Internet deployment.
+All 200 envelopes successfully traveled through the eight-node chain to hop 7. The median End-to-end latency was 4.125\,s
+and the 99th percentile 6.115\,s.  The per hop results which are in Fig.~\ref{fig:chain} are more useful than the final numbers. Most of the delay comes from the outbox drain interval, not the protocol itself, which if predicted roughly then it's $\mathit{drain}/2$ plus a fixed term; With a 1{,}000\,ms drain interval, each hop took about 589\,ms, including roughly an 89\,ms fixed protocol work. With a 250\,ms interval, each hop took about
+196\,ms, implying 71\,ms of fixed work. Since this fixed cost stayed around 71--89\,ms even when the drain interval changed, it actually represents the protocol's actual per-hop cost. This includes verifying, projecting, appending, and re-queuing the message. The remaining delay is mainly a scheduling choice that operators can adjust based on bandwidth and battery needs. However, these results should not be treated as Internet performance predictions because the test used a shared database process and did not include real wide-area network delays.
 
 \begin{figure}[t]
 \centering
-\begin{tikzpicture}[x=.52cm,y=.42cm,font=\scriptsize]
+\begin{tikzpicture}[x=.70cm,y=.55cm,font=\scriptsize]
   \draw[gray!22,step=1] (1,0) grid (7,7);
   \draw[->] (1,0) -- (7.35,0) node[right,font=\tiny]{hop};
   \draw[->] (1,0) -- (1,7.35) node[above,font=\tiny]{seconds};
@@ -409,32 +384,17 @@ in-transaction timestamps. All 200 envelopes reached hop 7.}
 \label{fig:chain}
 \end{figure}
 
-The signature-invalid flood was rejected at 730 requests per second and produced zero object, index,
-log, or outbox writes. The negative result carries a control, since ``the profiler recorded no
-writes'' is worthless if the profiler was not running: the same profile captured six read operations
-over the window, establishing that it was live. We report the composition of that traffic rather
-than the throughput figure, because the composition is what qualifies the claim. Roughly 2,700 of
-the 3,000 requests were shed by the per-peer rate limiter, so only about 9\% reached signature
-verification, and the expensive rejection path---canonical parse followed by Ed25519 verify---was
-therefore exercised at an effective rate near 66 requests per second. The supported conclusion is
-narrow: for this traffic, the no-write prefix held, and it did so as the second line of defence
-behind a token bucket that did most of the work. The experiment says nothing about distributed
-floods across many peer identities, about correctly signed envelopes that are \emph{supposed} to
-produce writes, or about sustained parser and database pressure.
 
-Table~\ref{tab:tradeoff} reports the encoding comparison and the costs the format incurs. Both
-sampled hosts emit an identical 927-byte \texttt{@context} declaration---minimum equal to maximum on
-each---so it is a fixed per-activity cost of the stock dialect rather than a deployment artefact,
-and that declaration alone is over four times the size of our entire signed forum post. Compression
-erases most of the apparent advantage and we lead with the compressed figure for that reason.
-Gzipped ActivityPub activities ranged 786--1{,}400\,B with a median of 1{,}074\,B, against raw signed
-envelopes of 155\,B, 220\,B, and 243\,B: a 4.4--6.9$\times$ ratio. Our envelopes do not compress at
-all---a 64-byte Ed25519 signature is incompressible and gzip makes all three slightly
-\emph{larger}---so the honest comparison is gzipped ActivityPub against our raw bytes, not the
-roughly 20$\times$ ratio the uncompressed figures would suggest. Size is also the only axis on which
-we win. The format cannot join the existing Fediverse, requires generated codecs and unfamiliar
-operational tooling, rejects unknown fields so that schema evolution demands a versioned domain, and
-gives up the open extensibility that is JSON-LD's reason for existing.
+The invalid-signature flood was rejected at 730 requests per second. This was all done with no writes to objects, indexes, logs, or the outbox. The test also confirmed that the profiler was actually running as it recorded six read operations during that test. Of the 3,000 total requests, about 2,700 were blocked by the per-peer rate limiter. So, only around 9\% reached signature verification, and then the expensive rejection process, which is the canonical parsing followed by Ed25519 verification. This ran about 66 requests per seconds. The final conclusion is a bit limited but clear enough. Invalid traffic was stopped before causing any writes, with the rate limiter handling most of the attack first. This test does not necessarily show how the system would handle floods from many different peers, valid messages that should cause writes, or long-term parser and database pressure.
+
+
+Table~\ref{tab:tradeoff} compares two encoding formats and their costs. Both
+tested hosts produced the same 927-byte \texttt{@context} declaration, which implies this is a fixed cost of the standard ActivityPub format, not something specific to our deployment. The declaration alone is more than four times larger than our entire signed forum post. Compression removes much of the apparent size advantage, so we use compressed ActivityPub numbers for a fair comparison.
+Gzipped ActivityPub messages were 786--1{,}400\,B with a median of 1{,}074\,B. Our raw signed
+envelopes were only 155\,B, 220\,B, and 243\,B making ActivityPub about 4.4--6.9$\times$ larger. Our envelopes do not benefit from compression at
+all as the 64-byte Ed25519 signature is incompressible and gzip makes all three slightly
+\emph{larger}. So the honest comparison is gzipped ActivityPub against our raw bytes, not the
+roughly 20$\times$ ratio suggested by comparing uncompressed sizes. However, size is the only area where our format is better. It cannot connect to the existing Fediverse, requires generated codecs and unfamiliar tools, does not allow unknown fields, and therefore requires versioned schemas for future changes.
 
 \begin{table*}[t]
 \caption{Measured representation size and design trade-offs against ActivityPub. The byte sample is
