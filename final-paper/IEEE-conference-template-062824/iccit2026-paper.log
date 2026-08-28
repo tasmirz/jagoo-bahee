@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026/Arch Linux) (preloaded format=pdflatex 2026.8.27)  28 AUG 2026 11:06
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026/Arch Linux) (preloaded format=pdflatex 2026.8.27)  28 AUG 2026 14:42
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
@@ -527,7 +527,7 @@ Underfull \hbox (badness 10000) in paragraph at lines 158--165
 []\OT1/ptm/b/n/10 Accountability. \OT1/ptm/m/n/10 Cer-tifi-cate Trans-parency es-tab-lished
  []
 
-Package mmd Info: rendering figures/architecture.mmd on input line 215.
+Package mmd Info: rendering figures/architecture.mmd on input line 204.
 runsystem(mkdir -p "figures/mmd-out")...disabled (restricted).
 
 runsystem(cp -f 'figures/architecture.mmd' 'figures/mmd-out/mmd-1.mmd')...disabled (restricted).
@@ -537,57 +537,61 @@ runsystem(node /tmp/mermaid-render/node_modules/@mermaid-js/mermaid-cli/src/cli.
 <figures/mmd-out/mmd-1.pdf, id=15, 624.41275pt x 435.54718pt>
 File: figures/mmd-out/mmd-1.pdf Graphic file (type pdf)
 <use figures/mmd-out/mmd-1.pdf>
-Package pdftex.def Info: figures/mmd-out/mmd-1.pdf  used on input line 215.
+Package pdftex.def Info: figures/mmd-out/mmd-1.pdf  used on input line 204.
 (pdftex.def)             Requested size: 252.0pt x 175.77756pt.
-[2 <./figures/mmd-out/mmd-1.pdf>]
-LaTeX Font Info:    Trying to load font information for TS1+ptm on input line 252.
+[2]
+LaTeX Font Info:    Trying to load font information for TS1+ptm on input line 235.
  (/usr/share/texmf-dist/tex/latex/psnfss/ts1ptm.fd
 File: ts1ptm.fd 2001/06/04 font definitions for TS1/ptm.
-) [3]
-LaTeX Font Info:    Trying to load font information for OT1+pcr on input line 389.
- (/usr/share/texmf-dist/tex/latex/psnfss/ot1pcr.fd
-File: ot1pcr.fd 2001/06/04 font definitions for OT1/pcr.
-)
-Underfull \hbox (badness 4366) in paragraph at lines 385--395
+) [3 <./figures/mmd-out/mmd-1.pdf>]
+Underfull \hbox (badness 4366) in paragraph at lines 382--387
 []\OT1/ptm/b/n/10 Route-cut ex-per-i-ment. \OT1/ptm/m/n/10 Four ap-pli-ca-tion nodes, two
  []
 
+LaTeX Font Info:    Trying to load font information for OT1+pcr on input line 389.
+(/usr/share/texmf-dist/tex/latex/psnfss/ot1pcr.fd
+File: ot1pcr.fd 2001/06/04 font definitions for OT1/pcr.
+)
+Underfull \hbox (badness 10000) in paragraph at lines 410--418
+[]\OT1/ptm/m/n/10 Latency is com-puted by sub-tract-ing the
+ []
 
-Underfull \hbox (badness 10000) in paragraph at lines 415--425
+
+Underfull \hbox (badness 2781) in paragraph at lines 410--418
+\OT1/pcr/m/n/10 received_at_ms \OT1/ptm/m/n/10 value each node writes in-side the
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 430--439
 []\OT1/ptm/b/n/10 Encoding com-par-i-son. \OT1/ptm/m/n/10 We col-lected 80 real
  []
 
 
-Underfull \hbox (badness 4242) in paragraph at lines 415--425
+Underfull \hbox (badness 4242) in paragraph at lines 430--439
 \OT1/pcr/m/n/10 Create\OT1/ptm/m/n/10 /\OT1/pcr/m/n/10 Note \OT1/ptm/m/n/10 ac-tiv-i-ties from the pub-lic out-boxes of
  []
 
 
-Underfull \hbox (badness 3271) in paragraph at lines 415--425
-\OT1/ptm/m/n/10 fram-ing, TLS, per-follower fan-out, shared dic-tio-nar-ies,
+Underfull \hbox (badness 1533) in paragraph at lines 430--439
+\OT1/ptm/m/n/10 item would un-der-state de-liv-ery size. The tool there-fore
  []
 
-
-Underfull \hbox (badness 3989) in paragraph at lines 415--425
-\OT1/ptm/m/n/10 and---most significantly---authentication, since our bytes
- []
-
-[4]
-Underfull \hbox (badness 1484) in paragraph at lines 545--545
+[4] [5]
+Underfull \hbox (badness 1484) in paragraph at lines 565--565
 \OT1/ptm/m/n/7 dian 1,074B (range 786--1,400B); \OT1/pcr/m/n/7 @context
  []
 
 
-Underfull \hbox (badness 2617) in paragraph at lines 545--545
+Underfull \hbox (badness 2617) in paragraph at lines 565--565
 []|\OT1/ptm/m/n/7 Harder rolling up-grades and more cross-
  []
 
 
-Underfull \hbox (badness 1584) in paragraph at lines 545--545
+Underfull \hbox (badness 1584) in paragraph at lines 565--565
 []|\OT1/ptm/m/n/7 Authentication de-pends on de-ploy-ment pro-file;
  []
 
-[5] (./iccit2026-paper.bbl [6])
+(./iccit2026-paper.bbl [6])
 
 ** Conference Paper **
 Before submitting the final camera ready copy, remember to:
@@ -608,16 +612,16 @@ L3 programming layer <2026-01-19>
 Here is how much of TeX's memory you used:
  15666 strings out of 469515
  320785 string characters out of 5470807
- 719021 words of memory out of 5000000
+ 710599 words of memory out of 5000000
  44009 multiletter control sequences out of 15000+600000
  674566 words of font info for 134 fonts, out of 8000000 for 9000
  14 hyphenation exceptions out of 8191
- 84i,11n,94p,795b,772s stack positions out of 10000i,1000n,20000p,200000b,200000s
-</usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmr5.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy9.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pfb></usr/share/texmf-dist/fonts/type1/urw/courier/ucrr8a.pfb></usr/share/texmf-dist/fonts/type1/urw/times/utmb8a.pfb></usr/share/texmf-dist/fonts/type1/urw/times/utmbi8a.pfb></usr/share/texmf-dist/fonts/type1/urw/times/utmr8a.pfb></usr/share/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
-Output written on iccit2026-paper.pdf (7 pages, 219360 bytes).
+ 84i,11n,94p,1075b,772s stack positions out of 10000i,1000n,20000p,200000b,200000s
+</usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmr5.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmr7.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy9.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pfb></usr/share/texmf-dist/fonts/type1/urw/courier/ucrr8a.pfb></usr/share/texmf-dist/fonts/type1/urw/times/utmb8a.pfb></usr/share/texmf-dist/fonts/type1/urw/times/utmbi8a.pfb></usr/share/texmf-dist/fonts/type1/urw/times/utmr8a.pfb></usr/share/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
+Output written on iccit2026-paper.pdf (7 pages, 230282 bytes).
 PDF statistics:
- 118 PDF objects out of 1000 (max. 8388607)
- 77 compressed objects within 1 object stream
+ 123 PDF objects out of 1000 (max. 8388607)
+ 80 compressed objects within 1 object stream
  0 named destinations out of 1000 (max. 500000)
  18 words of extra memory for PDF output out of 10000 (max. 10000000)
 

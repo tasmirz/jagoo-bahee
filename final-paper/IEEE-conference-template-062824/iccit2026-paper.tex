@@ -180,33 +180,24 @@ carries traffic; L2, ISP island, where inter-ISP peering itself has failed; L3,
 bridged islands, where a dual-homed relay reconnects two islands that cannot
 otherwise reach each other; and L4, total isolation, where no IP path is available.
 
-The ingress is polymorphic and heterogeneous to match this ladder :  HTTP/gRPC over
-whatever IP path survives, a Tor v3 onion service when an external Tor path
-persists, and an optional Reticulum/LoRa sidecar carrying only small,
+The ingress is made polymorphic and heterogeneous to match this ladder :  HTTP/gRPC is used over
+whatever IP path survives, a Tor v3 onion service is used when an external Tor path
+persists (and server / user wants to use that), and an optional Reticulum/LoRa sidecar carrying only small,
 high-priority messages when IP is unavailable altogether. Bulk traffic is
 rejected on that path, and it is disabled by default. That sidecar is our only
 answer to L4, and it is a narrow one: this paper focues solely the
 IP-networking path (HTTP for clients, gRPC for federation), and its claims are
 scoped to L0 through L3.
 
-Whatever the ingress, every object on the wire is one canonical signed packet,
-and every node runs it through the same 19-stage pipeline, whose first 12
-stages touch nothing persistent. Acceptance produces a signed receipt and a
-federation task in a durable outbox, which a scheduler drains by priority
-class and then by (destination, source uplink, traffic class). A bridge is
-not a transparent packet forwarder: it is an ordinary node running that same
-stack, dual-homed onto two islands, and everything it relays it has already
-independently validated, stored, and quota-bounded under its own key.
+Edited version:
 
-Running alongside the servers, independent audit-log services accept a public
-audit certificate only after a server has already committed the write; each
-service re-verifies the certificate against the canonical envelope and the
-receipt before appending it to its own hash-chained record, so an
-acknowledgement a server later hides remains reconstructable from outside.
-Fig.~\ref{fig:architecture} shows the system end to end: the reachability
-ladder that motivates the design, the on-device signing boundary, the
-canonical envelope, the shared admission pipeline, each node's persistence
-stack, and the independent audit-log services.
+The canonical signed envelope is invariant across ingress media and relay paths. The transport context and admission context are not. Every node validates the envelope through the same 19-stage admission pipeline. The first 12 stages validate the envelope without persistent writes. If the envelope is accepted, the node commits it, signs a receipt, and places a federation task in a durable outbox. The scheduler drains the outbox by priority class, then by `(destination, source uplink, traffic class)`.
+
+The node must still discriminate how the envelope arrived. Let \(C_1\) denote a client, and let \(S_1\) and \(S_2\) denote independent forum servers. In the illustrative case \(C_1 \rightarrow S_1\), the client submits directly to its chosen server. In the illustrative case \(C_1 \rightarrow S_1 \rightarrow S_2\), server \(S_1\) relays the same signed envelope to server \(S_2\). These are examples, not an exhaustive enumeration. The canonical bytes, content identifier, and author signature remain unchanged. What changes is the admission context: ingress kind, supplying peer, direction, source uplink, traffic class, and quota policy. That context controls deduplication, replay protection, scheduling, and fan-out. It never relaxes signature, identifier, or body validation.
+
+A bridge is not a transparent packet forwarder. It is an ordinary node running the same stack, dual-homed onto two islands. Everything it relays has already been independently validated, stored, and quota-bounded under its own key.
+
+Independent audit-log services (ALSs) provide an external record of server acknowledgement. They operate outside the write path. A server first commits the write and returns a signed receipt. The client builds a public audit certificate, stores it locally, and then forwards it to one or more ALSs. Each ALS independently re-verifies the canonical envelope, content identifier, receipt, signed tree head, and inclusion proof before appending the certificate to its own hash-chained record. If the server later hides or deletes the accepted object, the acknowledgement remains externally verifiable. This supports censorship resistance by limiting a single server’s ability to silently erase evidence of acceptance. Fig.~\ref{fig:architecture} shows the system end to end: the reachability ladder, the on-device signing boundary, the canonical envelope, the shared admission pipeline, each node’s persistence stack, and the independent audit-log services.
 
 \begin{figure}[!t]
   \centering
@@ -235,13 +226,7 @@ and add the rule that actually matters: decoding and re-encoding an object
 must reproduce the bytes as received, exactly. An object that fails that
 comparison is rejected outright, never repaired.
 
-Verifying only what arrived, after a strict decode, is established practice
-in DER, JWS, and CT's leaf format; what is specific here is what it buys a
-relay. A federation node that decoded a peer's bytes and re-encoded them
-before checking the signature would silently turn a malformed object into a
-well-formed one, then find that the well-formed version verifies. Because our
-rule never lets the receiver normalise attacker-controlled bytes before that
-check, no relay can launder an invalid object into a valid one.
+Verifying the exact received bytes after a strict decode is established practice in DER, JWS, and Certificate Transparency leaf formats. In this system, the rule protects federation. If a relay decoded a peer’s bytes and re-encoded them before checking the signature, it could normalise a non-canonical submission into the canonical form that was signed. The relay would then verify reconstructed bytes rather than the bytes that arrived. Our decode–re-encode comparison prevents a receiver from repairing or normalising attacker-controlled bytes before verification. As a result, no relay can make a non-canonical or invalid submission acceptable by rewriting it.
 
 Fig.~\ref{fig:pipeline} lays out the admission path. Stages 1 through 12 ---
 size, parsing, canonicality, domain separation, identifier derivation,
@@ -284,47 +269,56 @@ race could defeat.
   \label{fig:pipeline}
 \end{figure}
 
-On acceptance the server signs a receipt binding the object's identifier, its
-leaf position, the resulting tree head, and an inclusion proof, so the
-acknowledgement commits to the bytes actually admitted rather than to a label
-the operator could later change. Peers also exchange signed tree heads: two
-heads of equal size with differing roots are an unambiguous conflict, and a
-larger head is held pending until a consistency proof can be fetched. We are
-deliberate about how far this reaches. It is stale-head hygiene --- it clears
-a class of self-inflicted false positives and does catch outright tree
-shrinkage --- but an adversary who rewrites history while keeping the tree
-non-decreasing passes both checks undetected, and equivocation between two
-peers cannot be caught by any comparison made locally. Catching either needs
-consistency proofs and cross-observer exchange, which is exactly what the
-partition we are designing for gets in the way of.
+On acceptance, the server signs a receipt binding the content identifier, the
+leaf position, the resulting signed tree head, and an inclusion proof. The
+acknowledgement therefore commits to the exact bytes admitted, not to a label
+the operator can later change. Peers also exchange signed tree heads containing
+a tree size, root hash, and timestamp. Two heads of equal size with different
+roots are an unambiguous conflict. A larger head is recorded as newer, but it
+is not treated as proven until a consistency proof can be obtained. A smaller
+head is not immediately treated as a fork, because observations may arrive out
+of order: if its timestamp is older than the recorded head, it is discarded as
+stale; otherwise, a smaller size is reported as a possible fork. This is
+deliberate stale-head hygiene. It removes a class of self-inflicted false
+positives and catches outright tree shrinkage, but it is not full fork
+detection. An adversary who rewrites history while keeping the tree size
+non-decreasing can pass these local checks, and equivocation between two peers
+cannot be detected by a single local comparison. Detecting those cases requires
+consistency proofs and independent cross-observer exchange, which the network
+partitions we target are precisely likely to obstruct.
 
 \subsection{Partition-aware federation}
 
-Three RPCs, all caller-initiated, cover ordinary delivery and recovery.
-\textsc{Deliver} pushes a batch, \textsc{StreamActivities} resumes from a
-durable cursor, and \textsc{Backfill} asks for objects a node already knows it
-is missing. None of the three requires the calling node to accept an inbound
-connection, so a server behind carrier-grade NAT federates fully in both
-directions over connections it opens itself. This solves reachability
-asymmetry, not discovery: some peer address must already be known.
+Three caller-initiated RPCs cover ordinary delivery and recovery.
+\textsc{Deliver} pushes a batch of accepted envelopes to a peer.
+\textsc{StreamActivities} resumes a live stream from a durable cursor.
+\textsc{Backfill} requests objects that the node knows it missed, using a
+resumable log position. Because all three operations are initiated by the
+caller, a node does not need to accept inbound federation connections. A
+server behind carrier-grade NAT can therefore federate in both directions
+over connections it opens itself. This solves reachability asymmetry, not
+discovery: at least one peer address must already be known.
 
-The scheduler drains independent per-peer queues concurrently, under a
-bounded lease, with deadlines, exponential backoff, and idempotency keys. That
-structure exists because its absence was a real defect, which
-\S\ref{sec:results} describes. One caveat belongs here rather than in
-limitations: the deadline bounds how long a drain pass will wait on a peer,
-not how long the underlying transport keeps trying underneath it, because the
-sender holds no cancellation token. A stuck call can therefore keep resources
-past its deadline even once it no longer blocks anything else.
+The scheduler keeps an independent durable queue for each destination peer.
+It drains these queues concurrently under bounded leases, with deadlines,
+exponential backoff, and idempotency keys. This structure exists because its
+absence was a real defect, described in \S\ref{sec:results}: a serial drain
+allowed one unreachable peer to block delivery to every other peer, including
+the bridge. One caveat belongs here rather than in the limitations section. A
+delivery deadline bounds how long the drain pass waits on a peer; it does not
+cancel the underlying transport call. Because the sender holds no cancellation
+token, a stuck call can continue to hold resources after its deadline, even
+though it no longer blocks delivery to other peers.
 
-Fig.~\ref{fig:topology} shows the route-cut topology we test against: two
-ordinary nodes in island A, one in island B, and a shared exchange segment
-standing in for an Internet exchange point. The bridge holds one address on
-each island's network. Once the exchange is withdrawn, both islands must
-already trust the bridge --- trust that sets the rate and priority its
-traffic receives, never whether its objects are valid. The bridge validates
-and stores everything it handles, bounds volume per uplink pair and per
-traffic class, and never relays an object back to the peer it arrived from.
+Fig.~\ref{fig:topology} shows the route-cut topology used in the evaluation.
+Island A contains two ordinary nodes, island B contains one, and a shared
+exchange segment stands in for an Internet exchange point. The bridge holds
+one address on each island network. Once the exchange segment is withdrawn,
+both islands must already have configured trust in the bridge. That trust
+determines the rate and priority of the bridge's traffic; it never determines
+whether an envelope is valid. The bridge validates and stores every object it
+relays, enforces quota per uplink pair and traffic class, and never sends an
+object back to the peer from which it arrived.
 
 \begin{figure}[t]
   \centering
@@ -357,69 +351,97 @@ traffic class, and never relays an object back to the peer it arrived from.
   \label{fig:topology}
 \end{figure}
 
-Four implementation rules carry most of the replication safety. The transport
-hands ingress an opaque byte string it cannot decode and re-encode. Every
-peer --- the bridge included --- runs the full validity check. Duplicate
-delivery, which is inevitable once a live stream and a backfill can carry the
-same object, is absorbed by database uniqueness rather than application
-logic. And fan-out excludes the peer an object arrived from, avoiding a round
-trip that deduplication would eventually terminate, but not for free.
+Four implementation rules carry most of the replication safety. Peer bytes are
+passed through unchanged: the transport passes received envelopes as opaque
+byte strings and does not decode or re-encode them. Trust controls quota and
+priority, never validity; every peer, including the bridge, still repeats the
+full admission checks. Duplicate delivery is inevitable when a live stream and
+a backfill race, and it is absorbed by a database uniqueness constraint rather
+than by a read-then-write check. Fan-out excludes the peer that supplied an
+object, avoiding a redundant round trip that deduplication would eventually
+terminate, but not for free.
 
 \section{Methodology}
 \label{sec:method}
 
-We evaluate five questions: whether independent encoders agree on the canonical form, whether
-objects cross an enforced route cut, how delivery latency scales with hop count, whether malformed
-requests produce storage writes, and how the representation compares in size with ActivityPub.
-All experiments run on one physical host; \S\ref{sec:limits} treats the consequences of that at
-length.
+We evaluate five questions: whether independent encoders agree on the
+canonical form, whether objects cross an enforced route cut, how delivery
+latency scales with hop count, whether malformed requests produce storage
+writes, and how the representation compares in size with ActivityPub. All
+experiments run on one physical host; \S\ref{sec:limits} treats the
+consequences of that choice at length.
 
-\textbf{Correctness tests.} A shared corpus of 16 positive and adversarial byte vectors is executed
-independently by the TypeScript, Rust, and Python implementations, each of which must agree
-byte-for-byte on encoding and identifier derivation and must reject every negative vector. A further
-85 focused tests cover ingress (29), the outbox (3), federation (31), and simulated ISP behaviour
-(22). These are regression tests written by the system's authors, not an independent security audit.
+\textbf{Correctness tests.} A shared corpus of 16 positive and adversarial
+byte vectors is executed independently by the TypeScript, Rust, and Python
+implementations. Each must agree byte-for-byte on encoding and identifier
+derivation, and each must reject every negative vector. A further 85 focused
+tests cover ingress (29), the outbox (3), federation (31), and simulated ISP
+behaviour (22). These are regression tests written by the system's authors,
+not an independent security audit.
 
-\textbf{Route-cut experiment.} Four application nodes, two databases, and two caches are distributed
-across three isolated virtual network segments as in Fig.~\ref{fig:topology}. Containers supply
-reproducible layer-2 isolation and let the harness withdraw the only configured inter-island path
-mid-run; nothing in the design depends on that packaging. The gate reads kernel TCP state from
-\texttt{/proc/net/tcp} inside the bridge to confirm which local source address each established
-federation connection actually left from, withdraws the exchange segment, verifies that direct
-probes between islands now fail and that island B does not already hold the content, submits a
-dependent certificate, community, and post, and polls for each exact content identifier. Nineteen
-assertions cover topology, source binding, relay behaviour, quota reservation, and uplink failover.
-Reported latencies include the application's own polling interval and are therefore upper bounds.
+\textbf{Route-cut experiment.} Four application nodes, two databases, and two
+caches are distributed across three isolated virtual network segments, as
+shown in Fig.~\ref{fig:topology}. Containers supply reproducible layer-2
+isolation and let the harness withdraw the only configured inter-island path
+mid-run; nothing in the design depends on that packaging.
 
-\textbf{Hop-scaling chain.} Eight nodes are peered into a line, each with its own database, so that
-a node $i$ hops from the origin is reachable by exactly one path of exactly that length. Hop count
-is the independent variable, which a mesh would destroy, since in a mesh every node is one hop away
-and only fan-out width varies. Latency is computed by subtracting the \texttt{received\_at\_ms}
-value each node writes inside the same transaction as its projection, so no polling observer sits in
-the measurement path; this is sound only because all nodes share the host clock, which a real
-deployment would have to replace with NTP discipline and an error bar. We inject 200 valid envelopes
-at hop~0 at a paced rate and record arrival at hop~7. The eight nodes share a single database
-process with one database each, which introduces contention and inflates the reported figures---the
-conservative direction in which to be wrong.
+The test proceeds in four phases. First, the gate reads kernel TCP state from
+\texttt{/proc/net/tcp} inside the bridge to confirm which local source address
+each established federation connection actually left from. Second, it withdraws
+the exchange segment and verifies that direct probes between islands now fail.
+Third, it confirms that island B does not already hold the content to be
+submitted. Fourth, it submits a dependency chain---an author certificate, a
+community record, and a post that depends on both---and polls for each exact
+content identifier on the far island. The chain is ordered because a post
+cannot be rendered until its author certificate and community record are
+present, so the measured crossing reports all three arrivals rather than only
+the post event.
 
-\textbf{Signature-invalid flood.} Random bytes are refused within microseconds at the parse stage
-and measure nothing interesting. The tool therefore lifts a genuine envelope from the node's own log
-and mutates a single byte inside the signed region, which invalidates the signature and changes the
-content identifier, so every request is novel and none can be short-circuited by deduplication. We
-issue 3,000 such requests at concurrency 16 and record completion rate, rejection stage, the
-fraction reaching signature verification, and---via the database's collection-level profiler---the
-resulting writes. The ordinary rate limiter stays enabled, so this is not a saturation benchmark.
+Nineteen assertions cover topology, source binding, relay behaviour, quota
+reservation, and uplink failover. Reported latencies include the application's
+own polling interval and are therefore upper bounds.
 
-\textbf{Encoding comparison.} We collected 80 real \texttt{Create}/\texttt{Note} activities from the
-public outboxes of two stock ActivityPub deployments. Because a collection hoists \texttt{@context}
-to the collection while an activity POSTed to a remote inbox carries its own, measuring the bare
-outbox item would understate delivery size; the tool refetches a standalone object from the same
-host and re-attaches exactly those bytes. We compare raw and gzipped activity bytes against
-equivalent signed envelopes, subtracting authored UTF-8 text so the metric reflects what a protocol
-designer controls rather than how much a user typed. The comparison is deliberately generous to
-ActivityPub, excluding HTTP framing, TLS, per-follower fan-out, shared dictionaries, and---most
-significantly---authentication, since our bytes carry a 64-byte signature verifiable at rest while
-HTTP Signatures are transport level and vanish with the request.
+\textbf{Hop-scaling chain.} Eight nodes are peered into a line, each with its
+own database, so that a node $i$ hops from the origin is reachable by exactly
+one path of exactly that length. Hop count is the independent variable. A mesh
+would destroy this property, since in a mesh every node is one hop away and
+only fan-out width varies.
+
+Latency is computed by subtracting the \texttt{received\_at\_ms} value each
+node writes inside the same transaction as its projection. No polling observer
+sits in the measurement path. This is sound only because all nodes share the
+host clock, which a real deployment would have to replace with NTP discipline
+and an error bar. We inject 200 valid envelopes at hop~0 at a paced rate and
+record arrival at hop~7. The eight nodes share a single database process with
+one database each, which introduces contention and inflates the reported
+figures---the conservative direction in which to be wrong.
+
+\textbf{Signature-invalid flood.} Random bytes are refused within microseconds
+at the parse stage and measure nothing interesting. The tool therefore lifts a
+genuine envelope from the node's own log and mutates a single byte inside the
+signed region. This invalidates the signature and changes the content
+identifier, so every request is novel and none can be short-circuited by
+deduplication. We issue 3,000 such requests at concurrency 16 and record
+completion rate, rejection stage, the fraction reaching signature
+verification, and---via the database's collection-level profiler---the
+resulting writes. The ordinary rate limiter stays enabled, so this is not a
+saturation benchmark.
+
+\textbf{Encoding comparison.} We collected 80 real
+\texttt{Create}/\texttt{Note} activities from the public outboxes of two stock
+ActivityPub deployments. Because a collection hoists \texttt{@context} to the
+collection while an activity POSTed to a remote inbox carries its own,
+measuring the bare outbox item would understate delivery size. The tool
+therefore refetches a standalone object from the same host and re-attaches
+exactly those bytes. We compare raw and gzipped activity bytes against
+equivalent signed envelopes, subtracting authored UTF-8 text so the metric
+reflects what a protocol designer controls rather than how much a user typed.
+
+The comparison is deliberately generous to ActivityPub. It excludes HTTP
+framing, TLS, per-follower fan-out, shared dictionaries, and---most
+significantly---authentication, since our bytes carry a 64-byte signature
+verifiable at rest while HTTP Signatures are transport level and vanish with
+the request.
 
 \section{Results}
 \label{sec:results}
