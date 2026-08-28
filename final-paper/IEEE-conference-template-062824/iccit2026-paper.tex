@@ -1,8 +1,8 @@
 %% \documentclass[conference,a4paper]{IEEEtran}
-\documentclass[conference,a4paper,onecolumn]{IEEEtran}
+\documentclass[conference,a4paper]{IEEEtran}
 
-\usepackage{scrextend}
-\changefontsizes[20pt]{20pt}
+% \usepackage{scrextend}
+% \changefontsizes[20pt]{20pt}
 
 
 % \usepackage{xcolor}
@@ -168,30 +168,47 @@ device-to-device networks, which assume it has vanished. We assume instead that 
 powered and at least one domestic path survives, and the objective under that assumption is to admit
 an authored object once, preserve its signed bytes without alteration, and let every reachable
 replica reach the same verdict on its validity.
-
 \section{System Design}
 \label{sec:design}
 
 \subsection{Architecture}
 
-We designed the system to be censorship-resistant, pseudonymous, and unstoppable regardless of internet connectivity. Connectivity degradation is modeled as follows: L0 -- normal global reach/Tor connectivity; L1 -- national partition (international transit cut but domestic IX alive); L2 -- ISP island (inter-ISP peering cut); L3 -- bridged islands via a dual-homed relay; and L4 -- total isolation, overcome by the Reticulum network stack. Ingress is therefore heterogeneous and multi-protocol to support these levels: ordinary HTTP/gRPC over surviving IP, Tor v3 onion services when an external Tor path persists, and an optional Reticulum/LoRa sidecar for small high-priority messages when IP is unavailable (BULK rejected, disabled by default). This paper evaluates only the IP-networking part (HTTP for clients, gRPC for federation) and focuses on L0–L3.
-Whatever the ingress path, every object on the wire is one uniform canonical signed packet
-traversing the same 19-stage pipeline; the first 12 stages perform admission with no persistent
-writes. After commit, the server returns a signed receipt and enqueues federation work in a
-durable outbox, which a scheduler drains by priority class and then grouped by (destination,
-source uplink, traffic class). A bridge is an ordinary server implementing that same stack,
-dual-homed onto two islands --- not a transparent packet forwarder --- and the distinction
-matters: everything it relays, it has first independently validated, stored, and quota-bounded
-under its own key.
-Parallel to the servers, independent audit-log services receive a public audit certificate only
-after the server has accepted the write; they verify the certificate against the canonical
-envelope and the receipt, then append it to a separate hash-chained record, so that an
-acknowledgement a server later hides remains reproducible from outside. The complete system,
-including the reachability ladder that motivates the design, the on-device signing boundary,
-the canonical envelope, the unified admission pipeline, the per-node persistence stack, and
-the independent audit-log services, is shown in Fig.~\ref{fig:architecture}.
+The system is designed around two premises: a forum should keep working as connectivity narrows, and should stress censorship resistance. We have denoted and modeled narrowing as a
+five-level ladder --- L0, ordinary global (or Tor) reach; L1, national
+partition, where international transit is gone but the domestic exchange still
+carries traffic; L2, ISP island, where inter-ISP peering itself has failed; L3,
+bridged islands, where a dual-homed relay reconnects two islands that cannot
+otherwise reach each other; and L4, total isolation, where no IP path is available.
 
-\begin{figure*}[!t]
+The ingress is polymorphic and heterogeneous to match this ladder :  HTTP/gRPC over
+whatever IP path survives, a Tor v3 onion service when an external Tor path
+persists, and an optional Reticulum/LoRa sidecar carrying only small,
+high-priority messages when IP is unavailable altogether. Bulk traffic is
+rejected on that path, and it is disabled by default. That sidecar is our only
+answer to L4, and it is a narrow one: this paper focues solely the
+IP-networking path (HTTP for clients, gRPC for federation), and its claims are
+scoped to L0 through L3.
+
+Whatever the ingress, every object on the wire is one canonical signed packet,
+and every node runs it through the same 19-stage pipeline, whose first 12
+stages touch nothing persistent. Acceptance produces a signed receipt and a
+federation task in a durable outbox, which a scheduler drains by priority
+class and then by (destination, source uplink, traffic class). A bridge is
+not a transparent packet forwarder: it is an ordinary node running that same
+stack, dual-homed onto two islands, and everything it relays it has already
+independently validated, stored, and quota-bounded under its own key.
+
+Running alongside the servers, independent audit-log services accept a public
+audit certificate only after a server has already committed the write; each
+service re-verifies the certificate against the canonical envelope and the
+receipt before appending it to its own hash-chained record, so an
+acknowledgement a server later hides remains reconstructable from outside.
+Fig.~\ref{fig:architecture} shows the system end to end: the reachability
+ladder that motivates the design, the on-device signing boundary, the
+canonical envelope, the shared admission pipeline, each node's persistence
+stack, and the independent audit-log services.
+
+\begin{figure}[!t]
   \centering
   \begin{mmd}{figures/architecture.mmd}
   \end{mmd}
@@ -203,33 +220,39 @@ the independent audit-log services, is shown in Fig.~\ref{fig:architecture}.
     S3 acts as a bridge under the same admission policy. The reachability scope at the top
     indicates which paths are usable at a given moment.}
   \label{fig:architecture}
-\end{figure*}
+\end{figure}
 \FloatBarrier
 
 \subsection{Signed objects and admission}
 
-An envelope carries a domain tag, an object type, a payload, a public key, a nonce, and an expiry.
-Its identifier is the SHA-256 digest of a specified canonical byte string, and an Ed25519 signature
-covers that same string \cite{bernstein2012ed25519}. Because protobuf does not guarantee a unique
-serialisation \cite{protobufnotcanonical}, we constrain a profile on top of it: ascending field
-order, minimal varints, no unknown fields retained, and---the operative rule---a decode followed by
-a re-encode that must reproduce the received bytes exactly. An object that fails that comparison is
-rejected rather than repaired.
+An envelope carries a domain tag, an object type, a payload, a public key, a
+nonce, and an expiry. Its identifier is the SHA-256 digest of a specified
+canonical byte string, and an Ed25519 signature covers that same string
+\cite{bernstein2012ed25519}. Protobuf does not guarantee a unique
+serialisation \cite{protobufnotcanonical}, so we constrain a profile on top of
+it --- ascending field order, minimal varints, no unknown fields retained ---
+and add the rule that actually matters: decoding and re-encoding an object
+must reproduce the bytes as received, exactly. An object that fails that
+comparison is rejected outright, never repaired.
 
-Strict-decode-then-verify-what-arrived is long-established practice in DER, JWS, and CT's leaf
-format; what it buys here is specific to relaying. A federation node that decoded a peer's bytes and
-re-encoded them before verification would silently normalise a malformed object into a well-formed
-one and then find that it verifies. Under our rule the receiver never normalises attacker-controlled
-bytes before checking the signature, so no relay can launder an object into validity.
+Verifying only what arrived, after a strict decode, is established practice
+in DER, JWS, and CT's leaf format; what is specific here is what it buys a
+relay. A federation node that decoded a peer's bytes and re-encoded them
+before checking the signature would silently turn a malformed object into a
+well-formed one, then find that the well-formed version verifies. Because our
+rule never lets the receiver normalise attacker-controlled bytes before that
+check, no relay can launder an invalid object into a valid one.
 
-Fig.~\ref{fig:pipeline} summarises the admission path. Stages 1 through 12 cover size, parsing,
-canonicality, domain separation, identifier derivation, signature, expiry, replay, and
-authorisation, and none of them writes to persistent storage---an invalid flood therefore cannot
-amplify into write load, a property we measure in \S\ref{sec:results}. Later stages charge origin
-pricing or a receiver quota, commit the raw object together with its derived indexes in a single
-transaction, append its hash to a Merkle log, and only then enqueue federation. A uniqueness
-constraint in the database, rather than a read-then-write check, makes exact retries idempotent
-under concurrency.
+Fig.~\ref{fig:pipeline} lays out the admission path. Stages 1 through 12 ---
+size, parsing, canonicality, domain separation, identifier derivation,
+signature, expiry, replay, authorisation --- write nothing to persistent
+storage, so an invalid flood cannot amplify into write load, a property we
+measure directly in \S\ref{sec:results}. The stages after that charge origin
+pricing or a receiver quota, commit the raw object with its derived indexes
+in one transaction, append its hash to a Merkle log, and only then enqueue
+federation. Exact retries are made idempotent under concurrency by a
+uniqueness constraint in the database, not by a read-then-write check that a
+race could defeat.
 
 \begin{figure}[t]
   \centering
@@ -261,40 +284,47 @@ under concurrency.
   \label{fig:pipeline}
 \end{figure}
 
-On acceptance the server signs a receipt binding the object identifier, its leaf position, the
-resulting tree head, and an inclusion proof, so the acknowledgement commits to the bytes admitted
-rather than to a label the operator is free to change afterwards. Peers additionally exchange signed
-tree heads. Two heads of equal size with differing roots are an unambiguous conflict; a larger head
-is recorded as pending until a consistency proof can be fetched. We are explicit about the reach of
-this rule. It is stale-head hygiene that eliminates a class of self-inflicted false positives---and
-it does catch outright tree shrinkage---but an adversary who rewrites history while keeping the tree
-non-decreasing passes both clauses undetected, and equivocation between two peers cannot be caught
-by any purely local comparison. Detecting either requires consistency proofs and cross-observer
-exchange, which the partition we are designing for is precisely what obstructs.
+On acceptance the server signs a receipt binding the object's identifier, its
+leaf position, the resulting tree head, and an inclusion proof, so the
+acknowledgement commits to the bytes actually admitted rather than to a label
+the operator could later change. Peers also exchange signed tree heads: two
+heads of equal size with differing roots are an unambiguous conflict, and a
+larger head is held pending until a consistency proof can be fetched. We are
+deliberate about how far this reaches. It is stale-head hygiene --- it clears
+a class of self-inflicted false positives and does catch outright tree
+shrinkage --- but an adversary who rewrites history while keeping the tree
+non-decreasing passes both checks undetected, and equivocation between two
+peers cannot be caught by any comparison made locally. Catching either needs
+consistency proofs and cross-observer exchange, which is exactly what the
+partition we are designing for gets in the way of.
 
 \subsection{Partition-aware federation}
 
-Three remote procedure calls, all initiated by the caller, cover ordinary delivery and recovery.
-\textsc{Deliver} pushes a batch, \textsc{StreamActivities} resumes from a durable cursor, and
-\textsc{Backfill} requests objects a node knows it is missing. Because none of the three requires
-the calling node to accept an inbound connection, a server behind carrier-grade network address
-translation participates fully in both directions over connections it opens itself. This is
-reachability asymmetry, not discovery: at least one peer address must already be known.
+Three RPCs, all caller-initiated, cover ordinary delivery and recovery.
+\textsc{Deliver} pushes a batch, \textsc{StreamActivities} resumes from a
+durable cursor, and \textsc{Backfill} asks for objects a node already knows it
+is missing. None of the three requires the calling node to accept an inbound
+connection, so a server behind carrier-grade NAT federates fully in both
+directions over connections it opens itself. This solves reachability
+asymmetry, not discovery: some peer address must already be known.
 
-The scheduler drains independent per-peer queues concurrently under a bounded lease, with deadlines,
-exponential backoff, and idempotency keys. That structure exists because its absence was a real
-defect, described in \S\ref{sec:results}. One caveat is worth stating in the design rather than
-buried in limitations: the deadline bounds how long a drain pass waits on a peer, not how long the
-underlying transport keeps trying, because the sender takes no cancellation token. A stuck call can
-therefore hold resources past its deadline even though it no longer blocks anyone.
+The scheduler drains independent per-peer queues concurrently, under a
+bounded lease, with deadlines, exponential backoff, and idempotency keys. That
+structure exists because its absence was a real defect, which
+\S\ref{sec:results} describes. One caveat belongs here rather than in
+limitations: the deadline bounds how long a drain pass will wait on a peer,
+not how long the underlying transport keeps trying underneath it, because the
+sender holds no cancellation token. A stuck call can therefore keep resources
+past its deadline even once it no longer blocks anything else.
 
-Fig.~\ref{fig:topology} shows the route-cut topology. Two ordinary nodes sit in island A and one in
-island B; a shared exchange segment connects them, standing in for an Internet exchange point. The
-bridge holds one address on each island network. Once the exchange is withdrawn, both islands must
-already have configured trust in the bridge---trust that governs the rate and priority a peer's
-traffic receives, never whether its objects are valid. The bridge validates and stores every object
-it handles, bounds volume per uplink pair and per traffic class, and never relays an object back to
-the peer it arrived from.
+Fig.~\ref{fig:topology} shows the route-cut topology we test against: two
+ordinary nodes in island A, one in island B, and a shared exchange segment
+standing in for an Internet exchange point. The bridge holds one address on
+each island's network. Once the exchange is withdrawn, both islands must
+already trust the bridge --- trust that sets the rate and priority its
+traffic receives, never whether its objects are valid. The bridge validates
+and stores everything it handles, bounds volume per uplink pair and per
+traffic class, and never relays an object back to the peer it arrived from.
 
 \begin{figure}[t]
   \centering
@@ -327,12 +357,13 @@ the peer it arrived from.
   \label{fig:topology}
 \end{figure}
 
-Four implementation rules carry most of the replication safety. The transport hands ingress an
-opaque byte string and has no ability to decode and re-encode it. Every peer, the bridge included,
-passes the complete validity check. Database uniqueness, not application logic, absorbs the
-duplicate that inevitably arrives when a live stream and a backfill both carry the same object.
-Finally, fan-out excludes the originating peer, which avoids a redundant round trip that content
-deduplication would eventually terminate but not for free.
+Four implementation rules carry most of the replication safety. The transport
+hands ingress an opaque byte string it cannot decode and re-encode. Every
+peer --- the bridge included --- runs the full validity check. Duplicate
+delivery, which is inevitable once a live stream and a backfill can carry the
+same object, is absorbed by database uniqueness rather than application
+logic. And fan-out excludes the peer an object arrived from, avoiding a round
+trip that deduplication would eventually terminate, but not for free.
 
 \section{Methodology}
 \label{sec:method}
