@@ -64,3 +64,6 @@ ops/scale-compose.generated.yml
 
 # Measurement output — reproducible via `pnpm scale:measure`
 ops/results/
+
+# Local simplified paper rewrite
+/simplified-introduction-background-research-gap.txt
