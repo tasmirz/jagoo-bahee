@@ -1,120 +1,38 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mxfile host="app.diagrams.net" modified="2026-08-29T00:00:00.000Z" agent="Codex" version="24.7.17" type="device" compressed="false">
-  <diagram id="admission-pipeline" name="Admission Pipeline">
-    <mxGraphModel dx="1200" dy="730" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="730" math="0" shadow="0">
+  <diagram id="admission-pipeline" name="Admission pipeline">
+    <mxGraphModel dx="1200" dy="560" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="560" math="0" shadow="0">
       <root>
-        <mxCell id="0"/>
-        <mxCell id="1" parent="0"/>
-
-        <mxCell id="readonly-frame" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F7F9FB;strokeColor=#6B7B88;strokeWidth=1.5;shadow=0;glass=0;pointerEvents=0;" vertex="1" parent="1">
-          <mxGeometry x="25" y="135" width="1150" height="250" as="geometry"/>
-        </mxCell>
-        <mxCell id="readonly-title" value="&lt;b&gt;READ-ONLY ADMISSION · STAGES 1–12 · NO PERSISTENT WRITES BY THE PIPELINE&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Helvetica;fontSize=15;fontColor=#273746;spacingLeft=0;" vertex="1" parent="1">
-          <mxGeometry x="300" y="145" width="830" height="28" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="main-input" value="&lt;b&gt;Exact signed envelope bytes&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#52616B&quot;&gt;HTTP · Deliver · StreamActivities · Backfill&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;spacing=8;fontFamily=Helvetica;fontSize=15;fontColor=#1F2933;strokeColor=#445B6E;strokeWidth=1.5;fillColor=#FFFFFF;shadow=0;glass=0;" vertex="1" parent="1">
-          <mxGeometry x="35" y="32" width="300" height="70" as="geometry"/>
-        </mxCell>
-        <mxCell id="deliver-gate" value="&lt;b&gt;Federated Deliver pre-gate — outside the 19 stages&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#6C5128&quot;&gt;canonical pre-parse · stream-plane guard · peer trust/class&lt;br&gt;atomic envelope + byte receiver quota&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacing=10;fontFamily=Helvetica;fontSize=14;fontColor=#3D3428;strokeColor=#A66A21;strokeWidth=1.5;dashed=1;dashPattern=7 5;fillColor=#FFF9EE;shadow=0;glass=0;" vertex="1" parent="1">
-          <mxGeometry x="650" y="25" width="510" height="84" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="bytes" value="&lt;b&gt;BYTE FORM&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;1  SIZE&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#52616B&quot;&gt;absolute cap on raw bytes&lt;/font&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;2  PARSE&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#52616B&quot;&gt;strict decode; canonical round-trip&lt;br&gt;derive content_id&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=10;fontFamily=Helvetica;fontSize=13;fontColor=#1F2933;strokeColor=#526A7A;strokeWidth=1.5;fillColor=#FFFFFF;shadow=0;glass=0;" vertex="1" parent="1">
-          <mxGeometry x="50" y="185" width="195" height="140" as="geometry"/>
-        </mxCell>
-        <mxCell id="routing" value="&lt;b&gt;CONTRACT ROUTING&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;3  VERSION&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;4  DOMAIN&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#52616B&quot;&gt;registry lookup&lt;/font&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;5  PLANE&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=10;fontFamily=Helvetica;fontSize=13;fontColor=#1F2933;strokeColor=#526A7A;strokeWidth=1.5;fillColor=#FFFFFF;shadow=0;glass=0;" vertex="1" parent="1">
-          <mxGeometry x="270" y="185" width="195" height="140" as="geometry"/>
-        </mxCell>
-        <mxCell id="policy" value="&lt;b&gt;REGISTRY POLICY&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;6  ALG POLICY&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#52616B&quot;&gt;per-domain/class raw-size budget&lt;/font&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;7  PRIORITY&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=10;fontFamily=Helvetica;fontSize=13;fontColor=#1F2933;strokeColor=#526A7A;strokeWidth=1.5;fillColor=#FFFFFF;shadow=0;glass=0;" vertex="1" parent="1">
-          <mxGeometry x="490" y="185" width="195" height="140" as="geometry"/>
-        </mxCell>
-        <mxCell id="authenticity" value="&lt;b&gt;TIME + AUTHOR&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;8  CLOCK&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#52616B&quot;&gt;created_at age / skew window&lt;/font&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;9  SIGNATURE&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;10  CERTIFICATE&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=10;fontFamily=Helvetica;fontSize=13;fontColor=#1F2933;strokeColor=#526A7A;strokeWidth=1.5;fillColor=#FFFFFF;shadow=0;glass=0;" vertex="1" parent="1">
-          <mxGeometry x="710" y="185" width="195" height="140" as="geometry"/>
-        </mxCell>
-        <mxCell id="idempotence" value="&lt;b&gt;IDEMPOTENCE&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;11  DEDUPE&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#52616B&quot;&gt;read-only early check&lt;/font&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;12  REPLAY&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#52616B&quot;&gt;nonce read&lt;br&gt;non-idempotent domains&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=10;fontFamily=Helvetica;fontSize=13;fontColor=#1F2933;strokeColor=#526A7A;strokeWidth=1.5;fillColor=#FFFFFF;shadow=0;glass=0;" vertex="1" parent="1">
-          <mxGeometry x="930" y="185" width="195" height="140" as="geometry"/>
-        </mxCell>
-        <mxCell id="duplicate-output" value="&lt;b&gt;DUPLICATE&lt;/b&gt; → original receipt · no mutation" style="rounded=0;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontColor=#285E61;strokeColor=#3C7A78;strokeWidth=1.25;dashed=1;fillColor=#EDF7F5;shadow=0;glass=0;" vertex="1" parent="1">
-          <mxGeometry x="930" y="342" width="195" height="28" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="mutation-line" value="" style="shape=line;strokeColor=#A66A21;strokeWidth=2;dashed=1;dashPattern=8 5;" vertex="1" parent="1">
-          <mxGeometry x="25" y="409" width="1150" height="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="mutation-label" value="&lt;b&gt;FIRST PERMITTED PERSISTENT MUTATION IN THE PIPELINE AFTER STAGE 12&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=#FFFFFF;align=center;verticalAlign=middle;whiteSpace=wrap;fontFamily=Helvetica;fontSize=13;fontColor=#8A571C;spacing=4;" vertex="1" parent="1">
-          <mxGeometry x="350" y="393" width="500" height="32" as="geometry"/>
-        </mxCell>
-        <mxCell id="new-envelope-label" value="successful new envelope" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;whiteSpace=wrap;fontFamily=Helvetica;fontSize=11;fontColor=#65737E;fontStyle=2;" vertex="1" parent="1">
-          <mxGeometry x="955" y="420" width="180" height="22" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="anti-abuse" value="&lt;b&gt;FIRST MUTATION&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;13  ANTI-ABUSE&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#6C5128&quot;&gt;local origin only&lt;br&gt;credential / PoW checks&lt;br&gt;claim nullifier · debit credits&lt;br&gt;&lt;i&gt;federated peer: no-op&lt;/i&gt;&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=11;fontFamily=Helvetica;fontSize=13;fontColor=#3D3428;strokeColor=#A66A21;strokeWidth=2;fillColor=#FFF4DE;shadow=0;glass=0;" vertex="1" parent="1">
-          <mxGeometry x="930" y="455" width="220" height="160" as="geometry"/>
-        </mxCell>
-        <mxCell id="semantics" value="&lt;b&gt;SEMANTIC CHECKS&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;14  AUTHORISE&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#52616B&quot;&gt;typed-body decode; projection read&lt;/font&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;15  BODY VALIDATE&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#8A571C&quot;&gt;may reject after stage 13&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=11;fontFamily=Helvetica;fontSize=13;fontColor=#1F2933;strokeColor=#526A7A;strokeWidth=1.5;fillColor=#FFFFFF;shadow=0;glass=0;" vertex="1" parent="1">
-          <mxGeometry x="690" y="455" width="205" height="160" as="geometry"/>
-        </mxCell>
-        <mxCell id="transaction" value="&lt;b&gt;ATOMIC ACCEPTANCE TRANSACTION&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;16  APPLY&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#345B54&quot;&gt;reserve nonce · store exact raw bytes&lt;br&gt;inbound ledger · update projection&lt;/font&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;17  WITNESS&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#345B54&quot;&gt;append content_id&lt;/font&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;18  RECEIPT&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#345B54&quot;&gt;build STH + inclusion proof · sign + persist&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=12;fontFamily=Helvetica;fontSize=13;fontColor=#173F37;strokeColor=#2C7A6B;strokeWidth=2.5;fillColor=#E8F3EF;shadow=0;glass=0;" vertex="1" parent="1">
-          <mxGeometry x="300" y="435" width="350" height="200" as="geometry"/>
-        </mxCell>
-        <mxCell id="fanout" value="&lt;b&gt;POST-COMMIT&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;b&gt;19  FANOUT&lt;/b&gt;&lt;br&gt;&lt;font color=&quot;#3D5870&quot;&gt;afterCommit hook&lt;br&gt;durable outbox attempt&lt;br&gt;auxiliary · event · cache&lt;br&gt;exclude source peer&lt;br&gt;&lt;i&gt;best effort; no rollback&lt;/i&gt;&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacing=11;fontFamily=Helvetica;fontSize=13;fontColor=#23384D;strokeColor=#3C6E91;strokeWidth=2;fillColor=#EEF4FA;shadow=0;glass=0;" vertex="1" parent="1">
-          <mxGeometry x="40" y="455" width="220" height="160" as="geometry"/>
-        </mxCell>
-        <mxCell id="receipt-output" value="&lt;b&gt;RETURN SIGNED RECEIPT&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=14;fontColor=#173F37;strokeColor=#2C7A6B;strokeWidth=2;fillColor=#FFFFFF;shadow=0;glass=0;" vertex="1" parent="1">
-          <mxGeometry x="40" y="660" width="220" height="48" as="geometry"/>
-        </mxCell>
-        <mxCell id="failure-note" value="&lt;b&gt;Failure semantics:&lt;/b&gt; failed gate → typed rejection; a stage-13 charge may already be spent. Stages 16–18 roll back together." style="rounded=0;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacing=10;fontFamily=Helvetica;fontSize=13;fontColor=#4A5560;strokeColor=#9AA7B1;strokeWidth=1.25;dashed=1;fillColor=#FAFBFC;shadow=0;glass=0;" vertex="1" parent="1">
-          <mxGeometry x="300" y="655" width="850" height="58" as="geometry"/>
-        </mxCell>
-
-        <mxCell id="edge-input" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;endSize=10;strokeColor=#334E68;strokeWidth=2.25;exitX=0.38;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="main-input" target="bytes">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="edge-deliver" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#A66A21;strokeWidth=1.5;dashed=1;dashPattern=7 5;exitX=0;exitY=1;exitDx=0;exitDy=0;entryX=0.88;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="deliver-gate" target="bytes">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="620" y="123"/>
-              <mxPoint x="222" y="123"/>
-            </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="edge-2-3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;endSize=10;strokeColor=#334E68;strokeWidth=2.25;" edge="1" parent="1" source="bytes" target="routing">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="edge-3-6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;endSize=10;strokeColor=#334E68;strokeWidth=2.25;" edge="1" parent="1" source="routing" target="policy">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="edge-7-8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;endSize=10;strokeColor=#334E68;strokeWidth=2.25;" edge="1" parent="1" source="policy" target="authenticity">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="edge-10-11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;endSize=10;strokeColor=#334E68;strokeWidth=2.25;" edge="1" parent="1" source="authenticity" target="idempotence">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="edge-duplicate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#3C7A78;strokeWidth=1.5;dashed=1;exitX=0.2;exitY=1;exitDx=0;exitDy=0;entryX=0.2;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="idempotence" target="duplicate-output">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="edge-12-13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;endSize=11;strokeColor=#334E68;strokeWidth=2.5;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.68;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="idempotence" target="anti-abuse">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="1148" y="255"/>
-              <mxPoint x="1148" y="430"/>
-              <mxPoint x="1080" y="430"/>
-            </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="edge-13-14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;endSize=11;strokeColor=#334E68;strokeWidth=2.5;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="anti-abuse" target="semantics">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="edge-15-16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;endSize=11;strokeColor=#334E68;strokeWidth=2.5;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="semantics" target="transaction">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="edge-18-19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;endSize=11;strokeColor=#334E68;strokeWidth=2.5;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="transaction" target="fanout">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
-        <mxCell id="edge-receipt" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;endSize=11;strokeColor=#2C7A6B;strokeWidth=2.5;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="fanout" target="receipt-output">
-          <mxGeometry relative="1" as="geometry"/>
-        </mxCell>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="input" value="&lt;b&gt;SIGNED ENVELOPE&lt;/b&gt;&lt;br&gt;exact bytes" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#27323A;strokeWidth=1.5;fillColor=#FFFFFF;fontFamily=Helvetica;fontSize=13;fontColor=#27323A;align=center;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="30" y="38" width="180" height="54" as="geometry"/></mxCell>
+        <mxCell id="deliver" value="&lt;b&gt;DELIVER PRE-GATE&lt;/b&gt;&lt;br&gt;peer quota · outside pipeline" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#A66A21;strokeWidth=1.5;dashed=1;fillColor=#FFFFFF;fontFamily=Helvetica;fontSize=12;fontColor=#27323A;align=center;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="320" y="28" width="240" height="62" as="geometry"/></mxCell>
+        <mxCell id="readonly" value="" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#2D5F82;strokeWidth=1.8;fillColor=#FFFFFF;" vertex="1" parent="1"><mxGeometry x="30" y="135" width="520" height="180" as="geometry"/></mxCell>
+        <mxCell id="readonly-title" value="&lt;b&gt;STAGES 1–12 · READ-ONLY VALIDATION&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;fontFamily=Helvetica;fontSize=14;fontStyle=1;fontColor=#2D5F82;align=center;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="50" y="150" width="480" height="24" as="geometry"/></mxCell>
+        <mxCell id="bytes" value="&lt;b&gt;1–2&lt;/b&gt;&lt;br&gt;BYTES" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#2D5F82;strokeWidth=1.2;fillColor=#FFFFFF;fontFamily=Helvetica;fontSize=12;fontColor=#27323A;align=center;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="50" y="205" width="82" height="62" as="geometry"/></mxCell>
+        <mxCell id="routing" value="&lt;b&gt;3–5&lt;/b&gt;&lt;br&gt;ROUTING" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#2D5F82;strokeWidth=1.2;fillColor=#FFFFFF;fontFamily=Helvetica;fontSize=12;fontColor=#27323A;align=center;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="148" y="205" width="82" height="62" as="geometry"/></mxCell>
+        <mxCell id="policy" value="&lt;b&gt;6–7&lt;/b&gt;&lt;br&gt;POLICY" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#2D5F82;strokeWidth=1.2;fillColor=#FFFFFF;fontFamily=Helvetica;fontSize=12;fontColor=#27323A;align=center;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="246" y="205" width="82" height="62" as="geometry"/></mxCell>
+        <mxCell id="auth" value="&lt;b&gt;8–10&lt;/b&gt;&lt;br&gt;AUTH" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#2D5F82;strokeWidth=1.2;fillColor=#FFFFFF;fontFamily=Helvetica;fontSize=12;fontColor=#27323A;align=center;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="344" y="205" width="82" height="62" as="geometry"/></mxCell>
+        <mxCell id="replay" value="&lt;b&gt;11–12&lt;/b&gt;&lt;br&gt;REPLAY" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#2D5F82;strokeWidth=1.2;fillColor=#FFFFFF;fontFamily=Helvetica;fontSize=12;fontColor=#27323A;align=center;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="442" y="205" width="82" height="62" as="geometry"/></mxCell>
+        <mxCell id="flow12" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#2D5F82;strokeWidth=1.4;endArrow=classic;endFill=1;" edge="1" parent="1" source="bytes" target="routing"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="flow23" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#2D5F82;strokeWidth=1.4;endArrow=classic;endFill=1;" edge="1" parent="1" source="routing" target="policy"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="flow34" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#2D5F82;strokeWidth=1.4;endArrow=classic;endFill=1;" edge="1" parent="1" source="policy" target="auth"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="flow45" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#2D5F82;strokeWidth=1.4;endArrow=classic;endFill=1;" edge="1" parent="1" source="auth" target="replay"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="input-flow" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#27323A;strokeWidth=1.8;endArrow=classic;endFill=1;" edge="1" parent="1" source="input" target="bytes"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="deliver-flow" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#A66A21;strokeWidth=1.4;dashed=1;endArrow=classic;endFill=1;" edge="1" parent="1" source="deliver" target="bytes"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="290" y="105"/><mxPoint x="91" y="105"/></Array></mxGeometry></mxCell>
+        <mxCell id="duplicate" value="duplicate → prior receipt" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#27323A;strokeWidth=1.2;dashed=1;fillColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;fontColor=#27323A;align=center;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="350" y="340" width="190" height="38" as="geometry"/></mxCell>
+        <mxCell id="duplicate-flow" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#27323A;strokeWidth=1.2;dashed=1;endArrow=classic;endFill=1;" edge="1" parent="1" source="replay" target="duplicate"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="boundary" value="FIRST STATE CHANGE" style="text;html=1;strokeColor=none;fillColor=#FFFFFF;fontFamily=Helvetica;fontSize=11;fontStyle=1;fontColor=#A66A21;align=center;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="548" y="115" width="120" height="22" as="geometry"/></mxCell>
+        <mxCell id="boundary-line" value="" style="edgeStyle=none;rounded=0;html=1;strokeColor=#A66A21;strokeWidth=1.8;dashed=1;startArrow=none;endArrow=none;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="590" y="145" as="sourcePoint"/><mxPoint x="590" y="315" as="targetPoint"/></mxGeometry></mxCell>
+        <mxCell id="anti" value="&lt;b&gt;13 · ANTI-ABUSE&lt;/b&gt;&lt;br&gt;local origin" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#A66A21;strokeWidth=2;fillColor=#FFFFFF;fontFamily=Helvetica;fontSize=12;fontColor=#27323A;align=center;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="620" y="185" width="130" height="80" as="geometry"/></mxCell>
+        <mxCell id="semantic" value="&lt;b&gt;14–15 · SEMANTICS&lt;/b&gt;&lt;br&gt;authorize · validate" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#2D5F82;strokeWidth=1.5;fillColor=#FFFFFF;fontFamily=Helvetica;fontSize=12;fontColor=#27323A;align=center;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="785" y="185" width="145" height="80" as="geometry"/></mxCell>
+        <mxCell id="commit" value="&lt;b&gt;16–18 · ATOMIC COMMIT&lt;/b&gt;&lt;br&gt;store · witness · receipt" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#2D5F82;strokeWidth=2;fillColor=#FFFFFF;fontFamily=Helvetica;fontSize=12;fontColor=#27323A;align=center;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="965" y="170" width="190" height="110" as="geometry"/></mxCell>
+        <mxCell id="fanout" value="&lt;b&gt;19 · FANOUT&lt;/b&gt;&lt;br&gt;outbox · events" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#27323A;strokeWidth=1.5;fillColor=#FFFFFF;fontFamily=Helvetica;fontSize=12;fontColor=#27323A;align=center;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="965" y="350" width="190" height="72" as="geometry"/></mxCell>
+        <mxCell id="receipt" value="&lt;b&gt;RETURN SIGNED RECEIPT&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;strokeColor=#A66A21;strokeWidth=1.5;fillColor=#FFFFFF;fontFamily=Helvetica;fontSize=12;fontColor=#27323A;align=center;verticalAlign=middle;" vertex="1" parent="1"><mxGeometry x="965" y="470" width="190" height="44" as="geometry"/></mxCell>
+        <mxCell id="flow-replay-anti" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#27323A;strokeWidth=2;endArrow=classic;endFill=1;" edge="1" parent="1" source="replay" target="anti"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="flow-anti-sem" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#27323A;strokeWidth=2;endArrow=classic;endFill=1;" edge="1" parent="1" source="anti" target="semantic"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="flow-sem-commit" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#27323A;strokeWidth=2;endArrow=classic;endFill=1;" edge="1" parent="1" source="semantic" target="commit"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="flow-commit-fan" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#27323A;strokeWidth=2;endArrow=classic;endFill=1;" edge="1" parent="1" source="commit" target="fanout"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="flow-fan-receipt" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#A66A21;strokeWidth=2;endArrow=classic;endFill=1;" edge="1" parent="1" source="fanout" target="receipt"><mxGeometry relative="1" as="geometry"/></mxCell>
       </root>
     </mxGraphModel>
   </diagram>

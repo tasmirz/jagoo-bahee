@@ -1,158 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="730" viewBox="0 0 1200 730" role="img" aria-labelledby="title desc">
-  <title id="title">Nineteen-stage admission pipeline</title>
-  <desc id="desc">Implementation-accurate admission sequence showing a read-only first phase, the first mutation at anti-abuse stage thirteen, an atomic transaction for stages sixteen through eighteen, and post-commit fanout.</desc>
-  <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334E68"/>
-    </marker>
-    <marker id="arrow-amber" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#A66A21"/>
-    </marker>
-    <marker id="arrow-teal" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2C7A6B"/>
-    </marker>
-    <style>
-      text { font-family: Helvetica, Arial, sans-serif; fill: #1F2933; }
-      .section { font-size: 15px; font-weight: 700; letter-spacing: 0.35px; }
-      .box-title { font-size: 14px; font-weight: 700; letter-spacing: 0.3px; }
-      .stage { font-size: 13.5px; font-weight: 700; }
-      .body { font-size: 12.5px; fill: #52616B; }
-      .small { font-size: 11.5px; }
-      .flow { fill: none; stroke: #334E68; stroke-width: 2.5; marker-end: url(#arrow); }
-      .thin-flow { fill: none; stroke: #3C7A78; stroke-width: 1.5; stroke-dasharray: 6 4; marker-end: url(#arrow-teal); }
-    </style>
-  </defs>
-
-  <rect width="1200" height="730" fill="#FFFFFF"/>
-
-  <rect x="25" y="135" width="1150" height="250" fill="#F7F9FB" stroke="#6B7B88" stroke-width="1.5"/>
-  <text x="715" y="164" text-anchor="middle" class="section">READ-ONLY ADMISSION · STAGES 1–12 · NO PERSISTENT WRITES BY THE PIPELINE</text>
-
-  <rect x="35" y="32" width="300" height="70" fill="#FFFFFF" stroke="#445B6E" stroke-width="1.5"/>
-  <text x="185" y="61" text-anchor="middle" class="stage">Exact signed envelope bytes</text>
-  <text x="185" y="84" text-anchor="middle" class="body">HTTP · Deliver · StreamActivities · Backfill</text>
-
-  <rect x="650" y="25" width="510" height="84" fill="#FFF9EE" stroke="#A66A21" stroke-width="1.5" stroke-dasharray="7 5"/>
-  <text x="670" y="50" class="stage" fill="#3D3428">Federated Deliver pre-gate — outside the 19 stages</text>
-  <text x="670" y="74" class="body" fill="#6C5128">canonical pre-parse · stream-plane guard · peer trust/class</text>
-  <text x="670" y="95" class="body" fill="#6C5128">atomic envelope + byte receiver quota</text>
-
-  <path d="M 149 102 V 125 H 148 V 185" class="flow"/>
-  <path d="M 650 88 V 123 H 222 V 185" fill="none" stroke="#A66A21" stroke-width="1.5" stroke-dasharray="7 5" marker-end="url(#arrow-amber)"/>
-
-  <rect x="50" y="185" width="195" height="140" fill="#FFFFFF" stroke="#526A7A" stroke-width="1.5"/>
-  <text x="62" y="207" class="box-title">BYTE FORM</text>
-  <text x="62" y="235" class="stage">1  SIZE</text>
-  <text x="62" y="253" class="body">absolute cap on raw bytes</text>
-  <text x="62" y="281" class="stage">2  PARSE</text>
-  <text x="62" y="299" class="body">strict decode; canonical round-trip</text>
-  <text x="62" y="317" class="body">derive content_id</text>
-
-  <rect x="270" y="185" width="195" height="140" fill="#FFFFFF" stroke="#526A7A" stroke-width="1.5"/>
-  <text x="282" y="207" class="box-title">CONTRACT ROUTING</text>
-  <text x="282" y="237" class="stage">3  VERSION</text>
-  <text x="282" y="267" class="stage">4  DOMAIN</text>
-  <text x="282" y="285" class="body">registry lookup</text>
-  <text x="282" y="315" class="stage">5  PLANE</text>
-
-  <rect x="490" y="185" width="195" height="140" fill="#FFFFFF" stroke="#526A7A" stroke-width="1.5"/>
-  <text x="502" y="207" class="box-title">REGISTRY POLICY</text>
-  <text x="502" y="239" class="stage">6  ALG POLICY</text>
-  <text x="502" y="258" class="body">per-domain/class raw-size</text>
-  <text x="502" y="276" class="body">budget</text>
-  <text x="502" y="310" class="stage">7  PRIORITY</text>
-
-  <rect x="710" y="185" width="195" height="140" fill="#FFFFFF" stroke="#526A7A" stroke-width="1.5"/>
-  <text x="722" y="207" class="box-title">TIME + AUTHOR</text>
-  <text x="722" y="234" class="stage">8  CLOCK</text>
-  <text x="722" y="253" class="body">created_at age / skew window</text>
-  <text x="722" y="281" class="stage">9  SIGNATURE</text>
-  <text x="722" y="313" class="stage">10  CERTIFICATE</text>
-
-  <rect x="930" y="185" width="195" height="140" fill="#FFFFFF" stroke="#526A7A" stroke-width="1.5"/>
-  <text x="942" y="207" class="box-title">IDEMPOTENCE</text>
-  <text x="942" y="238" class="stage">11  DEDUPE</text>
-  <text x="942" y="257" class="body">read-only early check</text>
-  <text x="942" y="287" class="stage">12  REPLAY</text>
-  <text x="942" y="306" class="body">nonce read</text>
-  <text x="942" y="321" class="body">non-idempotent domains</text>
-
-  <path d="M 245 255 H 270" class="flow"/>
-  <path d="M 465 255 H 490" class="flow"/>
-  <path d="M 685 255 H 710" class="flow"/>
-  <path d="M 905 255 H 930" class="flow"/>
-
-  <rect x="930" y="342" width="195" height="28" fill="#EDF7F5" stroke="#3C7A78" stroke-width="1.25" stroke-dasharray="5 4"/>
-  <text x="1027.5" y="361" text-anchor="middle" class="small" fill="#285E61"><tspan font-weight="700">DUPLICATE</tspan><tspan> → original receipt · no mutation</tspan></text>
-  <path d="M 969 325 V 342" class="thin-flow"/>
-
-  <path d="M 1125 255 H 1148 V 430 H 1080 V 455" class="flow"/>
-  <text x="1135" y="438" text-anchor="end" class="small" font-style="italic" fill="#65737E">successful new envelope</text>
-
-  <line x1="25" y1="410" x2="1175" y2="410" stroke="#A66A21" stroke-width="2" stroke-dasharray="8 5"/>
-  <rect x="350" y="393" width="500" height="32" fill="#FFFFFF"/>
-  <text x="600" y="414" text-anchor="middle" class="stage" fill="#8A571C">FIRST PERMITTED PERSISTENT MUTATION IN THE PIPELINE AFTER STAGE 12</text>
-
-  <rect x="930" y="455" width="220" height="160" fill="#FFF4DE" stroke="#A66A21" stroke-width="2"/>
-  <text x="943" y="480" class="box-title" fill="#3D3428">FIRST MUTATION</text>
-  <text x="943" y="510" class="stage" fill="#3D3428">13  ANTI-ABUSE</text>
-  <text x="943" y="532" class="body" fill="#6C5128">local origin only</text>
-  <text x="943" y="551" class="body" fill="#6C5128">credential / PoW checks</text>
-  <text x="943" y="570" class="body" fill="#6C5128">claim nullifier · debit credits</text>
-  <text x="943" y="594" class="body" fill="#6C5128" font-style="italic">federated peer: no-op</text>
-
-  <rect x="690" y="455" width="205" height="160" fill="#FFFFFF" stroke="#526A7A" stroke-width="1.5"/>
-  <text x="703" y="480" class="box-title">SEMANTIC CHECKS</text>
-  <text x="703" y="511" class="stage">14  AUTHORISE</text>
-  <text x="703" y="531" class="body">typed-body decode;</text>
-  <text x="703" y="549" class="body">projection read</text>
-  <text x="703" y="579" class="stage">15  BODY VALIDATE</text>
-  <text x="703" y="600" class="body" fill="#8A571C">may reject after stage 13</text>
-
-  <rect x="300" y="435" width="350" height="200" fill="#E8F3EF" stroke="#2C7A6B" stroke-width="2.5"/>
-  <text x="314" y="461" class="box-title" fill="#173F37">ATOMIC ACCEPTANCE TRANSACTION</text>
-  <text x="314" y="490" class="stage" fill="#173F37">16  APPLY</text>
-  <text x="314" y="509" class="body" fill="#345B54">reserve nonce · store exact raw bytes</text>
-  <text x="314" y="527" class="body" fill="#345B54">inbound ledger · update projection</text>
-  <text x="314" y="556" class="stage" fill="#173F37">17  WITNESS</text>
-  <text x="314" y="575" class="body" fill="#345B54">append content_id</text>
-  <text x="314" y="604" class="stage" fill="#173F37">18  RECEIPT</text>
-  <text x="314" y="623" class="body" fill="#345B54">build STH + inclusion proof · sign + persist</text>
-
-  <rect x="40" y="455" width="220" height="160" fill="#EEF4FA" stroke="#3C6E91" stroke-width="2"/>
-  <text x="53" y="480" class="box-title" fill="#23384D">POST-COMMIT</text>
-  <text x="53" y="510" class="stage" fill="#23384D">19  FANOUT</text>
-  <text x="53" y="532" class="body" fill="#3D5870">afterCommit hook</text>
-  <text x="53" y="551" class="body" fill="#3D5870">durable outbox attempt</text>
-  <text x="53" y="570" class="body" fill="#3D5870">auxiliary · event · cache</text>
-  <text x="53" y="589" class="body" fill="#3D5870">exclude source; no rollback</text>
-
-  <path d="M 930 535 H 895" class="flow"/>
-  <path d="M 690 535 H 650" class="flow"/>
-  <path d="M 300 535 H 260" class="flow"/>
-
-  <rect x="40" y="660" width="220" height="48" fill="#FFFFFF" stroke="#2C7A6B" stroke-width="2"/>
-  <text x="150" y="690" text-anchor="middle" class="stage" fill="#173F37">RETURN SIGNED RECEIPT</text>
-  <path d="M 150 615 V 660" fill="none" stroke="#2C7A6B" stroke-width="2.5" marker-end="url(#arrow-teal)"/>
-
-  <rect x="300" y="655" width="850" height="58" fill="#FAFBFC" stroke="#9AA7B1" stroke-width="1.25" stroke-dasharray="5 4"/>
-  <text x="316" y="680" class="body" fill="#4A5560"><tspan font-weight="700">Failure semantics:</tspan><tspan> failed gate → typed rejection; a stage-13 charge may already be spent.</tspan></text>
-  <text x="316" y="700" class="body" fill="#4A5560">Stages 16–18 roll back together.</text>
-
-  <!-- Explicit tips stay legible when the vector is reduced to an IEEE column. -->
-  <g aria-label="chronological arrowheads" fill="#334E68">
-    <polygon points="139,170 157,170 148,185"/>
-    <polygon points="258,247 270,255 258,263"/>
-    <polygon points="478,247 490,255 478,263"/>
-    <polygon points="698,247 710,255 698,263"/>
-    <polygon points="918,247 930,255 918,263"/>
-    <polygon points="1071,441 1089,441 1080,455"/>
-    <polygon points="909,527 895,535 909,543"/>
-    <polygon points="664,527 650,535 664,543"/>
-    <polygon points="274,527 260,535 274,543"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560">
+  <defs><marker id="ab" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#2D5F82"/></marker><marker id="ai" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#27323A"/></marker><marker id="aa" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#A66A21"/></marker></defs>
+  <rect width="1200" height="560" fill="#FFFFFF"/>
+  <g font-family="Helvetica,Arial,sans-serif" fill="#27323A">
+    <g fill="#FFFFFF"><rect x="30" y="38" width="180" height="54" stroke="#27323A" stroke-width="1.5"/><rect x="320" y="28" width="240" height="62" stroke="#A66A21" stroke-width="1.5" stroke-dasharray="6 4"/></g>
+    <g text-anchor="middle"><text x="120" y="62" font-size="13" font-weight="700">SIGNED ENVELOPE</text><text x="120" y="80" font-size="12">exact bytes</text><text x="440" y="53" font-size="12" font-weight="700">DELIVER PRE-GATE</text><text x="440" y="73" font-size="12">peer quota · outside pipeline</text></g>
+    <rect x="30" y="135" width="520" height="180" fill="#FFFFFF" stroke="#2D5F82" stroke-width="1.8"/><text x="290" y="168" text-anchor="middle" font-size="14" font-weight="700" fill="#2D5F82">STAGES 1–12 · READ-ONLY VALIDATION</text>
+    <g fill="#FFFFFF" stroke="#2D5F82" stroke-width="1.2"><rect x="50" y="205" width="82" height="62"/><rect x="148" y="205" width="82" height="62"/><rect x="246" y="205" width="82" height="62"/><rect x="344" y="205" width="82" height="62"/><rect x="442" y="205" width="82" height="62"/></g>
+    <g text-anchor="middle" font-size="12"><text x="91" y="230" font-weight="700">1–2</text><text x="91" y="249">BYTES</text><text x="189" y="230" font-weight="700">3–5</text><text x="189" y="249">ROUTING</text><text x="287" y="230" font-weight="700">6–7</text><text x="287" y="249">POLICY</text><text x="385" y="230" font-weight="700">8–10</text><text x="385" y="249">AUTH</text><text x="483" y="230" font-weight="700">11–12</text><text x="483" y="249">REPLAY</text></g>
+    <g fill="none" stroke="#2D5F82" stroke-width="1.4" marker-end="url(#ab)"><path d="M132 236H146"/><path d="M230 236H244"/><path d="M328 236H342"/><path d="M426 236H440"/></g><path d="M120 92V180H91V203" fill="none" stroke="#27323A" stroke-width="1.8" marker-end="url(#ai)"/><path d="M320 90H290V115H91V203" fill="none" stroke="#A66A21" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#aa)"/>
+    <rect x="350" y="340" width="190" height="38" fill="#FFFFFF" stroke="#27323A" stroke-width="1.2" stroke-dasharray="5 4"/><text x="445" y="364" text-anchor="middle" font-size="11">duplicate → prior receipt</text><path d="M483 267V338" fill="none" stroke="#27323A" stroke-width="1.2" stroke-dasharray="5 4" marker-end="url(#ai)"/>
+    <line x1="590" y1="145" x2="590" y2="315" stroke="#A66A21" stroke-width="1.8" stroke-dasharray="6 4"/><text x="590" y="128" text-anchor="middle" font-size="11" font-weight="700" fill="#A66A21">FIRST STATE CHANGE</text>
+    <g fill="#FFFFFF"><rect x="620" y="185" width="130" height="80" stroke="#A66A21" stroke-width="2"/><rect x="785" y="185" width="145" height="80" stroke="#2D5F82" stroke-width="1.5"/><rect x="965" y="170" width="190" height="110" stroke="#2D5F82" stroke-width="2"/><rect x="965" y="350" width="190" height="72" stroke="#27323A" stroke-width="1.5"/><rect x="965" y="470" width="190" height="44" stroke="#A66A21" stroke-width="1.5"/></g>
+    <g text-anchor="middle" font-size="12"><text x="685" y="218" font-weight="700">13 · ANTI-ABUSE</text><text x="685" y="241">local origin</text><text x="857" y="218" font-weight="700">14–15 · SEMANTICS</text><text x="857" y="241">authorize · validate</text><text x="1060" y="210" font-weight="700">16–18 · ATOMIC COMMIT</text><text x="1060" y="239">store · witness · receipt</text><text x="1060" y="379" font-weight="700">19 · FANOUT</text><text x="1060" y="401">outbox · events</text><text x="1060" y="497" font-weight="700">RETURN SIGNED RECEIPT</text></g>
+    <g fill="none" stroke="#27323A" stroke-width="2" marker-end="url(#ai)"><path d="M524 236H618"/><path d="M750 225H783"/><path d="M930 225H963"/><path d="M1060 280V348"/></g><path d="M1060 422V468" fill="none" stroke="#A66A21" stroke-width="2" marker-end="url(#aa)"/>
   </g>
-  <polygon points="213,170 231,170 222,185" fill="#A66A21"/>
-  <polygon points="141,645 159,645 150,660" fill="#2C7A6B"/>
-  <polygon points="961,330 977,330 969,342" fill="#3C7A78"/>
 </svg>
