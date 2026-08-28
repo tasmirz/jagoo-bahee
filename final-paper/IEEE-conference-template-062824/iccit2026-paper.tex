@@ -2,13 +2,13 @@
 \documentclass[conference,a4paper,onecolumn]{IEEEtran}
 
 \usepackage{scrextend}
-\changefontsizes[26pt]{20pt}
+\changefontsizes[20pt]{20pt}
 
 
-\usepackage{xcolor}
+% \usepackage{xcolor}
 
-\pagecolor{black}
-\color{white}
+% \pagecolor{black}
+% \color{white}
 
 
 % ICCIT 2026 uses double-blind review. Add author details only for the camera-ready paper.
@@ -23,8 +23,17 @@
 \usepackage{array}
 \usepackage{tikz}
 \usepackage{url}
+\usepackage{placeins}
 \usetikzlibrary{arrows.meta,calc,fit,positioning,decorations.pathreplacing}
 \urlstyle{same}
+
+% Inline Mermaid diagrams: rendered at compile time via --shell-escape.
+% The renderer path and puppeteer config are pinned to the host used for the
+% ICCIT draft; replace if the build host changes.
+\usepackage{mmd}
+\MermaidRenderer{node /tmp/mermaid-render/node_modules/@mermaid-js/mermaid-cli/src/cli.js}
+\MermaidPuppeteer{figures/puppeteer.json}
+\MermaidOutDir{figures/mmd-out}
 
 \definecolor{jbblue}{RGB}{35,91,133}
 \definecolor{jbteal}{RGB}{35,116,105}
@@ -73,6 +82,8 @@
 \end{IEEEkeywords}
 
 \section{Introduction}
+
+
 
 Treating an Internet shutdown as a binary event obscures what operators actually do. Disruptions
 arrive as throttling, destination blocking, protocol filtering, or the withdrawal of international
@@ -163,13 +174,37 @@ replica reach the same verdict on its validity.
 
 \subsection{Architecture}
 
-A local client and a remote peer converge on the same ingress path; nothing about the transport that
-carried an object changes how it is judged. Admission inspects the submitted bytes before any
-persistent write occurs. After the transaction commits, the server returns a receipt and enqueues
-federation work in a durable outbox, which a scheduler drains grouped by destination, source uplink,
-and traffic class. A bridge is an ordinary server running that same stack, dual-homed onto two
-networks. It is not a transparent packet forwarder, and the distinction matters: everything it
-relays, it has first independently validated and stored under its own key.
+We designed the system to be censorship-resistant, pseudonymous, and unstoppable regardless of internet connectivity. Connectivity degradation is modeled as follows: L0 -- normal global reach/Tor connectivity; L1 -- national partition (international transit cut but domestic IX alive); L2 -- ISP island (inter-ISP peering cut); L3 -- bridged islands via a dual-homed relay; and L4 -- total isolation, overcome by the Reticulum network stack. Ingress is therefore heterogeneous and multi-protocol to support these levels: ordinary HTTP/gRPC over surviving IP, Tor v3 onion services when an external Tor path persists, and an optional Reticulum/LoRa sidecar for small high-priority messages when IP is unavailable (BULK rejected, disabled by default). This paper evaluates only the IP-networking part (HTTP for clients, gRPC for federation) and focuses on L0–L3.
+Whatever the ingress path, every object on the wire is one uniform canonical signed packet
+traversing the same 19-stage pipeline; the first 12 stages perform admission with no persistent
+writes. After commit, the server returns a signed receipt and enqueues federation work in a
+durable outbox, which a scheduler drains by priority class and then grouped by (destination,
+source uplink, traffic class). A bridge is an ordinary server implementing that same stack,
+dual-homed onto two islands --- not a transparent packet forwarder --- and the distinction
+matters: everything it relays, it has first independently validated, stored, and quota-bounded
+under its own key.
+Parallel to the servers, independent audit-log services receive a public audit certificate only
+after the server has accepted the write; they verify the certificate against the canonical
+envelope and the receipt, then append it to a separate hash-chained record, so that an
+acknowledgement a server later hides remains reproducible from outside. The complete system,
+including the reachability ladder that motivates the design, the on-device signing boundary,
+the canonical envelope, the unified admission pipeline, the per-node persistence stack, and
+the independent audit-log services, is shown in Fig.~\ref{fig:architecture}.
+
+\begin{figure*}[!t]
+  \centering
+  \begin{mmd}{figures/architecture.mmd}
+  \end{mmd}
+  \caption{System architecture. Clients sign canonical envelopes on-device and submit them to
+    forum nodes over HTTPS or gRPC; every node runs the same 19-step admission pipeline,
+    persists accepted envelopes into projections and a Merkle log, and exchanges exact signed
+    bytes with peers via Deliver / StreamActivities / Backfill. Independent audit-log servers
+    (ALS A, ALS B) receive public audit certificates after acceptance. The dual-homed node
+    S3 acts as a bridge under the same admission policy. The reachability scope at the top
+    indicates which paths are usable at a given moment.}
+  \label{fig:architecture}
+\end{figure*}
+\FloatBarrier
 
 \subsection{Signed objects and admission}
 

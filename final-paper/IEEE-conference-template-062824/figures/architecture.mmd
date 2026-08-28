@@ -1,0 +1,109 @@
+%% System architecture for "Partition-Tolerant Federation Across Emulated ISP Islands".
+%% Source: PROJECT-OVERVIEW.md §3 (System architecture) extended with the reachability
+%% ladder (PROJECT-OVERVIEW §1 / README §5), the signed envelope (README §2.2), the
+%% 19-step pipeline (README §2.3), the per-node persistence stack (README §2.5), the
+%% audit-log flow (PROJECT-OVERVIEW §6), and the dual-homed bridge (PROJECT-OVERVIEW §9).
+%% This file is rendered to figures/architecture.pdf for inclusion in the LaTeX paper.
+%% Uses block-beta for grid-stable layout suitable for IEEE figure* (was flowchart LR).
+%% Rendered via mermaid-cli with --pdfFit so the PDF crops to the diagram.
+
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef3f8','primaryTextColor':'#1a2a33','primaryBorderColor':'#235b85','lineColor':'#243445','fontSize':'14px','fontFamily':'Helvetica, Arial, sans-serif'}}}%%
+block-beta
+  columns 4
+  block:scope:4
+    columns 4
+    L0["<b>L0 GLOBAL</b><br><span style='font-size:9px'>global paths work</span>"]
+    L1["<b>L1 NATIONAL</b><br><span style='font-size:9px'>international transit cut · domestic IX alive</span>"]
+    L2["<b>L2 ISP ISLAND</b><br><span style='font-size:9px'>domestic peering cut · intra-ISP only</span>"]
+    L3["<b>L3 BRIDGED</b><br><span style='font-size:9px'>multi-homed node reaches both sides</span>"]
+  end
+  block:clients:4
+    columns 3
+    U1["User 1<br><span style='font-size:9px'>M_forum mnemonic · signs on-device</span>"]
+    U2["User 2<br><span style='font-size:9px'>M_forum mnemonic · signs on-device</span>"]
+    U3["User 3<br><span style='font-size:9px'>M_forum mnemonic · signs on-device</span>"]
+  end
+  block:servers:4
+    columns 3
+    S1["S1<br><span style='font-size:9px'>HTTP · gRPC peer</span>"]
+    S2["S2<br><span style='font-size:9px'>HTTP · gRPC peer</span>"]
+    S3["S3 — bridge<br><span style='font-size:9px'>multi-homed forum server · verifies & relays</span>"]
+  end
+  block:envrow:4
+    columns 1
+    ENV["<b>Signed envelope</b> — canonical protobuf + Ed25519 · self-authenticating · content_id = base32(SHA-256)"]
+  end
+  block:piperow:4
+    columns 1
+    PIPE["<b>19-step pipeline</b> — 1–12 no writes · 13 anti-abuse · 14 authorise · 15 validate · 16 apply · 17 witness · 18 receipt · 19 fanout"]
+  end
+  block:store:4
+    columns 3
+    PROJ[("Projection store<br><span style='font-size:9px'>read models · rebuilt from log</span>")]
+    MERK[("Envelope + Merkle log<br><span style='font-size:9px'>accepted history · signed tree heads</span>")]
+    OUT[("Durable outbox<br><span style='font-size:9px'>priority then FIFO</span>")]
+  end
+  block:als:4
+    columns 2
+    A1["ALS A — independent audit-log server<br><span style='font-size:9px'>verifies & appends · JSONL hash chain</span>"]
+    A2["ALS B — independent audit-log server<br><span style='font-size:9px'>verifies & appends · JSONL hash chain</span>"]
+  end
+
+  %% Reachability degradation chain (PROJECT-OVERVIEW §1)
+  L0 --> L1 --> L2 --> L3
+
+  %% Clients to forum servers over HTTP
+  U1 --> S1
+  U2 --> S2
+  U3 --> S3
+
+  %% Every client forwards its public audit certificate to BOTH ALS (PROJECT-OVERVIEW §6)
+  U1 -.-> A1
+  U1 -.-> A2
+  U2 -.-> A1
+  U2 -.-> A2
+  U3 -.-> A1
+  U3 -.-> A2
+
+  %% Server-to-server federation: exact signed bytes via Deliver / StreamActivities / Backfill
+  S1 --> S2
+  S2 --> S1
+  S1 --> S3
+  S3 --> S1
+  S2 --> S3
+  S3 --> S2
+
+  %% Downstream data path
+  S1 --> ENV
+  S2 --> ENV
+  S3 --> ENV
+  ENV --> PIPE
+  PIPE --> PROJ
+  PIPE --> MERK
+  PIPE --> OUT
+
+  classDef scopeBox fill:#e8eff7,stroke:#235b85,stroke-width:1.4px,color:#1a2a33
+  classDef clientBox fill:#ffffff,stroke:#2e7469,stroke-width:1.3px,color:#1a2a33
+  classDef serverBox fill:#f2f6f9,stroke:#235b85,stroke-width:1.4px,color:#1a2a33
+  classDef bridgeBox fill:#fff7e6,stroke:#ab6a1d,stroke-width:1.6px,color:#1a2a33
+  classDef envBox fill:#dce8f2,stroke:#204a6b,stroke-width:1.5px,color:#1a2a33
+  classDef pipeBox fill:#d6ebe6,stroke:#2e7469,stroke-width:1.5px,color:#1a2a33
+  classDef storeBox fill:#f1f3f5,stroke:#4a5a6a,stroke-width:1.1px,color:#1a2a33
+  classDef alsBox fill:#fff8e6,stroke:#ab6a1d,stroke-width:1.1px,color:#1a2a33
+  class L0 scopeBox
+  class L1 scopeBox
+  class L2 scopeBox
+  class L3 scopeBox
+  class U1 clientBox
+  class U2 clientBox
+  class U3 clientBox
+  class S1 serverBox
+  class S2 serverBox
+  class S3 bridgeBox
+  class ENV envBox
+  class PIPE pipeBox
+  class PROJ storeBox
+  class MERK storeBox
+  class OUT storeBox
+  class A1 alsBox
+  class A2 alsBox

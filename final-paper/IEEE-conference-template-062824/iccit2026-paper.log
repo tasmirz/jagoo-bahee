@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026/Arch Linux) (preloaded format=pdflatex 2026.8.27)  27 AUG 2026 01:14
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026/Arch Linux) (preloaded format=pdflatex 2026.8.27)  28 AUG 2026 07:18
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
@@ -123,25 +123,7 @@ Package: keyval 2022/05/29 v1.15 key=value parser (DPC)
 )
 Applying: [2021/05/01] Usage of raw or classic option list on input line 254.
 Already applied: [0000/00/00] Usage of raw or classic option list on input line 370.
-))) (/usr/share/texmf-dist/tex/latex/xcolor/xcolor.sty
-Package: xcolor 2024/09/29 v3.02 LaTeX color extensions (UK)
- (/usr/share/texmf-dist/tex/latex/graphics-cfg/color.cfg
-File: color.cfg 2016/01/02 v1.6 sample color configuration
-)
-Package xcolor Info: Driver file: pdftex.def on input line 274.
- (/usr/share/texmf-dist/tex/latex/graphics-def/pdftex.def
-File: pdftex.def 2025/09/29 v1.2d Graphics/color driver for pdftex
-) (/usr/share/texmf-dist/tex/latex/graphics/mathcolor.ltx)
-Package xcolor Info: Model `cmy' substituted by `cmy0' on input line 1349.
-Package xcolor Info: Model `hsb' substituted by `rgb' on input line 1353.
-Package xcolor Info: Model `RGB' extended on input line 1365.
-Package xcolor Info: Model `HTML' substituted by `rgb' on input line 1367.
-Package xcolor Info: Model `Hsb' substituted by `hsb' on input line 1368.
-Package xcolor Info: Model `tHsb' substituted by `hsb' on input line 1369.
-Package xcolor Info: Model `HSB' substituted by `hsb' on input line 1370.
-Package xcolor Info: Model `Gray' substituted by `gray' on input line 1371.
-Package xcolor Info: Model `wave' substituted by `hsb' on input line 1372.
-) (/usr/share/texmf-dist/tex/latex/cite/cite.sty
+))) (/usr/share/texmf-dist/tex/latex/cite/cite.sty
 LaTeX Info: Redefining \cite on input line 302.
 LaTeX Info: Redefining \nocite on input line 332.
 Package: cite 2015/02/27  v 5.5
@@ -228,11 +210,29 @@ Package: trig 2023/12/02 v1.11 sin cos tan (DPC)
 File: graphics.cfg 2016/06/04 v1.11 sample graphics configuration
 )
 Package graphics Info: Driver file: pdftex.def on input line 106.
-)
+ (/usr/share/texmf-dist/tex/latex/graphics-def/pdftex.def
+File: pdftex.def 2025/09/29 v1.2d Graphics/color driver for pdftex
+))
 \Gin@req@height=\dimen181
 \Gin@req@width=\dimen182
 ) (/usr/share/texmf-dist/tex/latex/base/textcomp.sty
 Package: textcomp 2024/04/24 v2.1b Standard LaTeX package
+) (/usr/share/texmf-dist/tex/latex/xcolor/xcolor.sty
+Package: xcolor 2024/09/29 v3.02 LaTeX color extensions (UK)
+ (/usr/share/texmf-dist/tex/latex/graphics-cfg/color.cfg
+File: color.cfg 2016/01/02 v1.6 sample color configuration
+)
+Package xcolor Info: Driver file: pdftex.def on input line 274.
+ (/usr/share/texmf-dist/tex/latex/graphics/mathcolor.ltx)
+Package xcolor Info: Model `cmy' substituted by `cmy0' on input line 1349.
+Package xcolor Info: Model `hsb' substituted by `rgb' on input line 1353.
+Package xcolor Info: Model `RGB' extended on input line 1365.
+Package xcolor Info: Model `HTML' substituted by `rgb' on input line 1367.
+Package xcolor Info: Model `Hsb' substituted by `hsb' on input line 1368.
+Package xcolor Info: Model `tHsb' substituted by `hsb' on input line 1369.
+Package xcolor Info: Model `HSB' substituted by `hsb' on input line 1370.
+Package xcolor Info: Model `Gray' substituted by `gray' on input line 1371.
+Package xcolor Info: Model `wave' substituted by `hsb' on input line 1372.
 ) (/usr/share/texmf-dist/tex/latex/booktabs/booktabs.sty
 Package: booktabs 2020/01/12 v1.61803398 Publication quality tables
 \heavyrulewidth=\dimen183
@@ -451,6 +451,8 @@ File: tikzlibrarytopaths.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 ))) (/usr/share/texmf-dist/tex/latex/url/url.sty
 \Urlmuskip=\muskip18
 Package: url 2013/09/16  ver 3.4  Verb mode for urls, etc.
+) (/usr/share/texmf-dist/tex/latex/placeins/placeins.sty
+Package: placeins 2005/04/18  v 2.2
 ) (/usr/share/texmf-dist/tex/generic/pgf/libraries/pgflibraryarrows.meta.code.tex
 File: pgflibraryarrows.meta.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgfarrowinset=\dimen309
@@ -474,40 +476,48 @@ File: tikzlibrarypositioning.code.tex 2025-08-29 v3.1.11a (3.1.11a)
 \pgfdecorationsegmentlength=\dimen319
 )
 \tikz@lib@dec@box=\box70
-) (/usr/share/texmf-dist/tex/generic/pgf/libraries/decorations/pgflibrarydecorations.pathreplacing.code.tex)) (/usr/share/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def
+) (/usr/share/texmf-dist/tex/generic/pgf/libraries/decorations/pgflibrarydecorations.pathreplacing.code.tex)) (./mmd.sty
+Package: mmd 2026/08/28 v1.0 Inline Mermaid diagrams via mermaid-cli
+ (/usr/share/texmf-dist/tex/latex/l3packages/xparse/xparse.sty (/usr/share/texmf-dist/tex/latex/l3kernel/expl3.sty
+Package: expl3 2026-01-19 L3 programming layer (loader) 
+ (/usr/share/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def
 File: l3backend-pdftex.def 2025-10-09 L3 backend support: PDF output (pdfTeX)
 \l__color_backend_stack_int=\count329
+))
+Package: xparse 2025-10-09 L3 Experimental document command parser
+)
+\c@mmd@counter=\count330
 ) (./iccit2026-paper.aux)
 \openout1 = `iccit2026-paper.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 39.
-LaTeX Font Info:    ... okay on input line 39.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 39.
-LaTeX Font Info:    ... okay on input line 39.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 39.
-LaTeX Font Info:    ... okay on input line 39.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 39.
-LaTeX Font Info:    ... okay on input line 39.
-LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 39.
-LaTeX Font Info:    ... okay on input line 39.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 39.
-LaTeX Font Info:    ... okay on input line 39.
-LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 39.
-LaTeX Font Info:    ... okay on input line 39.
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 48.
+LaTeX Font Info:    ... okay on input line 48.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 48.
+LaTeX Font Info:    ... okay on input line 48.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 48.
+LaTeX Font Info:    ... okay on input line 48.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 48.
+LaTeX Font Info:    ... okay on input line 48.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 48.
+LaTeX Font Info:    ... okay on input line 48.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 48.
+LaTeX Font Info:    ... okay on input line 48.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 48.
+LaTeX Font Info:    ... okay on input line 48.
 
--- Lines per column: 26 (approximate, difference = 10.0pt).
+-- Lines per column: 34 (exact).
 (/usr/share/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
 [Loading MPS to PDF converter (version 2006.09.02).]
-\scratchcounter=\count330
+\scratchcounter=\count331
 \scratchdimen=\dimen320
 \scratchbox=\box71
-\nofMPsegments=\count331
-\nofMParguments=\count332
+\nofMPsegments=\count332
+\nofMParguments=\count333
 \everyMPshowfont=\toks38
-\MPscratchCnt=\count333
+\MPscratchCnt=\count334
 \MPscratchDim=\dimen321
-\MPnumerator=\count334
-\makeMPintoPDFobject=\count335
+\MPnumerator=\count335
+\makeMPintoPDFobject=\count336
 \everyMPtoPDFconversion=\toks39
 ) (/usr/share/texmf-dist/tex/latex/epstopdf-pkg/epstopdf-base.sty
 Package: epstopdf-base 2020-01-24 v2.11 Base part for package epstopdf
@@ -515,163 +525,176 @@ Package epstopdf-base Info: Redefining graphics rule for `.eps' on input line 48
  (/usr/share/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg
 File: epstopdf-sys.cfg 2010/07/13 v1.3 Configuration of (r)epstopdf for TeX Live
 ))
-LaTeX Font Info:    Calculating math sizes for size <18.25012> on input line 65.
-LaTeX Font Info:    Trying to load font information for U+msa on input line 65.
+LaTeX Font Info:    Calculating math sizes for size <18.25012> on input line 74.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 74.
  (/usr/share/texmf-dist/tex/latex/amsfonts/umsa.fd
 File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 65.
+LaTeX Font Info:    Trying to load font information for U+msb on input line 74.
  (/usr/share/texmf-dist/tex/latex/amsfonts/umsb.fd
 File: umsb.fd 2013/01/14 v3.01 AMS symbols B
-) [1{/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map}{/usr/share/texmf-dist/fonts/enc/dvips/base/8r.enc}] [2] [3]
-LaTeX Font Info:    Calculating math sizes for size <20> on input line 111.
- [4]
-Overfull \hbox (12.836pt too wide) in paragraph at lines 138--146
+) [1{/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map}{/usr/share/texmf-dist/fonts/enc/dvips/base/8r.enc}] [2]
+LaTeX Font Info:    Calculating math sizes for size <20> on input line 122.
+ [3]
+Overfull \hbox (12.836pt too wide) in paragraph at lines 149--157
 []\OT1/ptm/b/n/20 Blackout com-mu-ni-ca-tion. \OT1/ptm/m/n/20 Anix, Rangzen, Moby, and Twimight
  []
 
-[5] [6]
-Overfull \hbox (3.21436pt too wide) in paragraph at lines 184--189
+[4] [5]
+Package mmd Info: rendering figures/architecture.mmd on input line 196.
+runsystem(mkdir -p "figures/mmd-out")...disabled (restricted).
+
+runsystem(cp -f 'figures/architecture.mmd' 'figures/mmd-out/mmd-1.mmd')...disabled (restricted).
+
+runsystem(node /tmp/mermaid-render/node_modules/@mermaid-js/mermaid-cli/src/cli.js -i 'figures/mmd-out/mmd-1.mmd' -o 'figures/mmd-out/mmd-1.pdf'  -b transparent  -t neutral -w 1800 -H 1200 -f  -p 'figures/puppeteer.json')...disabled (restricted).
+
+<figures/mmd-out/mmd-1.pdf, id=25, 624.41275pt x 435.54718pt>
+File: figures/mmd-out/mmd-1.pdf Graphic file (type pdf)
+<use figures/mmd-out/mmd-1.pdf>
+Package pdftex.def Info: figures/mmd-out/mmd-1.pdf  used on input line 196.
+(pdftex.def)             Requested size: 516.0pt x 359.94226pt.
+ [6] [7 <./figures/mmd-out/mmd-1.pdf>]
+Overfull \hbox (3.21436pt too wide) in paragraph at lines 219--224
 []\OT1/ptm/m/n/20 Strict-decode-then-verify-what-arrived is long-established prac-
  []
 
-LaTeX Font Info:    Trying to load font information for TS1+ptm on input line 193.
+LaTeX Font Info:    Trying to load font information for TS1+ptm on input line 228.
 (/usr/share/texmf-dist/tex/latex/psnfss/ts1ptm.fd
 File: ts1ptm.fd 2001/06/04 font definitions for TS1/ptm.
-) [7]
-Overfull \hbox (10.61499pt too wide) in paragraph at lines 242--248
+) [8]
+Overfull \hbox (10.61499pt too wide) in paragraph at lines 277--283
 \OT1/ptm/m/n/20 or-di-nary de-liv-ery and re-cov-ery. \OT1/ptm/m/sc/20 De-liver \OT1/ptm/m/n/20 pushes a batch, \OT1/ptm/m/sc/20 Strea-
  []
 
-[8] [9]
-LaTeX Font Info:    Calculating math sizes for size <13.33344> on input line 272.
+[9]
+LaTeX Font Info:    Calculating math sizes for size <13.33344> on input line 307.
 
-Overfull \hbox (4.8749pt too wide) in paragraph at lines 305--310
+Overfull \hbox (4.8749pt too wide) in paragraph at lines 340--345
 []\OT1/ptm/m/n/20 We eval-u-ate five ques-tions: whether in-de-pen-dent en-coders agree
  []
 
 [10]
-LaTeX Font Info:    Trying to load font information for OT1+pcr on input line 321.
+LaTeX Font Info:    Trying to load font information for OT1+pcr on input line 356.
  (/usr/share/texmf-dist/tex/latex/psnfss/ot1pcr.fd
 File: ot1pcr.fd 2001/06/04 font definitions for OT1/pcr.
 ) [11] [12]
-Overfull \hbox (5.73387pt too wide) in paragraph at lines 363--370
+Overfull \hbox (5.73387pt too wide) in paragraph at lines 398--405
 \OT1/ptm/m/n/20 suites ad-di-tion-ally ex-er-cise in-valid sig-na-tures, non-canonical byte
  []
 
-[13] [14] [15]
-Overfull \hbox (10.89543pt too wide) in paragraph at lines 437--450
+[13] [14]
+Overfull \hbox (10.89543pt too wide) in paragraph at lines 472--485
 \OT1/pcr/m/n/20 @context \OT1/ptm/m/n/20 declaration---minimum equal to max-i-mum on each---
  []
 
 
-Overfull \hbox (2.87407pt too wide) in paragraph at lines 437--450
+Overfull \hbox (2.87407pt too wide) in paragraph at lines 472--485
 \OT1/ptm/m/it/20 larger\OT1/ptm/m/n/20 ---so the hon-est com-par-i-son is gzipped Ac-tiv-i-ty-Pub against
  []
 
-[16]
-Overfull \hbox (0.99557pt too wide) in paragraph at lines 477--477
+[15]
+Overfull \hbox (0.99557pt too wide) in paragraph at lines 512--512
 []|\OT1/ptm/b/n/13.33344 Dimension| 
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 477--477
+Underfull \hbox (badness 10000) in paragraph at lines 512--512
 []|\OT1/ptm/b/n/13.33344 Measured
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 477--477
+Underfull \hbox (badness 10000) in paragraph at lines 512--512
 []|\OT1/ptm/m/n/13.33344 Raw signed en-velopes:
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 477--477
+Underfull \hbox (badness 10000) in paragraph at lines 512--512
 \OT1/ptm/m/n/13.33344 check-in 155B, fo-rum
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 477--477
+Underfull \hbox (badness 10000) in paragraph at lines 512--512
 \OT1/ptm/m/n/13.33344 post 220B, broad-cast
  []
 
 
-Underfull \hbox (badness 1824) in paragraph at lines 477--477
+Underfull \hbox (badness 1824) in paragraph at lines 512--512
 \OT1/ptm/m/n/13.33344 243B; gzip en-larges all
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 477--477
+Underfull \hbox (badness 10000) in paragraph at lines 512--512
 []|\OT1/ptm/m/n/13.33344 Delivered JSON-LD
  []
 
 
-Underfull \hbox (badness 1496) in paragraph at lines 477--477
+Underfull \hbox (badness 1496) in paragraph at lines 512--512
 \OT1/ptm/m/n/13.33344 me-dian 4,216B, gzipped
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 477--477
+Underfull \hbox (badness 10000) in paragraph at lines 512--512
 \OT1/ptm/m/n/13.33344 me-dian 1,074B (range
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 477--477
+Underfull \hbox (badness 10000) in paragraph at lines 512--512
 []|\OT1/ptm/m/n/13.33344 Ratio 4.4--6.9$\OMS/cmsy/m/n/14.4 ^^B$\OT1/ptm/m/n/13.33344 ;
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 477--477
+Underfull \hbox (badness 10000) in paragraph at lines 512--512
 \OT1/ptm/m/n/13.33344 rep-re-sen-ta-tion only---
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 477--477
+Underfull \hbox (badness 10000) in paragraph at lines 512--512
 \OT1/ptm/m/n/13.33344 HTTP, TLS, fan-out,
  []
 
 
-Underfull \hbox (badness 7925) in paragraph at lines 477--477
+Underfull \hbox (badness 7925) in paragraph at lines 512--512
 \OT1/ptm/m/n/13.33344 AP au-then-ti-ca-tion all
  []
 
 
-Overfull \hbox (31.11542pt too wide) in paragraph at lines 477--477
+Overfull \hbox (31.11542pt too wide) in paragraph at lines 512--512
 []|\OT1/ptm/b/n/13.33344 Interoperability| 
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 477--477
+Underfull \hbox (badness 10000) in paragraph at lines 512--512
 \OT1/ptm/m/n/13.33344 and more cross-
  []
 
 
-Overfull \hbox (3.95557pt too wide) in paragraph at lines 477--477
+Overfull \hbox (3.95557pt too wide) in paragraph at lines 512--512
 []|\OT1/ptm/b/n/13.33344 Operations| 
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 477--477
+Underfull \hbox (badness 10000) in paragraph at lines 512--512
 []|\OT1/ptm/m/n/13.33344 Generated codecs and
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 477--477
+Underfull \hbox (badness 10000) in paragraph at lines 512--512
 \OT1/ptm/m/n/13.33344 canonical-byte tool-ing
  []
 
 
-Underfull \hbox (badness 1960) in paragraph at lines 477--477
+Underfull \hbox (badness 1960) in paragraph at lines 512--512
 []|\OT1/ptm/m/n/13.33344 Higher de-bug-ging and
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 477--477
+Underfull \hbox (badness 10000) in paragraph at lines 512--512
 []|\OT1/ptm/b/n/13.33344 Integrity
  []
 
-[17] [18] [19] [20] (./iccit2026-paper.bbl [21]
+[16] [17] [18] (./iccit2026-paper.bbl
 LaTeX Font Info:    Calculating math sizes for size <16.66687> on input line 27.
- [22] [23])
+ [19] [20] [21])
 
 ** Conference Paper **
 Before submitting the final camera ready copy, remember to:
@@ -683,25 +706,25 @@ Before submitting the final camera ready copy, remember to:
  uses only Type 1 fonts and that every step in the generation
  process uses the appropriate paper size.
 
-[24] (./iccit2026-paper.aux)
+[22] (./iccit2026-paper.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2026-01-19>
  ***********
  ) 
 Here is how much of TeX's memory you used:
- 16472 strings out of 469515
- 335696 string characters out of 5470807
- 734002 words of memory out of 5000000
- 44809 multiletter control sequences out of 15000+600000
+ 16652 strings out of 469515
+ 339860 string characters out of 5470807
+ 736918 words of memory out of 5000000
+ 44976 multiletter control sequences out of 15000+600000
  697919 words of font info for 193 fonts, out of 8000000 for 9000
  14 hyphenation exceptions out of 8191
- 108i,11n,107p,488b,788s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 108i,11n,107p,979b,788s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi12.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmr9.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/share/texmf-dist/fonts/type1/public/amsfonts/cm/cmti12.pfb></usr/share/texmf-dist/fonts/type1/urw/courier/ucrr8a.pfb></usr/share/texmf-dist/fonts/type1/urw/times/utmb8a.pfb></usr/share/texmf-dist/fonts/type1/urw/times/utmr8a.pfb></usr/share/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
-Output written on iccit2026-paper.pdf (24 pages, 147393 bytes).
+Output written on iccit2026-paper.pdf (22 pages, 187423 bytes).
 PDF statistics:
- 130 PDF objects out of 1000 (max. 8388607)
- 85 compressed objects within 1 object stream
+ 145 PDF objects out of 1000 (max. 8388607)
+ 97 compressed objects within 1 object stream
  0 named destinations out of 1000 (max. 500000)
- 13 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 18 words of extra memory for PDF output out of 10000 (max. 10000000)
 
