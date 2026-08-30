@@ -1,0 +1,48 @@
+flowchart TB
+    subgraph SCOPE["Reachability scope active in this run"]
+        direction LR
+        RL0["L0<br/>global reach"] --> RL1["L1<br/>national partition"] --> RL2["L2<br/>ISP island"] --> RL3["L3<br/>bridged islands"]
+    end
+
+    C["Client<br/>signs canonical envelope on device<br/>Ed25519 signature + content_id"]
+
+    subgraph MAIN[" "]
+        direction LR
+        subgraph S1G["Forum node S1"]
+            direction TB
+            P1["19-step admission pipeline"]
+            L1[("Projections + Merkle log")]
+            P1 --> L1
+        end
+
+        subgraph S2G["Forum node S2"]
+            direction TB
+            P2["19-step admission pipeline"]
+            L2[("Projections + Merkle log")]
+            P2 --> L2
+        end
+
+        subgraph S3G["Forum node S3, dual-homed bridge"]
+            direction TB
+            P3["19-step admission pipeline<br/>same policy as any node"]
+            L3[("Projections + Merkle log")]
+            P3 --> L3
+        end
+    end
+
+    ALSA["Independent audit-log server ALS A"]
+    ALSB["Independent audit-log server ALS B"]
+
+    SCOPE -.-> C
+    C -->|HTTPS or gRPC, opaque signed bytes| P1
+
+    P1 <-->|Deliver / StreamActivities / Backfill| P2
+    P1 <-->|Deliver / StreamActivities / Backfill| P3
+    P3 <-->|Deliver / StreamActivities / Backfill| P2
+
+    L1 -.->|public audit certificate, after acceptance| ALSA
+    L1 -.->|public audit certificate, after acceptance| ALSB
+    L3 -.->|public audit certificate, after acceptance| ALSA
+
+    classDef active fill:#f4c977,stroke:#333,stroke-width:2px;
+    class RL3 active;

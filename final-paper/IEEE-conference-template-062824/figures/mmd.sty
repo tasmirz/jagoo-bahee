@@ -1,0 +1,94 @@
+% mmd.sty -- Mermaid-in-LaTeX plugin for IEEE conference papers.
+%
+% Render an inline Mermaid (.mmd) source block at LaTeX compile time by
+% invoking the @mermaid-js/mermaid-cli tool through \write18
+% (--shell-escape). The rendered PDF is included with \includegraphics.
+%
+% The .mmd argument is the path to a Mermaid source file in the document
+% tree. The package copies it to a sidecar in \MermaidOutDir, runs
+% mermaid-cli to produce a PDF, and \includegraphics's the PDF. No body
+% argument is needed: the .mmd file IS the body.
+%
+% Usage in a .tex file:
+%
+%   \usepackage{mmd}                              % preamble
+%   \MermaidRenderer{node /opt/mm/src/cli.js}    % optional, default mmdc
+%   \MermaidPuppeteer{cfg.json}                  % optional puppeteer config
+%   \MermaidOutDir{figures/mmd-out}               % optional output dir
+%
+%   \begin{mmd}{architecture.mmd}
+%   \end{mmd}
+%
+% Compiling requires --shell-escape.
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{mmd}[2026/08/28 v1.0 Inline Mermaid diagrams via mermaid-cli]
+
+\RequirePackage{graphicx}
+\RequirePackage{xparse}
+
+% --- Configuration (all settable from the document body) -------------------
+
+\newcommand{\@MermaidRenderer}{mmdc}
+\newcommand{\MermaidRenderer}[1]{\renewcommand{\@MermaidRenderer}{#1}}
+
+\newcommand{\@MermaidPuppeteer}{}
+\newcommand{\MermaidPuppeteer}[1]{\renewcommand{\@MermaidPuppeteer}{#1}}
+
+\newcommand{\@MermaidTheme}{neutral}
+\newcommand{\MermaidTheme}[1]{\renewcommand{\@MermaidTheme}{#1}}
+
+\newcommand{\@MermaidOutDir}{figures/mmd-out}
+\newcommand{\MermaidOutDir}[1]{\renewcommand{\@MermaidOutDir}{#1}}
+
+\newcommand{\@MermaidWidth}{1800}
+\newcommand{\MermaidWidth}[1]{\renewcommand{\@MermaidWidth}{#1}}
+
+\newcommand{\@MermaidHeight}{1200}
+\newcommand{\MermaidHeight}[1]{\renewcommand{\@MermaidHeight}{#1}}
+
+% --- Per-environment counter ----------------------------------------------
+
+\newcounter{mmd@counter}
+\setcounter{mmd@counter}{0}
+
+% --- Render helper ---------------------------------------------------------
+%
+% Invoke the configured renderer on input .mmd #1, writing output .pdf #2.
+% The puppeteer config flag is appended only when one is configured; this
+% keeps the package usable both with a global puppeteer install (no flag)
+% and with a project-local puppeteer config (flag added here).
+\newcommand{\mmd@rendera}[2]{%
+  \immediate\write18{%
+    \@MermaidRenderer\space -i '#1' -o '#2' \space
+      -b transparent \space
+      -t \@MermaidTheme \space
+      -w \@MermaidWidth \space
+      -H \@MermaidHeight
+      \ifx\@MermaidPuppeteer\@empty\else\space -p '\@MermaidPuppeteer'\fi
+  }%
+}
+
+% --- The user-facing environment --------------------------------------------
+
+\NewDocumentEnvironment{mmd}{ m }{%
+  \stepcounter{mmd@counter}%
+  \edef\mmd@id{mmd-\arabic{mmd@counter}}%
+  \edef\mmd@src{\@MermaidOutDir/\mmd@id.mmd}%
+  \edef\mmd@pdf{\@MermaidOutDir/\mmd@id.pdf}%
+  \IfFileExists{#1}{\PackageInfo{mmd}{rendering #1}}{%
+    \PackageError{mmd}{mmd source not found: '#1'}%
+  }%
+  \immediate\write18{mkdir -p "\@MermaidOutDir"}%
+  \immediate\write18{cp -f '#1' '\mmd@src'}%
+  % Always re-render. mmdc takes ~3 s on a warm Chromium; this is cheaper
+  % than the cache bookkeeping for the diagrams a single paper needs.
+  \mmd@rendera{\mmd@src}{\mmd@pdf}%
+  \IfFileExists{\mmd@pdf}{%
+    \includegraphics[width=\linewidth]{\mmd@pdf}%
+  }{%
+    \fbox{\parbox[c][4cm][c]{\linewidth}{\centering\itshape mmd render failed; see log}}%
+  }%
+}{}
+
+\endinput

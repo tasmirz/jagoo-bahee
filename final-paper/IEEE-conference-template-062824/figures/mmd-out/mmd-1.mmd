@@ -1,0 +1,84 @@
+%% System architecture for "Partition-Tolerant Federation Across Emulated ISP Islands".
+%% Source: PROJECT-OVERVIEW.md §3 (System architecture) extended with the reachability
+%% ladder, the signed envelope, the persistence stack, and the dual-homed bridge.
+%% This file is rendered to figures/architecture.pdf for inclusion in the LaTeX paper.
+%% Uses block-beta for grid-stable layout suitable for IEEE figure* (was flowchart LR).
+%% Rendered via mermaid-cli with --pdfFit so the PDF crops to the diagram.
+
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#eef3f8','primaryTextColor':'#1a2a33','primaryBorderColor':'#235b85','lineColor':'#243445','fontSize':'14px','fontFamily':'Helvetica, Arial, sans-serif'}}}%%
+block-beta
+  columns 4
+  block:scope:4
+    columns 4
+    L0["L0 GLOBAL<br><span style='font-size:9px'>ordinary Internet / Tor</span>"] L1["L1 NATIONAL<br><span style='font-size:9px'>domestic IX alive</span>"] L2["L2 ISP ISLAND<br><span style='font-size:9px'>intra-ISP only</span>"] L3["L3 BRIDGED<br><span style='font-size:9px'>dual-homed relay</span>"]
+  end
+  block:clients:4
+    columns 3
+    U1["User 1<br><span style='font-size:9px'>M_forum mnemonic</span>"] U2["User 2<br><span style='font-size:9px'>M_forum mnemonic</span>"] U3["User 3<br><span style='font-size:9px'>M_signal mnemonic</span>"]
+  end
+  block:servers:4
+    columns 3
+    S1["S1<br><span style='font-size:9px'>HTTP / gRPC</span>"] S2["S2<br><span style='font-size:9px'>HTTP / gRPC</span>"] S3["S3 — bridge<br><span style='font-size:9px'>dual-homed · verifies & stores</span>"]
+  end
+  block:envrow:4
+    columns 1
+    ENV["<b>Signed envelope</b> — canonical protobuf + Ed25519 · content_id = base32(SHA-256)"]
+  end
+  block:piperow:4
+    columns 1
+    PIPE["<b>19-step pipeline</b> — 1–12 no writes · 13 price · 14 auth · 15 validate · 16 apply · 17 witness · 18 receipt · 19 fanout"]
+  end
+  block:store:4
+    columns 3
+    PROJ[("Projection<br><span style='font-size:9px'>read models</span>")] MERK[("Merkle log<br><span style='font-size:9px'>signed tree heads</span>")] OUT[("Durable outbox<br><span style='font-size:9px'>priority + FIFO</span>")]
+  end
+  block:als:4
+    columns 2
+    A1["ALS A — audit log<br><span style='font-size:9px'>append-only JSONL hash chain</span>"] A2["ALS B — audit log<br><span style='font-size:9px'>append-only JSONL hash chain</span>"]
+  end
+
+  U1 --> S1
+  U2 --> S2
+  U3 --> S3
+  S1 --> ENV
+  S2 --> ENV
+  S3 --> ENV
+  ENV --> PIPE
+  PIPE --> PROJ
+  PIPE --> MERK
+  PIPE --> OUT
+  U1 -.-> A1
+  U2 -.-> A1
+  U3 -.-> A2
+  S1 --> S2
+  S2 --> S1
+  S1 --> S3
+  S3 --> S1
+  S2 --> S3
+  S3 --> S2
+
+  classDef scopeBox fill:#e8eff7,stroke:#235b85,stroke-width:1.4px,color:#1a2a33
+  classDef clientBox fill:#ffffff,stroke:#2e7469,stroke-width:1.3px,color:#1a2a33
+  classDef serverBox fill:#f2f6f9,stroke:#235b85,stroke-width:1.4px,color:#1a2a33
+  classDef bridgeBox fill:#fff7e6,stroke:#ab6a1d,stroke-width:1.6px,color:#1a2a33
+  classDef envBox fill:#dce8f2,stroke:#204a6b,stroke-width:1.5px,color:#1a2a33
+  classDef pipeBox fill:#d6ebe6,stroke:#2e7469,stroke-width:1.5px,color:#1a2a33
+  classDef storeBox fill:#f1f3f5,stroke:#4a5a6a,stroke-width:1.1px,color:#1a2a33
+  classDef alsBox fill:#fff8e6,stroke:#ab6a1d,stroke-width:1.1px,color:#1a2a33
+  class L0 scopeBox
+  class L1 scopeBox
+  class L2 scopeBox
+  class L3 scopeBox
+  class U1 clientBox
+  class U2 clientBox
+  class U3 clientBox
+  class S1 serverBox
+  class S2 serverBox
+  class S3 bridgeBox
+  class ENV envBox
+  class PIPE pipeBox
+  class PROJ storeBox
+  class MERK storeBox
+  class OUT storeBox
+  class A1 alsBox
+  class A2 alsBox
