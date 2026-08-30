@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.2) (preloaded format=pdflatex 2026.3.5)  27 AUG 2026 05:42
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.2) (preloaded format=pdflatex 2026.3.5)  30 AUG 2026 20:44
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -762,7 +762,7 @@ Underfull \hbox (badness 1584) in paragraph at lines 425--425
 []|\OT1/ptm/m/n/7 Authentication de-pends on de-ploy-ment pro-file;
  []
 
-(iccit2026-paper.bbl [5])
+[5] (iccit2026-paper.bbl [6])
 
 ** Conference Paper **
 Before submitting the final camera ready copy, remember to:
@@ -774,7 +774,9 @@ Before submitting the final camera ready copy, remember to:
  uses only Type 1 fonts and that every step in the generation
  process uses the appropriate paper size.
 
-[6] (iccit2026-paper.aux)
+[7
+
+] (iccit2026-paper.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2026-01-19>
@@ -783,11 +785,11 @@ L3 programming layer <2026-01-19>
 Here is how much of TeX's memory you used:
  15492 strings out of 467867
  322592 string characters out of 5417851
- 711843 words of memory out of 5000000
+ 711844 words of memory out of 5000000
  44080 multiletter control sequences out of 15000+600000
  674566 words of font info for 134 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 84i,11n,94p,935b,772s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 84i,11n,94p,1290b,772s stack positions out of 10000i,1000n,20000p,200000b,200000s
 <C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm
 /cmmi10.pfb><C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1/public/a
 msfonts/cm/cmmi7.pfb><C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1
@@ -803,9 +805,9 @@ wad/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmti10.pfb><C:
 fb><C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utmr8a.
 pfb><C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utmri8
 a.pfb>
-Output written on iccit2026-paper.pdf (6 pages, 187594 bytes).
+Output written on iccit2026-paper.pdf (7 pages, 189145 bytes).
 PDF statistics:
- 90 PDF objects out of 1000 (max. 8388607)
+ 95 PDF objects out of 1000 (max. 8388607)
  0 named destinations out of 1000 (max. 500000)
  13 words of extra memory for PDF output out of 10000 (max. 10000000)
 
