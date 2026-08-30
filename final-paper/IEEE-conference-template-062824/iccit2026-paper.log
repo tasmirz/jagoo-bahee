@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.2) (preloaded format=pdflatex 2026.3.5)  30 AUG 2026 20:48
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.2) (preloaded format=pdflatex 2026.3.5)  30 AUG 2026 23:00
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -651,41 +651,7 @@ File: l3backend-pdftex.def 2025-10-09 L3 backend support: PDF output (pdfTeX)
 Package: xparse 2025-10-09 L3 Experimental document command parser
 )
 \c@mmd@counter=\count330
-) (iccit2026-paper.aux
-
-! LaTeX Error: Missing \begin{document}.
-
-See the LaTeX manual or LaTeX Companion for explanation.
-Type  H <return>  for immediate help.
- ...                                              
-                                                  
-l.24 <
-      <<<<<< HEAD
-You're in trouble here.  Try typing  <return>  to proceed.
-If that doesn't work, type  X <return>  to quit.
-
-
-LaTeX Warning: Label `fig:pipeline' multiply defined.
-
-
-LaTeX Warning: Label `fig:topology' multiply defined.
-
-
-LaTeX Warning: Label `sec:method' multiply defined.
-
-
-LaTeX Warning: Label `sec:results' multiply defined.
-
-
-LaTeX Warning: Label `fig:chain' multiply defined.
-
-
-LaTeX Warning: Label `sec:limits' multiply defined.
-
-
-LaTeX Warning: Label `tab:tradeoff' multiply defined.
-
-)
+) (iccit2026-paper.aux)
 \openout1 = `iccit2026-paper.aux'.
 
 LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 48.
@@ -707,30 +673,6 @@ LaTeX Font Info:    ... okay on input line 48.
 
 (C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/context/base/mkii\supp-pdf.m
 kii
-Underfull \hbox (badness 2653) in paragraph at lines 24--13
-[]\OT1/ptm/m/n/10 <<<<<<< HEAD                  =======
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 24--13
-\OT1/ptm/m/n/10 >>>>>>> 4f29769ffc7a5d5daac4378c0f4d3e2791683b41
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 24--13
-\OT1/ptm/m/n/10 <<<<<<< HEAD    =======    >>>>>>>
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 24--13
-\OT1/ptm/m/n/10 4f29769ffc7a5d5daac4378c0f4d3e2791683b41
- []
-
-
-Underfull \hbox (badness 10000) in paragraph at lines 24--13
-\OT1/ptm/m/n/10 <<<<<<< HEAD  =======  >>>>>>>
- []
-
 [Loading MPS to PDF converter (version 2006.09.02).]
 \scratchcounter=\count331
 \scratchdimen=\dimen320
@@ -753,30 +695,24 @@ Package epstopdf-base Info: Redefining graphics rule for `.eps' on input line 4
 (C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/00miktex\epstopdf-sys.
 cfg
 File: epstopdf-sys.cfg 2021/03/18 v2.0 Configuration of epstopdf for MiKTeX
-)) [1
-
-{C:/Users/Sarwad/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map}{C:/Users/Sar
-wad/AppData/Local/Programs/MiKTeX/fonts/enc/dvips/base/8r.enc}
-
-]
+))
 LaTeX Font Info:    Trying to load font information for U+msa on input line 74.
 
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsa.fd
+ (C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsa.fd
 File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 )
 LaTeX Font Info:    Trying to load font information for U+msb on input line 74.
 
-
-(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsb.fd
+ (C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/amsfonts\umsb.fd
 File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 )
 Underfull \vbox (badness 1024) has occurred while \output is active []
 
- [2
+ [1{C:/Users/Sarwad/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map}{C:/Users/
+Sarwad/AppData/Local/Programs/MiKTeX/fonts/enc/dvips/base/8r.enc}
 
-]
-[3]
+
+] [2]
 Package mmd Info: rendering figures/architecture.mmd on input line 155.
 runsystem(mkdir -p "figures/mmd-out")...disabled (restricted).
 
@@ -788,17 +724,18 @@ runsystem(node /tmp/mermaid-render/node_modules/@mermaid-js/mermaid-cli/src/cli
 nt  -t neutral -w 1800 -H 1200 -f  -p 'figures/puppeteer.json')...disabled (res
 tricted).
 
-<figures/mmd-out/mmd-1.pdf, id=22, 624.41275pt x 435.54718pt>
+<figures/mmd-out/mmd-1.pdf, id=19, 624.41275pt x 435.54718pt>
 File: figures/mmd-out/mmd-1.pdf Graphic file (type pdf)
 <use figures/mmd-out/mmd-1.pdf>
 Package pdftex.def Info: figures/mmd-out/mmd-1.pdf  used on input line 155.
 (pdftex.def)             Requested size: 252.0pt x 175.77756pt.
 LaTeX Font Info:    Trying to load font information for TS1+ptm on input line 1
 86.
- (C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/psnfss\ts1ptm.fd
+
+(C:\Users\Sarwad\AppData\Local\Programs\MiKTeX\tex/latex/psnfss\ts1ptm.fd
 File: ts1ptm.fd 2001/06/04 font definitions for TS1/ptm.
 )
-[4 <./figures/mmd-out/mmd-1.pdf>]
+[3 <./figures/mmd-out/mmd-1.pdf>]
 Underfull \hbox (badness 4366) in paragraph at lines 333--338
 []\OT1/ptm/b/n/10 Route-cut ex-per-i-ment. \OT1/ptm/m/n/10 Four ap-pli-ca-tion 
 nodes, two
@@ -819,7 +756,7 @@ Underfull \hbox (badness 2781) in paragraph at lines 361--369
 he
  []
 
-[5]
+[4]
 Underfull \hbox (badness 10000) in paragraph at lines 381--390
 []\OT1/ptm/b/n/10 Encoding com-par-i-son. \OT1/ptm/m/n/10 We col-lected 80 real
 
@@ -836,22 +773,22 @@ Underfull \hbox (badness 1533) in paragraph at lines 381--390
 \OT1/ptm/m/n/10 item would un-der-state de-liv-ery size. The tool there-fore
  []
 
-[6]
-Underfull \hbox (badness 1484) in paragraph at lines 476--476
+[5]
+Underfull \hbox (badness 1484) in paragraph at lines 475--475
 \OT1/ptm/m/n/7 dian 1,074B (range 786--1,400B); \OT1/pcr/m/n/7 @context
  []
 
 
-Underfull \hbox (badness 2617) in paragraph at lines 476--476
+Underfull \hbox (badness 2617) in paragraph at lines 475--475
 []|\OT1/ptm/m/n/7 Harder rolling up-grades and more cross-
  []
 
 
-Underfull \hbox (badness 1584) in paragraph at lines 476--476
+Underfull \hbox (badness 1584) in paragraph at lines 475--475
 []|\OT1/ptm/m/n/7 Authentication de-pends on de-ploy-ment pro-file;
  []
 
-[7] (iccit2026-paper.bbl [8])
+[6] (iccit2026-paper.bbl [7])
 
 ** Conference Paper **
 Before submitting the final camera ready copy, remember to:
@@ -863,23 +800,19 @@ Before submitting the final camera ready copy, remember to:
  uses only Type 1 fonts and that every step in the generation
  process uses the appropriate paper size.
 
-[9
+[8
 
 ] (iccit2026-paper.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2026-01-19>
  ***********
-
-
-LaTeX Warning: There were multiply-defined labels.
-
  ) 
 Here is how much of TeX's memory you used:
- 15668 strings out of 467867
- 326916 string characters out of 5417851
- 714751 words of memory out of 5000000
- 44243 multiletter control sequences out of 15000+600000
+ 15667 strings out of 467867
+ 326903 string characters out of 5417851
+ 713421 words of memory out of 5000000
+ 44242 multiletter control sequences out of 15000+600000
  674566 words of font info for 134 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  84i,11n,94p,1514b,772s stack positions out of 10000i,1000n,20000p,200000b,200000s
@@ -899,9 +832,9 @@ mb8a.pfb><C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/u
 tmbi8a.pfb><C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times
 /utmr8a.pfb><C:/Users/Sarwad/AppData/Local/Programs/MiKTeX/fonts/type1/urw/time
 s/utmri8a.pfb>
-Output written on iccit2026-paper.pdf (9 pages, 246917 bytes).
+Output written on iccit2026-paper.pdf (8 pages, 245188 bytes).
 PDF statistics:
- 127 PDF objects out of 1000 (max. 8388607)
+ 124 PDF objects out of 1000 (max. 8388607)
  0 named destinations out of 1000 (max. 500000)
  18 words of extra memory for PDF output out of 10000 (max. 10000000)
 
