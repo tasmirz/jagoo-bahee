@@ -55,7 +55,7 @@ National Internet Blackouts}
 \maketitle
 
 \begin{abstract}
-  An Internet shutdown is rarely a clean power switch. Transit to the outside world can be withdrawn while domestic networks keep carrying packets among themselves, leaving reachable fragments that recent measurement work calls connectivity islands. We ask a narrow question: when some domestic IP paths survive, can independently operated forum servers keep accepting signed posts and reconciling them across whatever graph remains? Our prototype composes four familiar mechanisms for this regime --- canonical protobuf envelopes admitted as the exact bytes their author signed, operator receipts bound to those bytes, caller-initiated synchronisation that survives asymmetric reachability, and an explicitly trusted dual-homed relay between islands. On a four-node testbed whose shared exchange segment is withdrawn mid-run, a dependent certificate, community and post crossed the severed boundary in 0.5, 1.2 and 2.1 seconds, within a factor of two of the same chain measured while the exchange was intact. An eight-node chain delivered 200 of 200 envelopes seven hops with a 4.125\,s median. TypeScript, Rust and Python implementations agreed on all 16 canonical vectors, and a signature-invalid flood produced no database writes. Against a median gzipped ActivityPub activity our envelopes are 4.4--6.9$\times$ smaller, at the cost of Fediverse interoperability and JSON-LD extensibility. These results establish partition tolerance under surviving IP paths on a single-host testbed, and nothing about total blackouts, real inter-provider deployment, or resourced denial of service.
+  An Internet shutdown is rarely a clean power switch. Transit to the outside world can be withdrawn while domestic networks keep carrying packets among themselves, leaving reachable fragments that recent measurement work calls connectivity islands. We ask a narrow question: when some domestic IP paths survive, can independently operated forum servers keep accepting signed posts and reconciling them across whatever graph remains? Our prototype composes four familiar mechanisms for this regime: canonical protobuf envelopes admitted as the exact bytes their author signed, operator receipts bound to those bytes, caller-initiated synchronisation that survives asymmetric reachability, and an explicitly trusted dual-homed relay between islands. On a four-node testbed whose shared exchange segment is withdrawn mid-run, a dependent certificate, community and post crossed the severed boundary in 0.5, 1.2 and 2.1 seconds, within a factor of two of the same chain measured while the exchange was intact. An eight-node chain delivered 200 of 200 envelopes seven hops with a 4.125\,s median. TypeScript, Rust and Python implementations agreed on all 16 canonical vectors, and a signature-invalid flood produced no database writes. Against a median gzipped ActivityPub activity our envelopes are 4.4--6.9$\times$ smaller, at the cost of Fediverse interoperability and JSON-LD extensibility. These results establish partition tolerance under surviving IP paths on a single-host testbed, and nothing about total blackouts, real inter-provider deployment, or resourced denial of service.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -90,7 +90,7 @@ ActivityPub directly delivers social activities to the server’s inbox \cite{ac
 
 Anix, Rangzen and Moby establish a network connecting nearby devices \cite{kamali2025anix,lerner2016rangzen,pradeep2022moby}. These systems work without internal server connection. But they sacrifice bandwidth, devices extra power consumption and network capacity. Our system chooses the opposite trade-off: when the servers are connected, it establishes connection between them, but can’t work when all IP paths are totally disconnected. Those systems don’t compete with one another, rather they complement each other. So, this paper doesn’t compare their latency, because they are designed for different workloads.
 
-\subsection{Accountability:}
+\subsection{Accountability}
 
 Append-only logs, signed tree heads and inclusion proofs were introduced by Certificate Transparency to make certain classes of misbehaviour auditable after the fact \cite{rfc9162}.  PeerReview and CoSi explores several stronger forms of accountability by using witnesses and cosigning \cite{haeberlen2007peerreview,syta2016cosi}. Our receipt has been kept comparatively weaker intentionally. It only proves that an operator has acknowledged a specific content ID at a stated time. It doesn’t prove that operator will receive valid object, will forward object faster or object will not be rejected silently.
 
@@ -125,16 +125,13 @@ nonce, and an expiry. Its identifier is the SHA-256 digest of a specified
 canonical byte string, and an Ed25519 signature covers that same string
 \cite{bernstein2012ed25519}. Protobuf does not guarantee a unique
 serialisation \cite{protobufnotcanonical}, so we constrain a profile on top of
-it --- ascending field order, minimal varints, no unknown fields retained ---
-and add the rule that actually matters: decoding and re-encoding an object
+it (ascending field order, minimal varints, no unknown fields retained) and add the rule that actually matters: decoding and re-encoding an object
 must reproduce the bytes as received, exactly. An object that fails that
 comparison is rejected outright, never repaired.
 
 Verifying the exact received bytes after a strict decode is established practice in DER, JWS, and Certificate Transparency leaf formats. In this system, the rule protects federation. If a relay decoded a peer’s bytes and re-encoded them before checking the signature, it could normalise a non-canonical submission into the canonical form that was signed. The relay would then verify reconstructed bytes rather than the bytes that arrived. Our decode–re-encode comparison prevents a receiver from repairing or normalising attacker-controlled bytes before verification. As a result, no relay can make a non-canonical or invalid submission acceptable by rewriting it.
 
-Fig.~\ref{fig:pipeline} lays out the admission path. Stages 1 through 12 ---
-size, parsing, canonicality, domain separation, identifier derivation,
-signature, expiry, replay, authorisation --- write nothing to persistent
+Fig.~\ref{fig:pipeline} lays out the admission path. Stages 1 through 12 (size, parsing, canonicality, domain separation, identifier derivation, signature, expiry, replay, authorisation) write nothing to persistent
 storage, so an invalid flood cannot amplify into write load, a property we
 measure directly in \S\ref{sec:results}. The stages after that charge origin
 pricing or a receiver quota, commit the raw object with its derived indexes
@@ -243,7 +240,7 @@ shown in Fig.~\ref{fig:topology}. Containers supply reproducible layer-2
 isolation and let the harness withdraw the only configured inter-island path
 mid-run; nothing in the design depends on that packaging.
 
-The test runs in four stages. It first reads kernel TCP state from \texttt{/proc/net/tcp} inside the bridge to confirm the local source address each established federation connection left from. It then withdraws the shared exchange segment and verifies that direct inter-island probes fail, and that island~B does not already hold the content to be submitted. Finally it publishes a dependency chain --- an author certificate, a community record, and a post requiring both --- and polls island~B for each exact content identifier. The chain is ordered because a post cannot be rendered without its certificate and community, so the crossing is measured across all three objects rather than the post alone. Nineteen assertions cover topology, source binding, relay behaviour, quota reservation and uplink failover. Reported latencies include the application's polling interval and are therefore upper bounds.
+The test runs in four stages. It first reads kernel TCP state from \texttt{/proc/net/tcp} inside the bridge to confirm the local source address each established federation connection left from. It then withdraws the shared exchange segment and verifies that direct inter-island probes fail, and that island~B does not already hold the content to be submitted. Finally it publishes a dependency chain (an author certificate, a community record, and a post requiring both) and polls island~B for each exact content identifier. The chain is ordered because a post cannot be rendered without its certificate and community, so the crossing is measured across all three objects rather than the post alone. Nineteen assertions cover topology, source binding, relay behaviour, quota reservation and uplink failover. Reported latencies include the application's polling interval and are therefore upper bounds.
 
 \textbf{Hop-scaling chain.} Eight nodes are peered into a line, each with its
 own database, so that a node $i$ hops from the origin is reachable by exactly
@@ -262,8 +259,7 @@ signed region. This invalidates the signature and changes the content
 identifier, so every request is novel and none can be short-circuited by
 deduplication. We issue 3,000 such requests at concurrency 16 and record
 completion rate, rejection stage, the fraction reaching signature
-verification, and---via the database's collection-level profiler---the
-resulting writes. The ordinary rate limiter stays enabled, so this is not a
+verification, and, via the database's collection-level profiler, the resulting writes. The ordinary rate limiter stays enabled, so this is not a
 saturation benchmark.
 
 \textbf{Encoding comparison.} We collected 80 real
@@ -277,8 +273,7 @@ equivalent signed envelopes, subtracting authored UTF-8 text so the metric
 reflects what a protocol designer controls rather than how much a user typed.
 
 The comparison is deliberately generous to ActivityPub. It excludes HTTP
-framing, TLS, per-follower fan-out, shared dictionaries, and---most
-significantly---authentication, since our bytes carry a 64-byte signature
+framing, TLS, per-follower fan-out, shared dictionaries, and, most significantly, authentication, since our bytes carry a 64-byte signature
 verifiable at rest while HTTP Signatures are transport level and vanish with
 the request.
 
@@ -291,7 +286,7 @@ the request.
 All three implementations agreed on all the 16 canonical vectors and rejected all the negative ones as specified. The additional tests also checked invalid signatures, incorrect byte formats, replay attacks, missing permissions, duplicate messages, wrong signing keys, invalid proofs, outdated tree heads, and conflicting logs. Sixteen vectors cannot cover every protobuf's edge cases. However, they show that those three independently developed implementations follow exactly the same byte-level rules. This is essential for a relay network to work reliably.
 
 
-The route-cut test passes all 19 checks, including the kernel TCP check confirming that federation connections left the bridge from both configured addresses, 10.90.1.30 and 10.90.2.30 --- an assertion no in-process harness can make. With direct inter-island reachability withdrawn, island~B received the certificate after 0.5\,s, the community after 1.2\,s and the post after 2.1\,s, in dependency order. The same chain with the exchange intact took 1.5\,s, 1.5\,s and 1.9\,s, so the bridged path is comparable to the direct one, within a factor of two on every object. These are single runs, not distributions.
+The route-cut test passes all 19 checks, including the kernel TCP check confirming that federation connections left the bridge from both configured addresses, 10.90.1.30 and 10.90.2.30, an assertion no in-process harness can make. With direct inter-island reachability withdrawn, island~B received the certificate after 0.5\,s, the community after 1.2\,s and the post after 2.1\,s, in dependency order. The same chain with the exchange intact took 1.5\,s, 1.5\,s and 1.9\,s, so the bridged path is comparable to the direct one, within a factor of two on every object. These are single runs, not distributions.
 
 
 
