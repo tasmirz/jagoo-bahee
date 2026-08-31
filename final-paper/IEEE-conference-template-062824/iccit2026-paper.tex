@@ -146,14 +146,13 @@ The canonical signed envelope is invariant across ingress media and relay paths.
 
 The node must still discriminate how the envelope arrived. Let \(C_1\) denote a client, and let \(S_1\) and \(S_2\) denote independent forum servers. In the illustrative case \(C_1 \rightarrow S_1\), the client submits directly to its chosen server. In the illustrative case \(C_1 \rightarrow S_1 \rightarrow S_2\), server \(S_1\) relays the same signed envelope to server \(S_2\). These are examples, not an exhaustive enumeration. The canonical bytes, content identifier, and author signature remain unchanged. What changes is the admission context: ingress kind, supplying peer, direction, source uplink, traffic class, and quota policy. That context controls deduplication, replay protection, scheduling, and fan-out. It never relaxes signature, identifier, or body validation.
 
-A bridge is not a transparent packet forwarder. It is an ordinary node running the same stack, dual-homed onto two islands. Everything it relays has already been independently validated, stored, and quota-bounded under its own key.
+A bridge is an ordinary node running the same stack, dual-homed onto two islands; but not  a transparent packet forwarder. It's all relaying capability has already been independently validated, stored, and quota-bounded under its own key.
 
-Independent audit-log services (ALSs) provide an external record of server acknowledgement. They operate outside the write path. A server first commits the write and returns a signed receipt. The client builds a public audit certificate, stores it locally, and then forwards it to one or more ALSs. Each ALS independently re-verifies the canonical envelope, content identifier, receipt, signed tree head, and inclusion proof before appending the certificate to its own hash-chained record. If the server later hides or deletes the accepted object, the acknowledgement remains externally verifiable. This supports censorship resistance by limiting a single server’s ability to silently erase evidence of acceptance. Fig.~\ref{fig:architecture} shows the system end to end: the reachability ladder, the on-device signing boundary, the canonical envelope, the shared admission pipeline, each node’s persistence stack, and the independent audit-log services.
+Independent audit-log services (ALSs) provide an external proof of server acknowledgement. This holds the server owners accoutntable. They operate outside the write path. After a server commits the write it returns a signed receipt. The client builds a public audit certificate, stores it locally, and then forwards it to one or more ALSs. Each ALS independently re-verifies the canonical envelope, content identifier, receipt, signed tree head, and inclusion proof before appending the certificate to its own hash-chained record. If any server later hides or deletes the accepted object, the acknowledgement remains externally verifiable. This supports censorship resistance by limiting a single server’s ability to silently erase evidence of acceptance. Fig.~\ref{fig:architecture} shows the system end to end: the reachability ladder, the on-device signing boundary, the canonical envelope, the shared admission pipeline, each node’s persistence stack, and the independent audit-log services.
 
 \begin{figure}[!t]
   \centering
-  \begin{mmd}{figures/architecture.mmd}
-  \end{mmd}
+  \includegraphics[width=\linewidth]{figures/drawio/previews/system-architecture.png}
   \caption{System architecture. Clients sign canonical envelopes on-device and submit them to
     forum nodes over HTTPS or gRPC; every node runs the same 19-step admission pipeline,
     persists accepted envelopes into projections and a Merkle log, and exchanges exact signed
@@ -192,29 +191,7 @@ race could defeat.
 
 \begin{figure}[t]
   \centering
-  \begin{tikzpicture}[
-    font=\tiny,
-    pipe/.style={draw,rounded corners=1pt,minimum width=16.2mm,minimum height=8.5mm,
-        align=center,fill=jbgray},
-    wr/.style={pipe,fill=jbteal!10},
-    arr/.style={-{Latex[length=1.35mm]},thick,jbblue},
-    node distance=1.4mm
-    ]
-    \node[pipe] (raw) {raw size, parse,\\canonical bytes};
-    \node[pipe,right=of raw] (crypto) {ID, signature,\\expiry, replay};
-    \node[pipe,right=of crypto] (auth) {semantic\\authorization};
-    \node[wr,below=4mm of raw] (quota) {origin price or\\receiver quota};
-    \node[wr,right=of quota] (commit) {transaction: object,\\indexes, Merkle leaf};
-    \node[wr,right=of commit] (after) {signed receipt and\\durable outbox};
-    \draw[arr] (raw) -- (crypto);
-    \draw[arr] (crypto) -- (auth);
-    \draw[arr] (auth.south) |- (quota.east);
-    \draw[arr] (quota) -- (commit);
-    \draw[arr] (commit) -- (after);
-    \draw[decorate,decoration={brace,amplitude=3pt,mirror},jbamber]
-    ($(raw.south west)+(0,-1.2mm)$) -- ($(auth.south east)+(0,-1.2mm)$)
-    node[midway,below=3.5pt,font=\tiny,text=jbamber]{stages 1--12: no persistent writes};
-  \end{tikzpicture}
+  \includegraphics[width=\linewidth]{figures/drawio/previews/admission-pipeline.png}
   \caption{Admission pipeline. State changes begin only after the cheap byte and validity checks have
     all succeeded.}
   \label{fig:pipeline}
@@ -222,21 +199,20 @@ race could defeat.
 
 On acceptance, the server signs a receipt binding the content identifier, the
 leaf position, the resulting signed tree head, and an inclusion proof. The
-acknowledgement therefore commits to the exact bytes admitted, not to a label
-the operator can later change. Peers also exchange signed tree heads containing
+acknowledgement therefore commits to the exact bytes admitted. Peers also exchange signed tree heads containing
 a tree size, root hash, and timestamp. Two heads of equal size with different
 roots are an unambiguous conflict. A larger head is recorded as newer, but it
-is not treated as proven until a consistency proof can be obtained. A smaller
-head is not immediately treated as a fork, because observations may arrive out
-of order: if its timestamp is older than the recorded head, it is discarded as
+is  treated as proven only after consistency proof is obtained. A smaller
+head is also not immediately treated as a fork, as observations may arrive out
+of order: in case the timestamp is older than the recorded head, it is discarded as
 stale; otherwise, a smaller size is reported as a possible fork. This is
-deliberate stale-head hygiene. It removes a class of self-inflicted false
-positives and catches outright tree shrinkage, but it is not full fork
-detection. An adversary who rewrites history while keeping the tree size
+deliberate stale-head handling. It removes a class of self-inflicted false
+positives and catches outright tree shrinkage, however it is not full fork
+detection: A adversary who rewrites history while keeping the tree size
 non-decreasing can pass these local checks, and equivocation between two peers
 cannot be detected by a single local comparison. Detecting those cases requires
 consistency proofs and independent cross-observer exchange, which the network
-partitions we target are precisely likely to obstruct.
+partitions we target are likely to obstruct.
 
 \subsection{Partition-aware federation}
 
@@ -273,32 +249,9 @@ object back to the peer from which it arrived.
 
 \begin{figure}[t]
   \centering
-  \begin{tikzpicture}[
-      font=\scriptsize,
-      node/.style={draw,rounded corners=1.5pt,minimum width=10mm,minimum height=6mm,fill=white},
-      island/.style={draw,rounded corners=2pt,inner sep=4pt},
-      link/.style={<->,>=Latex,thick,jbblue}
-    ]
-    \node[node] (a0) at (0,0) {$A_1$};
-    \node[node] (a1) at (1.35,0) {$A_2$};
-    \node[island,fit=(a0)(a1),draw=jbteal,
-      label={[font=\scriptsize,text=jbteal]above:island A (10.90.1.0/24)}] (ia) {};
-
-    \node[node] (b0) at (5.6,0) {$B_1$};
-    \node[island,fit=(b0),draw=jbblue,
-      label={[font=\scriptsize,text=jbblue]above:island B (10.90.2.0/24)}] (ib) {};
-
-    \node[node,fill=jbamber!14,minimum width=18mm] (br) at (3.18,-1.35) {dual-homed bridge};
-    \draw[link,jbteal] (ia.south east) -- node[below left,font=\tiny]{uplink A} (br.west);
-    \draw[link,jbblue] (br.east) -- node[below right,font=\tiny]{uplink B} (ib.south west);
-    \draw[dashed,thick] (ia.east) -- node[above,font=\tiny]{exchange segment} (ib.west);
-    \coordinate (cut) at (3.4,0);
-    \draw[jbred,very thick] ($(cut)+(-0.12,-0.12)$) -- ($(cut)+(0.12,0.12)$);
-    \draw[jbred,very thick] ($(cut)+(-0.12,0.12)$) -- ($(cut)+(0.12,-0.12)$);
-  \end{tikzpicture}
+  \includegraphics[width=\linewidth]{figures/drawio/previews/route-cut-topology.png}
   \caption{Route-cut topology. Four application nodes span two isolated network segments joined by a
-    shared exchange, which the experiment withdraws mid-run. The bridge is an application server, not an
-    IP forwarder.}
+    shared exchange, which the experiment withdraws mid-run. }
   \label{fig:topology}
 \end{figure}
 
@@ -336,21 +289,22 @@ shown in Fig.~\ref{fig:topology}. Containers supply reproducible layer-2
 isolation and let the harness withdraw the only configured inter-island path
 mid-run; nothing in the design depends on that packaging.
 
-The test proceeds in four phases. First, the gate reads kernel TCP state from
-\texttt{/proc/net/tcp} inside the bridge to confirm which local source address
-each established federation connection actually left from. Second, it withdraws
-the exchange segment and verifies that direct probes between islands now fail.
-Third, it confirms that island B does not already hold the content to be
-submitted. Fourth, it submits a dependency chain---an author certificate, a
-community record, and a post that depends on both---and polls for each exact
-content identifier on the far island. The chain is ordered because a post
-cannot be rendered until its author certificate and community record are
-present, so the measured crossing reports all three arrivals rather than only
-the post event.
-
-Nineteen assertions cover topology, source binding, relay behaviour, quota
-reservation, and uplink failover. Reported latencies include the application's
-own polling interval and are therefore upper bounds.
+The test proceeds across four sequential stages. First, the harness inspects
+kernel TCP state via \texttt{/proc/net/tcp} inside the bridge to verify the
+exact local source address from which each established federation connection
+departed. Second, it withdraws the shared exchange segment and validates that
+direct inter-island probes between island~A and island~B consistently fail. Third,
+the test verifies that the destination island does not already contain the
+content scheduled for submission. Fourth, it pushes a dependency chain (an author
+certificate, a community record, and the dependent post) and polls for exact
+content identifier matches on the opposite island. Because a post cannot be
+rendered without its accompanying author certificate and community metadata, the
+recorded crossing latency accounts for all three artifacts rather than merely the
+terminal post. Altogether, 19 assertions validate network topology, source
+interface binding, relay forwarding semantics, quota allocation, and uplink
+failover policies. Because reported latencies incorporate the application's
+internal polling intervals alongside transit delay, they represent conservative
+upper bounds on actual delivery time.
 
 \textbf{Hop-scaling chain.} Eight nodes are peered into a line, each with its
 own database, so that a node $i$ hops from the origin is reachable by exactly
