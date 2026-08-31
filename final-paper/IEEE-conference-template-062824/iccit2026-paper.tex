@@ -64,7 +64,7 @@ National Internet Blackouts}
 
 \section{Introduction}
 
-Internet shutdown doesn’t necessarily mean a complete loss of connectivity. The disruption can occur in several forms like reduction in bandwidth, blocking destinations, filtering protocols, and loss of international routes. Despite these restrictions, domestic networks can still communicate with each other \cite{bischof2023shutdowns,ooni2025bangladesh}. Baltra et al. described the groups that lost the core internet connection but still can communicate locally as “islands” \cite{baltra2024connectivity}. They also described networks that still have limited connection with the internet as “peninsulas” \cite{baltra2024connectivity}. They have explained how these disrupted situations can be identified and developed measurements for them.  Our work focuses on developing a system which can continue working in these crucial situations. Our system tries to answer a specific question: if the international routes are cut but domestic IP connection remains connected and a forum server works independently, whether they can receive signed posts and synchronize those posts across the network?
+Internet shutdown doesn’t necessarily mean a complete loss of connectivity. The disruption can occur in several forms like reduction in bandwidth, blocking destinations, filtering protocols, and loss of international routes \cite{ooni2025bangladesh}. Despite these restrictions, domestic networks can still communicate with each other \cite{bischof2023shutdowns,baltra2024connectivity}. Baltra et al. described the groups that lost the core internet connection but still can communicate locally as “islands” \cite{baltra2024connectivity}. They also described networks that still have limited connection with the internet as “peninsulas”. They have explained how these disrupted situations can be identified and developed measurements for them.  Our work focuses on developing a system which can continue working in these crucial situations. Our system tries to answer a specific question: if the international routes are cut but domestic IP connection remains connected and a forum server works independently, whether they can receive signed posts and synchronize those posts across the network?
 
 Other existing systems focus on a related problem which is not exactly similar to ours. Circumvention systems are designed to reach a blocked region. Snowflake, for instance, routes a blocked user out through temporary proxy servers \cite{bocovich2024snowflake}. Such systems must reach either cooperating network infrastructure or a proxy, and when international transit is withdrawn they can reach neither. Anix, Rangzen and Moby instead construct a device-to-device or mobile mesh network for situations where general internet access is unavailable \cite{kamali2025anix,lerner2016rangzen,pradeep2022moby}. So far we’ve studied, none of them have examined whether independent servers can continue to check, store and relay messages over a surviving local network. Our research addresses this gap.
 
@@ -92,7 +92,7 @@ Anix, Rangzen and Moby establish a network connecting nearby devices \cite{kamal
 
 \subsection{Accountability}
 
-Append-only logs, signed tree heads and inclusion proofs were introduced by Certificate Transparency to make certain classes of misbehaviour auditable after the fact \cite{rfc9162}.  PeerReview and CoSi explores several stronger forms of accountability by using witnesses and cosigning \cite{haeberlen2007peerreview,syta2016cosi}. Our receipt has been kept comparatively weaker intentionally. It only proves that an operator has acknowledged a specific content ID at a stated time. It doesn’t prove that operator will receive valid object, will forward object faster or object will not be rejected silently.
+Append-only logs, signed tree heads and inclusion proofs are defined by Certificate Transparency to make certain classes of misbehaviour auditable after the fact \cite{rfc9162}.  PeerReview and CoSi explore several stronger forms of accountability by using witnesses and cosigning \cite{haeberlen2007peerreview,syta2016cosi}. Our receipt has been kept comparatively weaker intentionally. It only proves that an operator has acknowledged a specific content ID at a stated time. It doesn’t prove that operator will receive valid object, will forward object faster or object will not be rejected silently.
 
 \subsection{Study gap and design objective}
 
@@ -103,7 +103,7 @@ There is a difference currently present two fields. Normally routed federation a
 
 \subsection{Architecture}
 
-The system must keep working as connectivity narrows while making server acceptance externally auditable. We evaluate a national partition, where domestic exchange traffic survives lost international transit, and ISP islands joined only by a dual-homed relay. Clients reach nodes over HTTP and nodes federate over gRPC; all claims are scoped to that surviving IP path. Fig.~\ref{fig:architecture} summarizes the roles and trust paths.
+We designed a system that works as connectivity narrows while making server acceptance externally auditable. We evaluate a national partition, where domestic exchange traffic survives lost international transit, and ISP islands joined only by a dual-homed relay. Clients reach nodes over HTTP and nodes federate over gRPC; all claims are scoped to that surviving IP path. Fig.~\ref{fig:architecture} summarizes the roles and trust paths.
 
 \begin{figure}[!t]
   \centering
@@ -129,7 +129,7 @@ it (ascending field order, minimal varints, no unknown fields retained) and add 
 must reproduce the bytes as received, exactly. An object that fails that
 comparison is rejected outright, never repaired.
 
-Verifying the exact received bytes after a strict decode is established practice in DER, JWS, and Certificate Transparency leaf formats. In this system, the rule protects federation. If a relay decoded a peer’s bytes and re-encoded them before checking the signature, it could normalise a non-canonical submission into the canonical form that was signed. The relay would then verify reconstructed bytes rather than the bytes that arrived. Our decode–re-encode comparison prevents a receiver from repairing or normalising attacker-controlled bytes before verification. As a result, no relay can make a non-canonical or invalid submission acceptable by rewriting it.
+Verifying the exact received bytes after a strict decode is established practice in DER, JWS, and Certificate Transparency leaf formats \cite{rfc9162}. In this system, the rule protects federation. If a relay decoded a peer’s bytes and re-encoded them before checking the signature, it could normalise a non-canonical submission into the canonical form that was signed. The relay would then verify reconstructed bytes rather than the bytes that arrived. Our decode–re-encode comparison prevents a receiver from repairing or normalising attacker-controlled bytes before verification. As a result, no relay can make a non-canonical or invalid submission acceptable by rewriting it.
 
 Fig.~\ref{fig:pipeline} lays out the admission path. Stages 1 through 12 (size, parsing, canonicality, domain separation, identifier derivation, signature, expiry, replay, authorisation) write nothing to persistent
 storage, so an invalid flood cannot amplify into write load, a property we
@@ -263,8 +263,7 @@ verification, and, via the database's collection-level profiler, the resulting w
 saturation benchmark.
 
 \textbf{Encoding comparison.} We collected 80 real
-\texttt{Create}/\texttt{Note} activities from the public outboxes of two stock
-ActivityPub deployments. Because a collection hoists \texttt{@context} to the
+\texttt{Create}/\texttt{Note} activities from the public outboxes of two stock ActivityPub \cite{activitypub} deployments. Because a collection hoists \texttt{@context} to the
 collection while an activity POSTed to a remote inbox carries its own,
 measuring the bare outbox item would understate delivery size. The tool
 therefore refetches a standalone object from the same host and re-attaches
@@ -364,7 +363,7 @@ roughly 20$\times$ ratio suggested by comparing uncompressed sizes. However, siz
 \section{Discussion and Limitations}
 \label{sec:limits}
 
-\textbf{Testbed validity.} All experiments ran on a single physical machine over virtual networks, and this is the paper's main limitation. Every node shared one kernel, clock, CPU and storage subsystem. The shared clock is what made cross-node timestamp subtraction valid, and it is exactly what a real deployment lacks. Virtual segments are also far simpler than physical routers, BGP reconvergence, NAT, DNS failure, variable MTUs and wireless links, and attaching a bridge to two of them is trivial where a real one needs separate links, routing policy, credentials, power and an operator. The route-cut experiment therefore demonstrates a correct software response to a change in routing state, not geographic latency, independent failure domains, or real provider behaviour.
+\textbf{Testbed validity.} All experiments ran on a single physical machine over virtual networks using Docker, and this is the paper's main limitation. Every node shared one kernel, clock, CPU and storage subsystem. The shared clock is what made cross-node timestamp subtraction valid, and it is exactly what a real deployment lacks. Virtual segments are also far simpler than physical routers, BGP reconvergence, NAT, DNS failure, variable MTUs and wireless links, and attaching a bridge to two of them is trivial where a real one needs separate links, routing policy, credentials, power and an operator. The route-cut experiment therefore demonstrates a correct software response to a change in routing state, not geographic latency, independent failure domains, or real provider behaviour.
 
 \textbf{Access and subscriber isolation.} The system assumes that nodes on the same network can communicate with each other or reach a shared bridge. However, some Wi-Fi networks and ISPs block direct communication between customers while still allowing them to access the provider's gateway. If this restriction exists on every available path, nodes cannot connect to each other or reach the bridge. In that situation, federation completely stops, and only local services continue to work. The current prototype has no alternative non-IP method for communication in this situation.
 

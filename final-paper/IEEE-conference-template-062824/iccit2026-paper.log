@@ -1,6 +1,6 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.2) (preloaded format=pdflatex 2026.3.5)  31 AUG 2026 23:15
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (MiKTeX 26.2) (preloaded format=pdflatex 2026.3.5)  31 AUG 2026 23:35
 entering extended mode
- restricted \write18 enabled.
+ \write18 enabled.
  %&-line parsing enabled.
 **./iccit2026-paper.tex
 (iccit2026-paper.tex
@@ -769,19 +769,19 @@ he
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 265--274
+Underfull \hbox (badness 10000) in paragraph at lines 265--273
 []\OT1/ptm/b/n/10 Encoding com-par-i-son. \OT1/ptm/m/n/10 We col-lected 80 real
 
  []
 
 
-Underfull \hbox (badness 4242) in paragraph at lines 265--274
+Underfull \hbox (badness 4242) in paragraph at lines 265--273
 \OT1/pcr/m/n/10 Create\OT1/ptm/m/n/10 /\OT1/pcr/m/n/10 Note \OT1/ptm/m/n/10 ac-
 tiv-i-ties from the pub-lic out-boxes of
  []
 
 
-Underfull \hbox (badness 1533) in paragraph at lines 265--274
+Underfull \hbox (badness 1533) in paragraph at lines 265--273
 \OT1/ptm/m/n/10 item would un-der-state de-liv-ery size. The tool there-fore
  []
 
@@ -810,7 +810,7 @@ L3 programming layer <2026-01-19>
 Here is how much of TeX's memory you used:
  15510 strings out of 467867
  324459 string characters out of 5417851
- 714286 words of memory out of 5000000
+ 714300 words of memory out of 5000000
  44085 multiletter control sequences out of 15000+600000
  674566 words of font info for 134 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
@@ -827,7 +827,7 @@ AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utmb8a.pfb><C:/Users/Sarwad
 /AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utmbi8a.pfb><C:/Users/Sarw
 ad/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utmr8a.pfb><C:/Users/Sar
 wad/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utmri8a.pfb>
-Output written on iccit2026-paper.pdf (6 pages, 561642 bytes).
+Output written on iccit2026-paper.pdf (6 pages, 561664 bytes).
 PDF statistics:
  140 PDF objects out of 1000 (max. 8388607)
  0 named destinations out of 1000 (max. 500000)

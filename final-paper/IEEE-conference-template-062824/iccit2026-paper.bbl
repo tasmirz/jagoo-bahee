@@ -21,17 +21,17 @@
 \providecommand{\BIBdecl}{\relax}
 \BIBdecl
 
-\bibitem{bischof2023shutdowns}
-Z.~S. Bischof, K.~Pitcher, E.~Carisimo, A.~Meng, R.~B. Nunes, R.~Padmanabhan,
-  M.~E. Roberts, A.~C. Snoeren, and A.~Dainotti, ``Destination unreachable:
-  Characterizing internet outages and shutdowns,'' in \emph{Proceedings of the
-  {ACM} {SIGCOMM} 2023 Conference}, 2023.
-
 \bibitem{ooni2025bangladesh}
 T.~I. Raso, S.~Afrin, M.~A. Chowdhury, M.~Xynou, and E.~Yachmeneva, ``The
   longest silence: Internet shutdowns during {Bangladesh}'s 2024 uprising,''
   Digitally Right and Open Observatory of Network Interference, 2025,
   \url{https://ooni.org/post/2025-bangladesh-report/}.
+
+\bibitem{bischof2023shutdowns}
+Z.~S. Bischof, K.~Pitcher, E.~Carisimo, A.~Meng, R.~B. Nunes, R.~Padmanabhan,
+  M.~E. Roberts, A.~C. Snoeren, and A.~Dainotti, ``Destination unreachable:
+  Characterizing internet outages and shutdowns,'' in \emph{Proceedings of the
+  {ACM} {SIGCOMM} 2023 Conference}, 2023.
 
 \bibitem{baltra2024connectivity}
 G.~Baltra, T.~Saluja, Y.~Pradkin, and J.~Heidemann, ``Reasoning about internet
