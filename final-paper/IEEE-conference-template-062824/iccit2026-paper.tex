@@ -103,15 +103,20 @@ There is a difference currently present two fields. Normally routed federation a
 
 \subsection{Architecture}
 
-The system is built on two premises: a forum should keep working as connectivity narrows, and a server's acceptance of content should remain externally auditable. We evaluate two degrees of narrowing --- a national partition, where international transit is gone but the domestic exchange still carries traffic, and an ISP island, where inter-ISP peering has failed and a dual-homed relay is the only route between two islands. Clients reach nodes over HTTP and nodes federate over gRPC; every claim in this paper is scoped to that IP path.
+The system must keep working as connectivity narrows while making server acceptance externally auditable. We evaluate a national partition, where domestic exchange traffic survives lost international transit, and ISP islands joined only by a dual-homed relay. Clients reach nodes over HTTP and nodes federate over gRPC; all claims are scoped to that surviving IP path. Fig.~\ref{fig:architecture} summarizes the roles and trust paths.
 
-The canonical signed envelope is invariant across ingress media and relay paths. The transport context and admission context are not. Every node validates the envelope through the same 19-stage admission pipeline. The first 12 stages validate the envelope without persistent writes. If the envelope is accepted, the node commits it, signs a receipt, and places a federation task in a durable outbox. The scheduler drains the outbox by priority class, then by `(destination, source uplink, traffic class)`.
+\begin{figure}[!t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/system-arch.jpg}
+  \caption{System architecture: validating island nodes, a dual-homed bridge, and independent audit-log services.}
+  \label{fig:architecture}
+\end{figure}
 
-The node must still discriminate how an envelope arrived. The same envelope may be submitted by a client or relayed by a peer; its bytes, content identifier and author signature are identical either way. What differs is the admission context --- ingress kind, supplying peer, direction, source uplink, traffic class and quota policy --- which governs deduplication, replay protection, scheduling and fan-out. It never relaxes signature, identifier, or body validation.
+The signed envelope is invariant across ingress and relay paths. Every node applies the same 19-stage pipeline: the first 12 stages validate without persistent writes; acceptance then commits the object, signs a receipt, and queues a durable federation task. The scheduler drains by priority class and then by `(destination, source uplink, traffic class)`. Ingress kind, supplying peer, direction, uplink, traffic class, and quota policy govern deduplication, replay protection, scheduling, and fan-out, but never relax signature, identifier, or body validation.
 
-A bridge is an ordinary node running the same stack, dual-homed onto two islands; but not  a transparent packet forwarder. Its relaying capability has already been independently validated, stored, and quota-bounded under its own key.
+The dual-homed bridge runs the same validating stack rather than transparently forwarding packets. Its relay capability is independently validated, stored, and quota-bounded under its own key.
 
-Independent audit-log services (ALSs) provide an external proof of server acknowledgement. This holds the server owners accountable. They operate outside the write path. After a server commits the write it returns a signed receipt. The client builds a public audit certificate, stores it locally, and then forwards it to one or more ALSs. Each ALS independently re-verifies the canonical envelope, content identifier, receipt, signed tree head, and inclusion proof before appending the certificate to its own hash-chained record. If any server later hides or deletes the accepted object, the acknowledgement remains externally verifiable. This supports censorship resistance by limiting a single server’s ability to silently erase evidence of acceptance. \FloatBarrier
+Independent audit-log services (ALSs) sit outside the write path. After committing an object, the server returns a signed receipt; the client forms a public audit certificate, retains it, and forwards it to one or more ALSs. Each ALS re-verifies the envelope, content identifier, receipt, signed tree head, and inclusion proof before appending the certificate to a hash-chained record. The acknowledgement therefore remains externally verifiable if the accepting server later hides or deletes the object, limiting its ability to erase evidence silently. \FloatBarrier
 
 \subsection{Signed objects and admission}
 
@@ -140,7 +145,7 @@ race could defeat.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=\linewidth]{figures/drawio/previews/admission-pipeline.png}
+  \includegraphics[width=.90\linewidth]{figures/drawio/previews/admission-pipeline.pdf}
   \caption{Admission pipeline. State changes begin only after the cheap byte and validity checks have
     all succeeded.}
   \label{fig:pipeline}
@@ -198,7 +203,7 @@ object back to the peer from which it arrived.
 
 \begin{figure}[t]
   \centering
-  \includegraphics[width=\linewidth]{figures/drawio/previews/route-cut-topology.png}
+  \includegraphics[width=\linewidth]{figures/drawio/previews/route-cut-topology.pdf}
   \caption{Route-cut topology. Four application nodes span two isolated network segments joined by a
     shared exchange, which the experiment withdraws mid-run. }
   \label{fig:topology}
