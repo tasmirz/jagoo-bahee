@@ -1,0 +1,37 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[margin=17mm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\emergencystretch}{1em}
+\newcommand{\reviewer}[1]{\par\vspace{7pt}{\large\bfseries Reviewer #1}\par\vspace{1pt}}
+\newcommand{\reply}[3]{\par\vspace{2pt}\begingroup\hangindent=1.7em\hangafter=1
+  \makebox[1.7em][l]{\textbf{#1.}}\textbf{#2.} #3\par\endgroup}
+
+\begin{document}
+\raggedright\frenchspacing
+{\Large\bfseries Response to Reviewers}\hfill {\bfseries ICCIT 2026 \enspace/\enspace Paper 2056}\par
+\vspace{3pt}
+\textit{Islands of Reach: A Censorship-Resistant Federated Forum for National Internet Blackouts}\par
+
+\reviewer{1}
+\reply{1}{Multi-host validation}{All nodes shared one physical host. We limited the claims to that testbed. A deployment across independent machines and routers, with measured clock skew, remains future work (Secs.~IV, VI--VII).}
+\reply{2}{Repeated measurements}{All 20 fresh chains arrived before the single route withdrawal, and all 20 issued afterward arrived on the same stack. Post medians were 0.735 and 1.732~s, with 95\% bootstrap intervals of 0.507--0.913 and 1.482--1.841~s. We also report IQRs and sample standard deviations (Secs.~IV, V-A, Fig.~5).}
+\reply{3}{Network impairments}{All ten posts arrived in each of six bridge-path conditions, including the unshaped control (median 1.154~s). In the intermittent-link test, all ten posts were submitted before the first recovery (median 18.595~s). We also report results for egress delay and jitter, loss and a bandwidth cap (Secs.~IV, V-A, Fig.~5).}
+\reply{4}{End-to-end baseline}{Under the same shaping settings, both systems delivered 20/20 posts. The 521~ms median for Jagoo Bahee measures source-to-destination database insertion. The 155~ms inbox median measures time from the start of the send routine to verified, decoded arrival in memory. With inbound connections blocked, pull recovered 10/10 and 0/10 minimal-inbox pushes succeeded within the retry budget (Secs.~IV, V-C, Table~III).}
+\reply{5}{Admission under load}{We added valid writes, duplicate and nonce replay, malformed inputs, and five-peer quota tests. The receiver rejected 500 invalid peer frames. Two peers were blocked in the over-quota test. Sustained resource-exhaustion thresholds remain unmeasured (Secs.~V-B, VI--VII, Table~II).}
+\reply{6}{Accountability}{Independent audit-log services verify receipt signatures and inclusion proofs. Clients can retrieve local consistency proofs over HTTP. Peer comparisons use observed heads with the expected server key and a nonstale timestamp. Automatic verification of peer log growth remains open. Refusal before admission leaves no receipt (Sec.~III-D, Table~I).}
+\reply{7}{Decoder validation}{TypeScript, Rust and Python agreed on 10,000 generated wire-format cases, including numeric boundaries and Unicode strings. Across 16 mutation classes, all three decoders rejected the same 9,455 cases and accepted the other 545. An earlier run exposed a 32-bit bounds error that we fixed and covered with a regression test (Sec.~V-A).}
+\reply{8}{Figures and language}{We redrew the admission stages and route topology (Figs.~2--3), labeled hop count, latency units and variability (Fig.~4), and edited the manuscript for clarity.}
+
+\reviewer{2}
+\reply{1}{Testbed scope}{The abstract and conclusion now limit the findings to the single-host experiments. Section~VI identifies independent routing, host failures and wide-area timing as open questions.}
+\reply{2}{Latency variability}{Section~V-A gives post IQRs and standard deviations, and Fig.~5 gives 95\% intervals for medians. Each scaling configuration used 50 posts, observed at successive hops (Fig.~4, Sec.~V-B).}
+\reply{3}{Resources}{The eight-node run used 77--111~MiB per application container, with a sampled CPU maximum of 21.18\%. Shared MongoDB and Redis used 184 and 9~MiB. Peak RSS, disk usage and single-board-computer performance remain unmeasured (Secs.~V-B, VI).}
+\reply{4}{Transport timeouts}{Default deadlines are 5~s for control, 15~s for delivery and 30~s for backfill. Delivery cancels the RPC on timeout. Retry delays double from 1~s to a 15~min cap (Sec.~III-C). The ISP gate and inbox comparison used the rebuilt transport. The route, impairment, stress and scaling runs preceded it (Sec.~IV).}
+\reply{5}{Concurrency}{All 200 posts per setting reached the local projection. At 1, 4, 16 and 32 concurrent requests, throughput was 29, 27, 9 and 6 requests/s, respectively. The 95th-percentile latency rose from 49~ms to 12.587~s (Sec.~V-B, Table~II).}
+\reply{6}{ActivityPub sizes}{We distinguish the original 80-activity sample and the later 40-activity sample from the transport test. Sender-interface traffic averaged 1,846~B/post for Jagoo Bahee and 1,278 for the minimal inbox. ActivityPub's extensible format supports Fediverse interoperability. Our fixed schema requires coordinated upgrades (Sec.~V-C, Table~III).}
+\reply{7}{Fork detection}{An observer can flag different roots at the same size or a newer head that shrinks. A larger head still lacks automatic peer consistency verification. Isolated observers can receive conflicting views (Sec.~III-D, Table~I, Sec.~VI).}
+\reply{8}{Language and conference fit}{Section~I explains how outbound recovery addresses network resilience and how admission receipts support accountability. We edited the paper for clarity.}
+\end{document}

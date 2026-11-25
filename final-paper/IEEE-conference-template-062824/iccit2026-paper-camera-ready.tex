@@ -84,7 +84,7 @@ Claims cover only surviving IP paths: the design cannot create routes in a total
 \section{Background and Research Gap}
 \label{sec:background}
 
-ActivityPub delivers activities to actor inboxes \cite{activitypub}, AT Protocol defines signed repository commits \cite{atproto}, and Nostr uses signed events and relays \cite{nostr}, illustrating separate choices on encoding, delivery, and interoperability over reachable endpoints. Snowflake uses temporary WebRTC proxies requiring an accessible rendezvous \cite{bocovich2024snowflake}, whereas Anix, Rangzen, and Moby use device-to-device paths when IP service is limited or absent \cite{kamali2025anix,lerner2016rangzen,pradeep2022moby}. Rather than claiming existing systems categorically fail under partitions, we study the intermediate regime where independent servers retain domestic IP paths across islands or peninsulas. Our contribution composes, adapts, and evaluates exact-byte admission, outbound synchronization, and quota-bounded relaying so servers with matching prerequisite state reach identical decisions.
+ActivityPub delivers activities to actor inboxes \cite{activitypub}, AT Protocol defines signed repository commits \cite{atproto}, and Nostr uses signed events and relays \cite{nostr}, illustrating separate choices on encoding, delivery, and interoperability over reachable endpoints. Snowflake uses temporary WebRTC proxies requiring an accessible rendezvous \cite{bocovich2024snowflake}, whereas Anix, Rangzen, and Moby use device-to-device paths when IP service is limited or absent \cite{kamali2025anix,lerner2016rangzen,pradeep2022moby}. Rather than claiming existing systems categorically fail under partitions, we study the intermediate regime where independent servers retain domestic IP paths across islands or peninsulas. We combine deterministic wire-format validation with outbound synchronization and quota-bounded relaying. Admission also depends on the receiver's clock and prerequisite state, applicable peer quotas, and origin-only anti-abuse policy.
 
 Certificate Transparency provides Merkle inclusion and consistency proofs \cite{rfc6962,rfc9162}, while PeerReview and CoSi demonstrate accountability via verifiable histories and witness cosigning \cite{haeberlen2007peerreview,syta2016cosi}. Our threat model covers malformed inputs, replay, and a server that later conceals an admitted object. A receipt evidences acceptance of exact bytes; an operator refusing a submission issues no receipt.
 
@@ -183,7 +183,7 @@ Controlled experiments ran on one physical x86\_64 Linux host (Intel Core i5-826
 
 \textbf{Route-cut topology and ISP gate.} Four application nodes (A1 and A2 on island~A, B1 on island~B, and the dual-homed bridge), two island-isolated MongoDB instances, and two Redis caches span three internal Docker networks (island~A, island~B, and the shared exchange). The ISP gate checked kernel TCP sockets in the bridge for both configured uplink IPs, disconnected the exchange links, verified DNS isolation between A1 and B1 and absence of the test post at B1 prior to publication, and checked post arrival, bridge relay counters, reserved capacity, and uplink failover/recovery via polling.
 
-\textbf{Repeated route-cut and impairment trials.} To measure propagation latency without polling overhead, we submitted 20 fresh dependency chains (author certificate, community record, and post) with the exchange intact, withdrew the direct exchange path once, and submitted another 20 chains through the bridge using the same running stack. Each chain used a fresh identity and community. Latencies subtract source from destination \texttt{received\_at\_ms} on the shared host clock; chain span runs from source certificate insertion to destination post insertion. We report medians, interquartile ranges (IQRs), sample standard deviations, and 95\% within-run percentile bootstrap confidence intervals (10,000 resamples). For controlled impairments on the bridged topology, \texttt{tc prio} and \texttt{u32} filters shaped only bridge federation traffic on TCP port~8444, leaving database traffic unshaped across one unshaped control and five impairment conditions (10 posts each).
+\textbf{Route-cut measurements and impairment trials.} To measure propagation latency without polling overhead, we submitted 20 fresh dependency chains (author certificate, community record, and post) with the exchange intact, withdrew the direct exchange path once, and submitted another 20 chains through the bridge using the same running stack. Each chain used a fresh identity and community. Latencies subtract source from destination \texttt{received\_at\_ms} on the shared host clock; chain span runs from source certificate insertion to destination post insertion. We report medians, interquartile ranges (IQRs), sample standard deviations, and 95\% within-run percentile bootstrap confidence intervals (10,000 resamples). For controlled impairments on the bridged topology, \texttt{tc prio} and \texttt{u32} filters shaped only bridge federation traffic on TCP port~8444, leaving database traffic unshaped across one unshaped control and five impairment conditions (10 posts each).
 
 \textbf{Scaling and admission stress.} Linear chains isolated hop count with 50 posts per configuration: an eight-node chain at a 500\,ms drain interval and a four-node drain sweep across 250, 500, 1,000, and 2,000\,ms (with start and end 500\,ms controls). Each node used a distinct logical database inside one shared MongoDB process, so measurements include shared-process contention; an earlier 200-envelope run used a 1,000\,ms drain interval. Stress runs exercised HTTP admission, malformed protobufs, exact duplicates, non-idempotent nonce reuse, 5-peer gRPC frames/quotas, and single-node valid writes (32 certified identities, 200 posts per concurrency level), recording status codes, latencies, collection deltas, MongoDB profiler writes, and Docker CPU/memory snapshots.
 
@@ -318,10 +318,10 @@ Controlled experiments ran on one physical x86\_64 Linux host (Intel Core i5-826
 
 TypeScript, Rust, and Python agreed byte-for-byte on 16 canonical reference vectors and 20,000 seeded differential cases. Across 10,000 generated wire-format inputs (numeric boundaries, NFC Unicode, and empty anti-abuse variants), all three implementations matched on canonical bytes, content identifiers, and round-trip decoding. Across 16 mutation classes (10,000 cases), all three decoders jointly rejected 9,455 inputs and identically decoded the remaining 545 valid bit-flips with zero disagreements. These tests evaluate wire-format agreement rather than signature verification, application admission, or full protocol security; an earlier pass uncovered a TypeScript unsigned 32-bit bounds bug that was fixed and covered by a regression test.
 
-On the rebuilt image, the ISP gate passed 22 of 22 criteria in 39.91\,s. In the repeated route-cut trials (Figs.~\ref{fig:topology} and \ref{fig:netem}a), island~B received 20/20 certificates, communities, and posts in both regimes. Median post latency rose from 735\,ms (IQR 436\,ms, 95\% CI 507--913\,ms, SD 260\,ms) with the exchange intact to 1,732\,ms (IQR 446\,ms, CI 1,482--1,841\,ms, SD 298\,ms) via the bridge. Certificate and community medians were 581 and 710\,ms intact (CIs 440--782 and 479--874\,ms) versus 1,375 and 1,707\,ms bridged (CIs 986--1,658 and 1,534--1,879\,ms); median chain span rose from 1,105 to 2,013\,ms (bridged CI 1,800--2,258\,ms).
+On the rebuilt image, the ISP gate passed 22 of 22 criteria in 39.91\,s. In the measurements before and after the route cut (Figs.~\ref{fig:topology} and \ref{fig:netem}a), island~B received 20/20 certificates, communities, and posts in both regimes. Median post latency rose from 735\,ms (IQR 436\,ms, 95\% CI 507--913\,ms, SD 260\,ms) with the exchange intact to 1,732\,ms (IQR 446\,ms, CI 1,482--1,841\,ms, SD 298\,ms) via the bridge. Certificate and community medians were 581 and 710\,ms intact (CIs 440--782 and 479--874\,ms) versus 1,375 and 1,707\,ms bridged (CIs 986--1,658 and 1,534--1,879\,ms); median chain span rose from 1,105 to 2,013\,ms (bridged CI 1,800--2,258\,ms).
 
 \begin{table*}[!t]
-  \caption{Object Sizes, Delivery Latency, and Sender-Interface Traffic on the Shaped Link (128\,kbit/s, 5\% Loss, 75\,ms Added Delay per Direction)}
+  \caption{Object Sizes, Delivery Latency, and Sender-Interface Traffic}
   \label{tab:ap}
   {\footnotesize\noindent
   \begin{tabular*}{0.48\textwidth}[t]{@{\extracolsep{\fill}}lrrr@{}}
@@ -340,7 +340,7 @@ On the rebuilt image, the ISP gate passed 22 of 22 criteria in 39.91\,s. In the 
     \toprule
     Delivery method & Delivered & Median (ms) \\
     \midrule
-    \multicolumn{3}{@{}l}{\emph{Inbound federation traffic blocked}} \\
+    \multicolumn{3}{@{}l}{\emph{Inbound federation traffic blocked, shaping disabled}} \\
     Jagoo Bahee periodic pull & 10/10 & 1,045.5 \\
     Minimal inbox push & 0/10 & --- \\
     \multicolumn{3}{@{}l}{\emph{Jagoo Bahee with listener disabled}} \\
@@ -351,7 +351,7 @@ On the rebuilt image, the ISP gate passed 22 of 22 criteria in 39.91\,s. In the 
 
   \vspace{6pt}\noindent
   \begin{tabular*}{\textwidth}[t]{@{\extracolsep{\fill}}llrrr@{}}
-    \multicolumn{5}{@{}l}{\textbf{(c) Delivery on the shaped link}} \\
+    \multicolumn{5}{@{}l}{\textbf{(c) Delivery on the shaped link} (128\,kbit/s, 5\% packet loss, 75\,ms added delay per direction)} \\
     \toprule
     System & Timed interval & Delivered & Median (ms) & Sender interface (B/post) \\
     \midrule
@@ -386,7 +386,7 @@ The earlier 80-activity Mastodon sample had a 1,074\,B gzipped median, while the
 
 \textbf{Testbed and measurement limits.} All experiments share one x86\_64 host kernel, clock, CPU, and storage stack. Because intact route trials ran before the bridge trials on the same stack, route effects cannot be separated from host-load drift. Replicating the topology across independent machines requires measuring inter-host clock skew, physical routing, variable access links, and wide-area latency. Peak resident memory, disk growth, sustained resource-exhaustion limits, and single-board computer performance remain unmeasured.
 
-\textbf{Operational, security, and privacy limits.} Federation stops under subscriber isolation or total loss of domestic IP routes, leaving nodes local-only. Source binding selects an uplink without hiding traffic: network operators observe endpoints and timing, and protocol whitelisting can block gRPC. The system provides no anonymity guarantee and cannot force an operator to admit or forward an object. A permissive origin can admit large volumes of valid objects under its own policy, leaving peers reliant on ingress quotas; key compromise, revocation recovery, moderation, peer-head signature verification, and distributed split-view detection remain open.
+\textbf{Operational, security, and privacy limits.} Federation stops under subscriber isolation or total loss of domestic IP routes, leaving nodes local-only. Backfill rejects envelopes whose creation timestamps are more than seven days old by the receiver's clock, so prolonged partitions can leave gaps in the recovered history. Source binding selects an uplink without hiding traffic: network operators observe endpoints and timing, and protocol whitelisting can block gRPC. The system provides no anonymity guarantee and cannot force an operator to admit or forward an object. A permissive origin can admit large volumes of valid objects under its own policy, leaving peers reliant on ingress quotas; key compromise, revocation recovery, moderation, peer-head signature verification, and distributed split-view detection remain open.
 
 \textbf{Ethics.} Controlled trials used synthetic content and the encoding study sampled public posts; real deployments can expose bridge operators and users to identification or legal pressure and require local threat assessment, data minimization, and informed consent.
 
@@ -394,7 +394,6 @@ The earlier 80-activity Mastodon sample had a 1,074\,B gzipped median, while the
 
 This work demonstrates how exact-byte admission, verifiable receipts, caller-initiated synchronization, and quota-bounded validating relays can support federated communication under partial network connectivity. On a single-host Docker testbed, dependent signed objects crossed a withdrawn exchange path through a dual-homed bridge, controlled impairments yielded full delivery in the tested scenarios, and periodic pull recovered queued posts under blocked-inbound conditions. The evaluation also reveals costs in concurrent admission scalability and transport overhead relative to a minimal push inbox. These findings establish proof-of-concept feasibility within the tested environment, while independent multi-host validation, sustained resource-exhaustion testing, and distributed verification of growing logs remain open.
 
-\newpage
 \bibliographystyle{IEEEtran}
 \bibliography{iccit2026-paper-pre-references}
 
