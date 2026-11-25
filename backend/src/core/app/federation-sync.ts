@@ -313,6 +313,40 @@ export class FederationSync {
     return learned;
   }
 
+  /**
+   * Poll trusted/probation peers with reachable endpoints for tree-head growth and pull
+   * any unseen tail via `backfillFrom` (D7: steady-state CGNAT / one-way delivery recovery).
+   */
+  async pullMissing(options?: {
+    readonly force?: boolean;
+    readonly staleAfterMs?: number;
+  }): Promise<number> {
+    let accepted = 0;
+    const staleAfterMs = options?.staleAfterMs ?? 0;
+    for (const peer of await this.deps.peers.all()) {
+      if (peer.trust === PeerTrust.BLOCKED || peer.endpoints.length === 0) continue;
+      if (!options?.force && staleAfterMs > 0) {
+        if (this.deps.clock.nowMs() - this.deps.inbox.lastInboundMs(peer.serverId) < staleAfterMs) {
+          continue;
+        }
+      }
+      try {
+        const report = await this.deps.sender.exchangeTreeHeads(peer);
+        if (report.sth) {
+          await this.deps.inbox.observePeerSth(peer, report.sth);
+        }
+        const cursor = await this.deps.ledger.streamPosition(peer.serverId);
+        if (report.sth && report.sth.treeSize > cursor) {
+          const bf = await this.backfillFrom(peer.serverId, cursor);
+          accepted += bf.accepted;
+        }
+      } catch {
+        // Peer unreachable — normal during partitions or transient network loss.
+      }
+    }
+    return accepted;
+  }
+
   private async findPeerByKey(key: Uint8Array): Promise<PeerRecord | null> {
     for (const peer of await this.deps.peers.all()) {
       if (peer.publicKey.length === key.length && peer.publicKey.every((b, i) => b === key[i])) {

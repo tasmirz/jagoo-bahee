@@ -17,6 +17,7 @@
 pub mod base32;
 pub mod canonical;
 pub mod content_id;
+pub mod decode;
 pub mod fixtures;
 pub mod wire;
 
@@ -25,3 +26,4 @@ pub mod registry;
 
 pub use canonical::{canonical_bytes, encode_signed_envelope, AntiAbuse, Envelope};
 pub use content_id::{content_id, content_id_from_canonical};
+pub use decode::{decode_signed_envelope, DecodeError};

@@ -10,9 +10,14 @@
 use std::collections::BTreeMap;
 
 use ed25519_dalek::{Signer, SigningKey};
-use jb_core::canonical::canonical_bytes;
+use jb_core::canonical::{
+    canonical_bytes, encode_signed_envelope, FIELD_DOMAIN, FIELD_PLANE, FIELD_SCOPE,
+    FIELD_VERSION,
+};
 use jb_core::content_id::content_id_from_canonical;
+use jb_core::decode::decode_signed_envelope;
 use jb_core::fixtures;
+use jb_core::wire::{write_len_delimited, write_tag, write_varint, write_varint_field};
 
 /// The committed cross-language expectations, keyed by vector name.
 fn expected() -> BTreeMap<String, serde_json::Value> {
@@ -153,4 +158,158 @@ fn field_omission_signature_confusion() {
             .is_err(),
         "P0-G4 VIOLATED: the v1 signature-confusion bug is back"
     );
+}
+
+fn signed_wire_of(name: &str) -> Vec<u8> {
+    let file = fixtures::load();
+    let vector = file
+        .vectors
+        .iter()
+        .find(|v| v.name == name)
+        .unwrap_or_else(|| panic!("fixture vector not found: {name}"));
+    let mut env = vector.envelope.to_envelope();
+    env.signature = vec![9u8; 64];
+    encode_signed_envelope(&env)
+}
+
+#[test]
+fn decode_round_trips_fixtures() {
+    for name in [
+        "minimal",
+        "forum-post-full",
+        "anti-abuse-epoch-only",
+        "large-timestamp",
+        "bangla-broadcast",
+        "checkin-zero-cost",
+    ] {
+        let raw = signed_wire_of(name);
+        let decoded = decode_signed_envelope(&raw).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(encode_signed_envelope(&decoded), raw, "{name}");
+    }
+}
+
+#[test]
+fn decode_rejects_descending_fields() {
+    let mut w = Vec::new();
+    write_varint_field(&mut w, FIELD_PLANE, 1);
+    write_varint_field(&mut w, FIELD_VERSION, 1);
+    assert!(decode_signed_envelope(&w).is_err());
+}
+
+#[test]
+fn decode_rejects_repeated_field() {
+    let mut w = Vec::new();
+    write_varint_field(&mut w, FIELD_VERSION, 1);
+    write_varint_field(&mut w, FIELD_VERSION, 1);
+    let err = decode_signed_envelope(&w).unwrap_err();
+    assert!(err.0.contains("appears twice"));
+}
+
+#[test]
+fn decode_rejects_explicit_zero() {
+    let mut w = Vec::new();
+    write_varint_field(&mut w, FIELD_VERSION, 1);
+    write_varint_field(&mut w, FIELD_PLANE, 0);
+    let err = decode_signed_envelope(&w).unwrap_err();
+    assert!(err.0.contains("not in canonical form"));
+}
+
+#[test]
+fn decode_rejects_empty_anti_abuse() {
+    let mut w = Vec::new();
+    write_varint_field(&mut w, FIELD_VERSION, 1);
+    write_len_delimited(&mut w, jb_core::canonical::FIELD_ANTI_ABUSE, &[]);
+    let err = decode_signed_envelope(&w).unwrap_err();
+    assert!(err.0.contains("not in canonical form"));
+}
+
+#[test]
+fn decode_rejects_unknown_envelope_field() {
+    let mut w = Vec::new();
+    write_varint_field(&mut w, FIELD_VERSION, 1);
+    write_varint_field(&mut w, 99, 1);
+    let err = decode_signed_envelope(&w).unwrap_err();
+    assert!(err.0.contains("unknown envelope field 99"));
+}
+
+#[test]
+fn decode_rejects_unknown_anti_abuse_field() {
+    let mut inner = Vec::new();
+    write_varint_field(&mut inner, 7, 1);
+    let mut w = Vec::new();
+    write_varint_field(&mut w, FIELD_VERSION, 1);
+    write_len_delimited(&mut w, jb_core::canonical::FIELD_ANTI_ABUSE, &inner);
+    let err = decode_signed_envelope(&w).unwrap_err();
+    assert!(err.0.contains("unknown anti_abuse field 7"));
+}
+
+#[test]
+fn decode_rejects_unsupported_wire_type() {
+    let mut w = Vec::new();
+    write_tag(&mut w, FIELD_VERSION, 1);
+    w.extend_from_slice(&[0u8; 8]);
+    let err = decode_signed_envelope(&w).unwrap_err();
+    assert!(err.0.contains("unsupported wire type"));
+}
+
+#[test]
+fn decode_rejects_overlong_varint() {
+    let mut w = Vec::new();
+    write_tag(&mut w, FIELD_VERSION, 0);
+    w.extend_from_slice(&[0x80; 11]);
+    w.push(0x00);
+    let err = decode_signed_envelope(&w).unwrap_err();
+    assert!(err.0.contains("longer than 10 bytes"));
+}
+
+#[test]
+fn decode_rejects_truncated_varint() {
+    let mut w = Vec::new();
+    write_tag(&mut w, FIELD_VERSION, 0);
+    w.push(0x80);
+    let err = decode_signed_envelope(&w).unwrap_err();
+    assert!(err.0.contains("truncated varint"));
+}
+
+#[test]
+fn decode_rejects_length_past_buffer() {
+    let mut w = Vec::new();
+    write_tag(&mut w, FIELD_DOMAIN, 2);
+    write_varint(&mut w, 99);
+    w.extend_from_slice(&[1, 2]);
+    let err = decode_signed_envelope(&w).unwrap_err();
+    assert!(err.0.contains("exceeds buffer"));
+}
+
+#[test]
+fn decode_rejects_invalid_utf8() {
+    let mut w = Vec::new();
+    write_varint_field(&mut w, FIELD_VERSION, 1);
+    write_len_delimited(&mut w, FIELD_DOMAIN, &[0xff, 0xfe]);
+    let err = decode_signed_envelope(&w).unwrap_err();
+    assert!(err.0.contains("not valid UTF-8"));
+}
+
+#[test]
+fn decode_rejects_trailing_bytes() {
+    let mut raw = signed_wire_of("minimal");
+    raw.extend_from_slice(&[0x00, 0x00]);
+    assert!(decode_signed_envelope(&raw).is_err());
+}
+
+#[test]
+fn decode_rejects_non_nfc_string() {
+    let mut w = Vec::new();
+    write_varint_field(&mut w, FIELD_VERSION, 1);
+    write_len_delimited(&mut w, FIELD_SCOPE, "cafe\u{0301}".as_bytes());
+    let err = decode_signed_envelope(&w).unwrap_err();
+    assert!(err.0.contains("not in canonical form"));
+}
+
+#[test]
+fn decode_rejects_uint32_overflow() {
+    let mut w = Vec::new();
+    write_varint_field(&mut w, FIELD_VERSION, 0x1_0000_0000);
+    let err = decode_signed_envelope(&w).unwrap_err();
+    assert!(err.0.contains("exceeds uint32 range"));
 }

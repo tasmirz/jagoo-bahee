@@ -125,6 +125,14 @@ function assertAscendingUnique(fields: readonly RawField[], where: string): void
   }
 }
 
+function asUint32(val: bigint | undefined): number {
+  const v = val ?? 0n;
+  if (v < 0n || v > 0xffffffffn) {
+    throw new DecodeError('varint exceeds uint32 range');
+  }
+  return Number(v);
+}
+
 function decodeAntiAbuse(buf: Uint8Array): AntiAbuse {
   const fields = readFields(buf);
   assertAscendingUnique(fields, 'anti_abuse');
@@ -150,7 +158,7 @@ function decodeAntiAbuse(buf: Uint8Array): AntiAbuse {
         out.nullifier = Uint8Array.from(f.bytes ?? []);
         break;
       case ANTI_ABUSE_FIELD.EPOCH:
-        out.epoch = Number(f.varint ?? 0n);
+        out.epoch = asUint32(f.varint);
         break;
       case ANTI_ABUSE_FIELD.POW:
         out.pow = Uint8Array.from(f.bytes ?? []);
@@ -215,10 +223,10 @@ export function decodeSignedEnvelope(raw: Uint8Array): SignedEnvelope {
     }
     switch (f.field) {
       case FIELD.VERSION:
-        base.version = Number(f.varint ?? 0n);
+        base.version = asUint32(f.varint);
         break;
       case FIELD.PLANE:
-        base.plane = Number(f.varint ?? 0n);
+        base.plane = asUint32(f.varint);
         break;
       case FIELD.DOMAIN:
         base.domain = decodeString(f.bytes, 'domain');
@@ -227,7 +235,7 @@ export function decodeSignedEnvelope(raw: Uint8Array): SignedEnvelope {
         base.author_key = Uint8Array.from(f.bytes ?? []);
         break;
       case FIELD.KEY_ALG:
-        base.key_alg = Number(f.varint ?? 0n);
+        base.key_alg = asUint32(f.varint);
         break;
       case FIELD.PARENT:
         base.parent = decodeString(f.bytes, 'parent');
@@ -242,7 +250,7 @@ export function decodeSignedEnvelope(raw: Uint8Array): SignedEnvelope {
         base.nonce = Uint8Array.from(f.bytes ?? []);
         break;
       case FIELD.PRIORITY:
-        base.priority = Number(f.varint ?? 0n);
+        base.priority = asUint32(f.varint);
         break;
       case FIELD.BODY:
         base.body = Uint8Array.from(f.bytes ?? []);

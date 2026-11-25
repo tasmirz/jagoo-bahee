@@ -87,12 +87,19 @@ function envelope(contentId: string): ParsedEnvelope {
  */
 class HangingSender extends FederationSender {
   readonly delivered: string[] = [];
+  readonly signals: AbortSignal[] = [];
   private release: (() => void) | null = null;
   readonly hanging = new Promise<void>((resolve) => {
     this.release = resolve;
   });
 
-  async deliver(target: PeerRecord, _plane: Plane, envelopes: readonly Uint8Array[]): Promise<DeliverOutcome> {
+  async deliver(
+    target: PeerRecord,
+    _plane: Plane,
+    envelopes: readonly Uint8Array[],
+    signal?: AbortSignal,
+  ): Promise<DeliverOutcome> {
+    if (signal) this.signals.push(signal);
     if (target.serverId === UNREACHABLE) {
       await this.hanging;
     }
@@ -195,6 +202,7 @@ describe('FederationOutboxService.drain — head-of-line blocking across peers (
     // And the timed-out row is left retryable rather than lost.
     const stats = await queue.stats();
     expect(stats.pending).toBe(1);
+    expect(sender.signals[0]?.aborted).toBe(true);
 
     sender.releaseHang();
   });

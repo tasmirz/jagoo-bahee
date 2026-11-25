@@ -1,0 +1,11 @@
+.git
+node_modules
+**/node_modules
+**/dist
+frontend
+crates
+target
+final-paper
+ops/results
+Plans
+Code Implementation

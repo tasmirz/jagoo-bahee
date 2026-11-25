@@ -15,13 +15,24 @@ from pathlib import Path
 import pytest
 
 from jb_reference import (
+    FIELD_ANTI_ABUSE,
+    FIELD_DOMAIN,
+    FIELD_PLANE,
+    FIELD_SCOPE,
+    FIELD_VERSION,
+    DecodeError,
     Envelope,
     base32_encode,
     canonical_bytes,
     content_id,
+    decode_signed_envelope,
+    encode_signed_envelope,
     encode_utf8_nfc,
     envelope_from_fixture,
+    write_len_delimited,
+    write_tag,
     write_varint,
+    write_varint_field,
 )
 
 FIXTURES = json.loads(
@@ -227,3 +238,152 @@ def test_content_id_shape():
     cid = content_id(build("forum-post-full"))
     assert cid.startswith("jb1")
     assert len(cid) == 55  # "jb1" + 52 base32 chars for a 32-byte digest
+
+
+# ── EN-02 negative / canonical decoding checks (mirrors decode.spec.ts) ─────────
+
+def _signed_wire(name: str) -> bytes:
+    base = build(name)
+    env = Envelope(
+        version=base.version,
+        plane=base.plane,
+        domain=base.domain,
+        author_key=base.author_key,
+        key_alg=base.key_alg,
+        parent=base.parent,
+        scope=base.scope,
+        created_at_ms=base.created_at_ms,
+        nonce=base.nonce,
+        priority=base.priority,
+        body=base.body,
+        anti_abuse=base.anti_abuse,
+        signature=bytes([9] * 64),
+    )
+    return encode_signed_envelope(env)
+
+
+def test_decode_round_trips_fixtures():
+    for name in [
+        "minimal",
+        "forum-post-full",
+        "anti-abuse-epoch-only",
+        "large-timestamp",
+        "bangla-broadcast",
+        "checkin-zero-cost",
+    ]:
+        raw = _signed_wire(name)
+        decoded = decode_signed_envelope(raw)
+        assert encode_signed_envelope(decoded) == raw
+
+
+def test_decode_rejects_descending_fields():
+    w = bytearray()
+    write_varint_field(w, FIELD_PLANE, 1)
+    write_varint_field(w, FIELD_VERSION, 1)
+    with pytest.raises(DecodeError):
+        decode_signed_envelope(bytes(w))
+
+
+def test_decode_rejects_repeated_field():
+    w = bytearray()
+    write_varint_field(w, FIELD_VERSION, 1)
+    write_varint_field(w, FIELD_VERSION, 1)
+    with pytest.raises(DecodeError, match="appears twice"):
+        decode_signed_envelope(bytes(w))
+
+
+def test_decode_rejects_explicit_zero():
+    w = bytearray()
+    write_varint_field(w, FIELD_VERSION, 1)
+    write_varint_field(w, FIELD_PLANE, 0)
+    with pytest.raises(DecodeError, match="not in canonical form"):
+        decode_signed_envelope(bytes(w))
+
+
+def test_decode_rejects_empty_anti_abuse():
+    w = bytearray()
+    write_varint_field(w, FIELD_VERSION, 1)
+    write_len_delimited(w, FIELD_ANTI_ABUSE, b"")
+    with pytest.raises(DecodeError, match="not in canonical form"):
+        decode_signed_envelope(bytes(w))
+
+
+def test_decode_rejects_unknown_envelope_field():
+    w = bytearray()
+    write_varint_field(w, FIELD_VERSION, 1)
+    write_varint_field(w, 99, 1)
+    with pytest.raises(DecodeError, match="unknown envelope field 99"):
+        decode_signed_envelope(bytes(w))
+
+
+def test_decode_rejects_unknown_anti_abuse_field():
+    inner = bytearray()
+    write_varint_field(inner, 7, 1)
+    w = bytearray()
+    write_varint_field(w, FIELD_VERSION, 1)
+    write_len_delimited(w, FIELD_ANTI_ABUSE, bytes(inner))
+    with pytest.raises(DecodeError, match="unknown anti_abuse field 7"):
+        decode_signed_envelope(bytes(w))
+
+
+def test_decode_rejects_unsupported_wire_type():
+    w = bytearray()
+    write_tag(w, FIELD_VERSION, 1)
+    w.extend(b"\x00" * 8)
+    with pytest.raises(DecodeError, match="unsupported wire type"):
+        decode_signed_envelope(bytes(w))
+
+
+def test_decode_rejects_overlong_varint():
+    w = bytearray()
+    write_tag(w, FIELD_VERSION, 0)
+    w.extend(b"\x80" * 11)
+    w.append(0x00)
+    with pytest.raises(DecodeError, match="longer than 10 bytes"):
+        decode_signed_envelope(bytes(w))
+
+
+def test_decode_rejects_truncated_varint():
+    w = bytearray()
+    write_tag(w, FIELD_VERSION, 0)
+    w.append(0x80)
+    with pytest.raises(DecodeError, match="truncated varint"):
+        decode_signed_envelope(bytes(w))
+
+
+def test_decode_rejects_length_past_buffer():
+    w = bytearray()
+    write_tag(w, FIELD_DOMAIN, 2)
+    write_varint(w, 99)
+    w.extend(b"\x01\x02")
+    with pytest.raises(DecodeError, match="exceeds buffer"):
+        decode_signed_envelope(bytes(w))
+
+
+def test_decode_rejects_invalid_utf8():
+    w = bytearray()
+    write_varint_field(w, FIELD_VERSION, 1)
+    write_len_delimited(w, FIELD_DOMAIN, b"\xff\xfe")
+    with pytest.raises(DecodeError, match="not valid UTF-8"):
+        decode_signed_envelope(bytes(w))
+
+
+def test_decode_rejects_trailing_bytes():
+    raw = _signed_wire("minimal") + b"\x00\x00"
+    with pytest.raises(DecodeError):
+        decode_signed_envelope(raw)
+
+
+def test_decode_rejects_non_nfc_string():
+    w = bytearray()
+    write_varint_field(w, FIELD_VERSION, 1)
+    write_len_delimited(w, FIELD_SCOPE, "cafe\u0301".encode("utf-8"))
+    with pytest.raises(DecodeError, match="not in canonical form"):
+        decode_signed_envelope(bytes(w))
+
+
+def test_decode_rejects_uint32_overflow():
+    w = bytearray()
+    write_varint_field(w, FIELD_VERSION, 0x1_0000_0000)
+    with pytest.raises(DecodeError, match="exceeds uint32 range"):
+        decode_signed_envelope(bytes(w))

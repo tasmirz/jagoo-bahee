@@ -78,6 +78,10 @@ const SCOPE_BY_WIRE: Readonly<Record<number, PeerEndpoint['scope']>> = {
   6: 'RETICULUM',
 };
 
+const DEFAULT_CONTROL_RPC_TIMEOUT_MS = 5_000;
+const DEFAULT_DELIVER_RPC_TIMEOUT_MS = 15_000;
+const DEFAULT_BACKFILL_RPC_TIMEOUT_MS = 30_000;
+
 export interface FederationClientDeps {
   readonly signer: NodeSigner;
   readonly clock: Clock;
@@ -85,6 +89,8 @@ export interface FederationClientDeps {
   readonly identity: () => NodeIdentity;
   /** Injected so tests can dial an in-process server without TLS. */
   readonly credentials?: ChannelCredentials;
+  /** Bounds unary control RPCs (`Announce`, `ExchangeTreeHeads`, `ExchangeDirectory`). */
+  readonly rpcTimeoutMs?: number;
   /**
    * P3 — the uplink-aware path selector (T3.3, T3.4, TP-08).
    *
@@ -142,7 +148,10 @@ export class GrpcFederationSender extends FederationSender {
         nonce,
         signature: this.deps.signer.sign(announceRequestSigningBytes(fields)),
       }),
-      { metadata: this.callMetadata('Announce') },
+      {
+        metadata: this.callMetadata('Announce'),
+        signal: AbortSignal.timeout(this.deps.rpcTimeoutMs ?? DEFAULT_CONTROL_RPC_TIMEOUT_MS),
+      },
     ));
 
     return {
@@ -184,6 +193,7 @@ export class GrpcFederationSender extends FederationSender {
     peer: PeerRecord,
     _plane: Plane,
     envelopes: readonly Uint8Array[],
+    signal?: AbortSignal,
   ): Promise<DeliverOutcome> {
     const dialed = await this.dial(peer);
     const metadata = this.callMetadata('Deliver');
@@ -191,7 +201,10 @@ export class GrpcFederationSender extends FederationSender {
       (async function* () {
         for (const raw of envelopes) yield raw;
       })(),
-      { metadata },
+      {
+        metadata,
+        signal: signal ?? AbortSignal.timeout(DEFAULT_DELIVER_RPC_TIMEOUT_MS),
+      },
     ));
     return {
       accepted: ack.accepted,
@@ -239,7 +252,10 @@ export class GrpcFederationSender extends FederationSender {
         to_index: BigInt(filter.toIndex ?? 0),
         max: filter.max ?? 0,
       }),
-      { metadata: this.callMetadata('Backfill') },
+      {
+        metadata: this.callMetadata('Backfill'),
+        signal: AbortSignal.timeout(DEFAULT_BACKFILL_RPC_TIMEOUT_MS),
+      },
     )) {
       yield raw;
     }
@@ -254,7 +270,10 @@ export class GrpcFederationSender extends FederationSender {
         observed: [],
         signature: new Uint8Array(0),
       }),
-      { metadata: this.callMetadata('ExchangeTreeHeads') },
+      {
+        metadata: this.callMetadata('ExchangeTreeHeads'),
+        signal: AbortSignal.timeout(this.deps.rpcTimeoutMs ?? DEFAULT_CONTROL_RPC_TIMEOUT_MS),
+      },
     );
     return {
       peerKey: response.server_key,
@@ -275,7 +294,10 @@ export class GrpcFederationSender extends FederationSender {
         generated_at_ms: BigInt(this.deps.clock.nowMs()),
         signature: new Uint8Array(0),
       }),
-      { metadata: this.callMetadata('ExchangeDirectory') },
+      {
+        metadata: this.callMetadata('ExchangeDirectory'),
+        signal: AbortSignal.timeout(this.deps.rpcTimeoutMs ?? DEFAULT_CONTROL_RPC_TIMEOUT_MS),
+      },
     );
     return response.peers.map((record) => ({
       // FD-02 — the identity IS the key. An empty id here was silently upserted under `_id:

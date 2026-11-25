@@ -1,0 +1,222 @@
+name: jagoo-ap-cmp
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: jb-cmp-mongo
+    command: ['--replSet', 'rs0', '--bind_ip_all', '--quiet']
+    networks:
+      db_net:
+        ipv4_address: 10.95.1.5
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok || quit(1)"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 3s
+
+  mongo-init:
+    image: mongo:7
+    container_name: jb-cmp-mongo-init
+    networks: [db_net]
+    restart: 'no'
+    depends_on:
+      mongo: { condition: service_healthy }
+    entrypoint:
+      - mongosh
+      - --host
+      - mongo:27017
+      - --quiet
+      - --eval
+      - |
+        try { rs.status(); } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] }); }
+        for (let i = 0; i < 60; i++) { if (db.hello().isWritablePrimary) { print('rs0 PRIMARY ready'); quit(0); } sleep(500); }
+        quit(1);
+
+  redis:
+    image: redis:7-alpine
+    container_name: jb-cmp-redis
+    networks:
+      db_net:
+        ipv4_address: 10.95.1.6
+    command: ['redis-server', '--appendonly', 'no']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  jb-cmp-a:
+    image: jb-node:local
+    pull_policy: never
+    container_name: jb-cmp-a
+    networks:
+      db_net:
+        ipv4_address: 10.95.1.10
+      wan_net:
+        ipv4_address: 10.95.2.10
+    ports:
+      - '3401:3000'
+    depends_on:
+      mongo-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    environment:
+      NODE_ENV: development
+      NODE_NAME: 'cmp-a'
+      PORT: '3000'
+      FEDERATION_GRPC_LISTEN: '0.0.0.0:8444'
+      FEDERATION_DRAIN_INTERVAL_MS: '500'
+      FEDERATION_GOSSIP_INTERVAL_MS: '15000'
+      MONGO_URL: 'mongodb://mongo:27017/jagoo_cmp_a?replicaSet=rs0'
+      REDIS_URL: 'redis://redis:6379/0'
+      NODE_SIGNING_SEED: 'QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE='
+      FEDERATION_ENDPOINTS: 'GLOBAL=grpc://10.95.2.10:8444'
+      FEDERATION_PEERS: 'IVL40Zt5HSRFMkLhXy6rbLfP+ntqXtMAl5YOBpiB2xI=@GLOBAL=grpc://10.95.2.11:8444#TRUSTED,Ivwpd5Lwtv/Av8/bftsMCqFOAlo2XsDjQuhuOCnLdLY=@GLOBAL=grpc://10.95.2.12:8444#TRUSTED'
+      ADMIN_KEYS: 'ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c'
+      AUTH_ACCESS_SECRET: 'ERERERERERERERERERERERERERERERERERERERERERE='
+      AUTH_REFRESH_SECRET: 'IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI='
+      POW_SECRET: 'MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM='
+      BLOB_FILESYSTEM_ROOT: '/tmp/blobs'
+      SERVICE_DISCOVERY_PROBE: 'false'
+      REQUEST_LIMIT_PER_MINUTE: '100000'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 40
+
+  jb-cmp-b:
+    image: jb-node:local
+    pull_policy: never
+    container_name: jb-cmp-b
+    networks:
+      db_net:
+        ipv4_address: 10.95.1.11
+      wan_net:
+        ipv4_address: 10.95.2.11
+    ports:
+      - '3402:3000'
+    depends_on:
+      mongo-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    environment:
+      NODE_ENV: development
+      NODE_NAME: 'cmp-b'
+      PORT: '3000'
+      FEDERATION_GRPC_LISTEN: '0.0.0.0:8444'
+      FEDERATION_DRAIN_INTERVAL_MS: '500'
+      FEDERATION_GOSSIP_INTERVAL_MS: '15000'
+      MONGO_URL: 'mongodb://mongo:27017/jagoo_cmp_b?replicaSet=rs0'
+      REDIS_URL: 'redis://redis:6379/1'
+      NODE_SIGNING_SEED: 'QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI='
+      FEDERATION_ENDPOINTS: 'GLOBAL=grpc://10.95.2.11:8444'
+      FEDERATION_PEERS: '25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50=@GLOBAL=grpc://10.95.2.10:8444#TRUSTED'
+      ADMIN_KEYS: 'ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c'
+      AUTH_ACCESS_SECRET: 'ERERERERERERERERERERERERERERERERERERERERERE='
+      AUTH_REFRESH_SECRET: 'IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI='
+      POW_SECRET: 'MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM='
+      BLOB_FILESYSTEM_ROOT: '/tmp/blobs'
+      SERVICE_DISCOVERY_PROBE: 'false'
+      REQUEST_LIMIT_PER_MINUTE: '100000'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 40
+
+  ap-cmp-a:
+    image: jb-node:local
+    pull_policy: never
+    container_name: ap-cmp-a
+    networks:
+      db_net:
+        ipv4_address: 10.95.1.20
+      wan_net:
+        ipv4_address: 10.95.2.20
+    ports:
+      - '3411:3000'
+    volumes:
+      - ./lib/ap-inbox-server.cjs:/app/ap-inbox-server.cjs:ro
+    environment:
+      AP_PORT: '3000'
+      AP_SELF_ID: 'ap-a'
+      AP_PEER_URL: 'http://10.95.2.21:3000'
+    command: ['node', '/app/ap-inbox-server.cjs']
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  ap-cmp-b:
+    image: jb-node:local
+    pull_policy: never
+    container_name: ap-cmp-b
+    networks:
+      db_net:
+        ipv4_address: 10.95.1.21
+      wan_net:
+        ipv4_address: 10.95.2.21
+    ports:
+      - '3412:3000'
+    volumes:
+      - ./lib/ap-inbox-server.cjs:/app/ap-inbox-server.cjs:ro
+    environment:
+      AP_PORT: '3000'
+      AP_SELF_ID: 'ap-b'
+      AP_PEER_URL: 'http://10.95.2.20:3000'
+    command: ['node', '/app/ap-inbox-server.cjs']
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  jb-cmp-nat:
+    profiles: ['cgnat']
+    image: jb-node:local
+    pull_policy: never
+    container_name: jb-cmp-nat
+    networks:
+      db_net:
+        ipv4_address: 10.95.1.12
+      wan_net:
+        ipv4_address: 10.95.2.12
+    depends_on:
+      mongo-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    environment:
+      NODE_ENV: development
+      NODE_NAME: 'cmp-nat'
+      PORT: '3000'
+      FEDERATION_OUTBOUND_ONLY: 'true'
+      FEDERATION_DRAIN_INTERVAL_MS: '500'
+      FEDERATION_GOSSIP_INTERVAL_MS: '15000'
+      MONGO_URL: 'mongodb://mongo:27017/jagoo_cmp_nat?replicaSet=rs0'
+      REDIS_URL: 'redis://redis:6379/2'
+      NODE_SIGNING_SEED: 'Q0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0M='
+      FEDERATION_PEERS: '25lf4lFp0UHKubu6krqgH58uHs599MsqwFGQ83/MH50=@GLOBAL=grpc://10.95.2.10:8444#TRUSTED'
+      ADMIN_KEYS: 'ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c'
+      AUTH_ACCESS_SECRET: 'ERERERERERERERERERERERERERERERERERERERERERE='
+      AUTH_REFRESH_SECRET: 'IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI='
+      POW_SECRET: 'MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM='
+      BLOB_FILESYSTEM_ROOT: '/tmp/blobs'
+      SERVICE_DISCOVERY_PROBE: 'false'
+      REQUEST_LIMIT_PER_MINUTE: '100000'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 5s
+      retries: 40
+
+networks:
+  db_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.95.1.0/24
+  wan_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.95.2.0/24

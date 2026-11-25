@@ -574,6 +574,43 @@ describe('FG-07 — an outbound-only node federates fully in both directions', (
       await stopNode(nat);
     }
   });
+
+  it('pulls new writes after startup via pullMissing() without restarting (D7)', async () => {
+    const nat = await startNode({ name: 'nat-pull', seed: 0x34, outboundOnly: true });
+    try {
+      await certify(nat);
+      await introduce(nat, b, PeerTrust.NORMAL);
+      await nat.sender.announce((await nat.peers.get(peerIdOf(b)))!);
+      const asKnownToB = await b.peers.get(peerIdOf(nat));
+      await b.peers.upsert({ ...asKnownToB!, trust: PeerTrust.NORMAL });
+
+      const communityId = await createCommunity(b, 'pull_relief');
+      const post1 = await publish(b, {
+        domain: 'jb:post:create:v1',
+        scope: communityId,
+        body: PostCreate.encode(PostCreate.fromPartial({ kind: 1, title: 'Pull 1' })).finish(),
+      });
+
+      const firstPulled = await nat.sync.pullMissing({ force: true });
+      expect(firstPulled).toBeGreaterThanOrEqual(1);
+      expect(await nat.envelopes.has(post1)).toBe(true);
+
+      const redundantPulled = await nat.sync.pullMissing({ force: true });
+      expect(redundantPulled).toBe(0);
+
+      const post2 = await publish(b, {
+        domain: 'jb:post:create:v1',
+        scope: communityId,
+        body: PostCreate.encode(PostCreate.fromPartial({ kind: 1, title: 'Pull 2' })).finish(),
+      });
+
+      const secondPulled = await nat.sync.pullMissing({ force: true });
+      expect(secondPulled).toBeGreaterThanOrEqual(1);
+      expect(await nat.envelopes.has(post2)).toBe(true);
+    } finally {
+      await stopNode(nat);
+    }
+  });
 });
 
 // ── FD-05 — web-of-trust vouches ─────────────────────────────────────────────────────

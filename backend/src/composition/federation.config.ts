@@ -46,10 +46,13 @@ export interface FederationConfig {
   readonly drainIntervalMs: number;
   /** FD-08 — every TRUSTED peer, at least every 5 minutes. */
   readonly gossipIntervalMs: number;
+  /** Steady-state CGNAT pull/catch-up poll interval (ms). Zero disables the timer. */
+  readonly pullIntervalMs: number;
 }
 
 const DEFAULT_GOSSIP_MS = 5 * 60 * 1000;
 const DEFAULT_DRAIN_MS = 1_000;
+const DEFAULT_PULL_MS = 2_000;
 
 /**
  * `FEDERATION_ENDPOINTS` — a comma-separated list of `scope[:asn]=uri` pairs.
@@ -188,5 +191,6 @@ export function loadFederationConfig(
     openRegistrations: env.REGISTRATIONS_OPEN !== 'false',
     drainIntervalMs: Number(env.FEDERATION_DRAIN_INTERVAL_MS ?? DEFAULT_DRAIN_MS),
     gossipIntervalMs: Number(env.FEDERATION_GOSSIP_INTERVAL_MS ?? DEFAULT_GOSSIP_MS),
+    pullIntervalMs: Number(env.FEDERATION_PULL_INTERVAL_MS ?? DEFAULT_PULL_MS),
   };
 }

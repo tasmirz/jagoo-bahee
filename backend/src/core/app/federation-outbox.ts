@@ -83,20 +83,21 @@ const DEFAULT_BATCH = 64;
 const DEFAULT_DELIVER_TIMEOUT_MS = 15_000;
 
 /**
- * Stop waiting on `work` after `ms`.
- *
- * The abandoned promise is left to settle on its own — `FederationSender.deliver` takes no
- * `AbortSignal`, so this bounds how long the DRAIN waits, not how long the transport tries.
- * That is the honest scope of the fix: the pass stops being hostage to one peer.
+ * Stop waiting on `work` after `ms` and abort its `AbortSignal` so the underlying RPC/socket
+ * tears down cleanly instead of dangling until OS TCP timeouts expire (R2.4, TG-06).
  */
-async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
-  if (ms <= 0) return work;
+async function withDeadline<T>(work: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
+  const controller = new AbortController();
+  if (ms <= 0) return work(controller.signal);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      work,
+      work(controller.signal),
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(`deliver timed out after ${ms}ms`)), ms);
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error(`deliver timed out after ${ms}ms`));
+        }, ms);
       }),
     ]);
   } finally {
@@ -292,11 +293,13 @@ export class FederationOutboxService extends FederationOut {
 
     try {
       const outcome = await withDeadline(
-        this.deps.sender.deliver(
-          peer,
-          plane,
-          frames.map((f) => f.raw),
-        ),
+        (signal) =>
+          this.deps.sender.deliver(
+            peer,
+            plane,
+            frames.map((f) => f.raw),
+            signal,
+          ),
         this.deps.deliverTimeoutMs ?? DEFAULT_DELIVER_TIMEOUT_MS,
       );
       const acceptedIds = new Set(outcome.accepted);

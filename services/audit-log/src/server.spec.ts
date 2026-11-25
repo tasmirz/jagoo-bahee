@@ -133,6 +133,86 @@ describe('independent audit log service', () => {
     expect(response.json().valid).toBe(false);
   });
 
+  it('rejects a certificate with an invalid envelope author signature (D6)', async () => {
+    const app = createAuditLogServer({ dataFile: null });
+    apps.push(app);
+
+    const authorSeed = new Uint8Array(32).fill(7);
+    const authorKey = ed25519.derivePublicKey(authorSeed);
+    const unsigned = buildEnvelope({
+      domain: 'jb:profile:update:v1',
+      plane: Plane.FORUM,
+      authorKey,
+      body: new Uint8Array([1]),
+      nowMs: 1_700_000_000_000n,
+      nonce: new Uint8Array(16).fill(10),
+    });
+    const forgedSig = new Uint8Array(64).fill(0x55);
+    const sealed = sealEnvelope(unsigned, forgedSig);
+
+    const nodeSeed = new Uint8Array(32).fill(3);
+    const nodeKey = ed25519.derivePublicKey(nodeSeed);
+    const rootHash = new Uint8Array(
+      createHash('sha256')
+        .update(Buffer.concat([Buffer.from([0]), Buffer.from(sealed.contentId)]))
+        .digest(),
+    );
+    const unsignedSth = { treeSize: 1, rootHash, timestampMs: 1_700_000_000_100 };
+    const sth: OfflineTreeHead = {
+      ...unsignedSth,
+      serverKey: nodeKey,
+      signature: ed25519.sign(sthSigningBytes(unsignedSth), nodeSeed),
+    };
+    const receiptWithoutSig: Omit<OfflineReceipt, 'signature'> = {
+      contentId: sealed.contentId,
+      logIndex: 0,
+      leafIndex: 0,
+      acceptedAtMs: 1_700_000_000_100,
+      serverId: serverId(nodeKey),
+      serverKey: nodeKey,
+      sth,
+      inclusionProof: [],
+    };
+    const receipt: AuditReceiptJson = {
+      content_id: sealed.contentId,
+      log_index: 0,
+      leaf_index: 0,
+      accepted_at_ms: receiptWithoutSig.acceptedAtMs,
+      server_id: receiptWithoutSig.serverId,
+      server_key: Buffer.from(nodeKey).toString('base64'),
+      signature: Buffer.from(ed25519.sign(receiptSigningBytes(receiptWithoutSig), nodeSeed)).toString('base64'),
+      sth: {
+        tree_size: sth.treeSize,
+        server_key: Buffer.from(sth.serverKey).toString('base64'),
+        root_hash: Buffer.from(sth.rootHash).toString('base64'),
+        timestamp_ms: sth.timestampMs,
+        signature: Buffer.from(sth.signature).toString('base64'),
+      },
+      inclusion_proof: [],
+    };
+    const requestBody = new TextEncoder().encode(
+      JSON.stringify({ envelope: Buffer.from(sealed.wireBytes).toString('base64') }),
+    );
+    const certWithBadAuthorSig = createAuditCertificate(requestBody, receipt);
+
+    const verified = await app.inject({
+      method: 'POST',
+      url: '/verify',
+      payload: certWithBadAuthorSig,
+    });
+    expect(verified.statusCode).toBe(200);
+    expect(verified.json()).toMatchObject({
+      valid: false,
+      checks: {
+        requestPacket: true,
+        contentIdentifier: true,
+        serverIdentity: true,
+        receiptSignature: true,
+        envelopeSignature: false,
+      },
+    });
+  });
+
   it('stores verification issue reports in a separate append-only chain', async () => {
     const app = createAuditLogServer({ dataFile: null });
     apps.push(app);

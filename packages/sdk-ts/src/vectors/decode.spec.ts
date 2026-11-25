@@ -152,4 +152,10 @@ describe('decodeSignedEnvelope — rejects non-canonical encodings', () => {
     writeLengthDelimited(w, FIELD.SCOPE, new TextEncoder().encode('café'));
     expect(() => decodeSignedEnvelope(w.finish())).toThrow(/not in canonical form/);
   });
+
+  it('rejects a uint32 field exceeding 2^32 - 1', () => {
+    const w = new ByteWriter(16);
+    writeVarintField(w, FIELD.VERSION, 0x1_0000_0000n);
+    expect(() => decodeSignedEnvelope(w.finish())).toThrow(/exceeds uint32 range/);
+  });
 });

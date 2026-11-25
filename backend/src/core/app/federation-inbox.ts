@@ -107,7 +107,14 @@ export interface AnnounceAdmission {
 }
 
 export class FederationInbox {
+  private readonly lastInboundAtMs = new Map<string, number>();
+
   constructor(private readonly deps: FederationInboxDeps) {}
+
+  /** Most recent inbound `Deliver` timestamp (epoch ms) observed from `peerId`, or `0`. */
+  lastInboundMs(peerId: string): number {
+    return this.lastInboundAtMs.get(peerId) ?? 0;
+  }
 
   // ── T2.2 / T2.3 — Announce and TOFU admission (FG-01) ──────────────────────────────
 
@@ -273,6 +280,7 @@ export class FederationInbox {
     streamPlane?: Plane,
   ): Promise<DeliverOutcome> {
     const peer = await this.requirePeer(peerId);
+    this.lastInboundAtMs.set(peerId, this.deps.clock.nowMs());
     const quota = quotaFor(peer.trust);
     const accepted: string[] = [];
     const rejected: { contentId: string; code: string; detail: string }[] = [];

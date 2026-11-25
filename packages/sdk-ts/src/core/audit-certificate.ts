@@ -1,6 +1,9 @@
+import { verify as verifyEd25519 } from '../crypto/ed25519.js';
+import { canonicalBytes } from './canonical.js';
 import { contentId, serverId } from './content-id.js';
 import { decodeSignedEnvelope } from './decode.js';
 import { verifyReceipt, type OfflineReceipt, type OfflineTreeHead } from './evidence.js';
+import { KeyAlg } from './types.js';
 
 export const AUDIT_CERTIFICATE_VERSION = 1 as const;
 
@@ -50,6 +53,7 @@ export interface AuditCertificateVerification {
     readonly contentIdentifier: boolean;
     readonly serverIdentity: boolean;
     readonly receiptSignature: boolean;
+    readonly envelopeSignature: boolean;
   };
   readonly detail?: string;
 }
@@ -153,6 +157,7 @@ export function verifyAuditCertificate(value: unknown): AuditCertificateVerifica
     contentIdentifier: false,
     serverIdentity: false,
     receiptSignature: false,
+    envelopeSignature: false,
   };
   if (!isAuditCertificate(value)) {
     return failed('certificate shape or version is invalid', emptyChecks);
@@ -179,7 +184,21 @@ export function verifyAuditCertificate(value: unknown): AuditCertificateVerifica
       serverId(receipt.serverKey) === receipt.serverId &&
       receipt.serverKey.every((byte, index) => byte === receipt.sth.serverKey[index]);
     const receiptSignature = contentIdentifier && serverIdentity && verifyReceipt(receipt);
-    const checks = { requestPacket, contentIdentifier, serverIdentity, receiptSignature };
+    const envelopeSignature =
+      envelope.key_alg === KeyAlg.ED25519 &&
+      envelope.author_key.length === 32 &&
+      envelope.signature.length === 64 &&
+      verifyEd25519(envelope.signature, canonicalBytes(envelope), envelope.author_key);
+    const checks = {
+      requestPacket,
+      contentIdentifier,
+      serverIdentity,
+      receiptSignature,
+      envelopeSignature,
+    };
+    if (!envelopeSignature) {
+      return failed('envelope author signature did not verify', checks, value.identifier);
+    }
     return receiptSignature
       ? { valid: true, identifier: value.identifier, checks }
       : failed('request identifier or node receipt did not verify', checks, value.identifier);

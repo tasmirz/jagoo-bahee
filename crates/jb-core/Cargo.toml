@@ -21,6 +21,10 @@ hex.workspace = true
 name = "jb-dump"
 path = "src/bin/dump.rs"
 
+[[bin]]
+name = "jb-fuzz"
+path = "src/bin/fuzz.rs"
+
 [[test]]
 name = "vectors"
 path = "tests/vectors.rs"

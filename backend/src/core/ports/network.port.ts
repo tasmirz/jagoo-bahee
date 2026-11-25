@@ -451,6 +451,7 @@ export abstract class FederationSender {
     peer: PeerRecord,
     plane: Plane,
     envelopes: readonly Uint8Array[],
+    signal?: AbortSignal,
   ): Promise<DeliverOutcome>;
   abstract streamActivities(
     peer: PeerRecord,

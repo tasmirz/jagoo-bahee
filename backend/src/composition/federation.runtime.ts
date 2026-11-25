@@ -26,6 +26,8 @@ import type { FederationConfig } from './federation.config.js';
 export class FederationRuntime implements OnApplicationBootstrap, OnApplicationShutdown {
   private drainTimer: NodeJS.Timeout | null = null;
   private gossipTimer: NodeJS.Timeout | null = null;
+  private pullTimer: NodeJS.Timeout | null = null;
+  private pulling = false;
   private stopping = false;
 
   constructor(
@@ -82,6 +84,23 @@ export class FederationRuntime implements OnApplicationBootstrap, OnApplicationS
       }, this.config.gossipIntervalMs);
       this.gossipTimer.unref?.();
     }
+
+    if (this.config.pullIntervalMs > 0) {
+      this.pullTimer = setInterval(() => {
+        if (this.pulling) return;
+        this.pulling = true;
+        void this.sync
+          .pullMissing({
+            force: this.config.outboundOnly,
+            staleAfterMs: this.config.pullIntervalMs * 2,
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            this.pulling = false;
+          });
+      }, this.config.pullIntervalMs);
+      this.pullTimer.unref?.();
+    }
   }
 
   async onApplicationShutdown(): Promise<void> {
@@ -89,6 +108,7 @@ export class FederationRuntime implements OnApplicationBootstrap, OnApplicationS
     this.stopping = true;
     if (this.drainTimer) clearInterval(this.drainTimer);
     if (this.gossipTimer) clearInterval(this.gossipTimer);
+    if (this.pullTimer) clearInterval(this.pullTimer);
     this.sync.stopAll();
     await this.server?.stop();
     this.sender?.close();

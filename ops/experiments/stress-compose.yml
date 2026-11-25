@@ -1,0 +1,89 @@
+# Dedicated single-node + Mongo + Redis stack for Phase 5 stress & valid-load experiments.
+# Reuses pre-built image `jb-node:local` tagged from `ops/isp-compose.yml`.
+
+name: jagoo-stress
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: jb-stress-mongo
+    command: ['--replSet', 'rs0', '--bind_ip_all', '--quiet']
+    networks: [stress]
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', "db.adminCommand('ping').ok || quit(1)"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 3s
+
+  mongo-init:
+    image: mongo:7
+    container_name: jb-stress-mongo-init
+    networks: [stress]
+    restart: 'no'
+    depends_on:
+      mongo: { condition: service_healthy }
+    entrypoint:
+      - mongosh
+      - --host
+      - mongo:27017
+      - --quiet
+      - --eval
+      - |
+        try { rs.status(); } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] }); }
+        for (let i = 0; i < 60; i++) { if (db.hello().isWritablePrimary) { print('rs0 PRIMARY ready'); quit(0); } sleep(500); }
+        quit(1);
+
+  redis:
+    image: redis:7-alpine
+    container_name: jb-stress-redis
+    networks: [stress]
+    command: ['redis-server', '--appendonly', 'no']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  node:
+    image: jb-node:local
+    pull_policy: never
+    container_name: jb-stress-node
+    networks: [stress]
+    ports:
+      - '3300:3000'
+      - '8444:8444'
+    depends_on:
+      mongo-init: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    environment:
+      NODE_ENV: development
+      NODE_NAME: 'stress'
+      PORT: '3000'
+      FEDERATION_GRPC_LISTEN: '0.0.0.0:8444'
+      FEDERATION_DRAIN_INTERVAL_MS: '1000'
+      FEDERATION_GOSSIP_INTERVAL_MS: '60000'
+      MONGO_URL: 'mongodb://mongo:27017/jagoo_stress?replicaSet=rs0'
+      REDIS_URL: 'redis://redis:6379/0'
+      NODE_SIGNING_SEED: 'QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE='
+      ADMIN_KEYS: 'ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c'
+      AUTH_ACCESS_SECRET: 'ERERERERERERERERERERERERERERERERERERERERERE='
+      AUTH_REFRESH_SECRET: 'IiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiI='
+      POW_SECRET: 'MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM='
+      BLOB_FILESYSTEM_ROOT: '/tmp/blobs'
+      SERVICE_DISCOVERY_PROBE: 'false'
+      REQUEST_LIMIT_PER_MINUTE: '${STRESS_REQ_LIMIT:-300}'
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 2s
+      timeout: 5s
+      retries: 40
+      start_period: 5s
+
+networks:
+  stress:
+    driver: bridge

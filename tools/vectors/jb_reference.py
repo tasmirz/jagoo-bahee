@@ -197,6 +197,216 @@ def encode_signed_envelope(env: Envelope) -> bytes:
     return bytes(out)
 
 
+class DecodeError(ValueError):
+    """Raised when wire bytes violate EN-02 canonical form."""
+
+
+class _ByteReader:
+    def __init__(self, buf: bytes) -> None:
+        self._buf = buf
+        self._pos = 0
+
+    @property
+    def done(self) -> bool:
+        return self._pos >= len(self._buf)
+
+    def varint(self) -> int:
+        result = 0
+        shift = 0
+        bytes_read = 0
+        while True:
+            if self._pos >= len(self._buf):
+                raise DecodeError("truncated varint")
+            byte = self._buf[self._pos]
+            self._pos += 1
+            bytes_read += 1
+            if bytes_read > 10:
+                raise DecodeError("varint is longer than 10 bytes")
+            if bytes_read == 10 and byte > 0x01:
+                if byte & 0x80:
+                    raise DecodeError("varint is longer than 10 bytes")
+                raise DecodeError("envelope is not in canonical form")
+            result |= (byte & 0x7F) << shift
+            if (byte & 0x80) == 0:
+                break
+            shift += 7
+        return result
+
+    def take(self, n: int) -> bytes:
+        if n < 0 or self._pos + n > len(self._buf):
+            raise DecodeError("length exceeds buffer")
+        out = self._buf[self._pos : self._pos + n]
+        self._pos += n
+        return out
+
+
+def _read_fields(buf: bytes) -> list[tuple[int, int, object]]:
+    reader = _ByteReader(buf)
+    fields: list[tuple[int, int, object]] = []
+    while not reader.done:
+        tag = reader.varint()
+        field_num = tag >> 3
+        wire_type = tag & 0x7
+        if field_num == 0:
+            raise DecodeError("field number 0 is invalid")
+        if wire_type == WIRE_VARINT:
+            fields.append((field_num, wire_type, reader.varint()))
+        elif wire_type == WIRE_LEN:
+            length = reader.varint()
+            fields.append((field_num, wire_type, reader.take(length)))
+        else:
+            raise DecodeError(f"unsupported wire type {wire_type} on field {field_num}")
+    return fields
+
+
+def _assert_ascending_unique(fields: list[tuple[int, int, object]], where: str) -> None:
+    previous = 0
+    for field_num, _wire_type, _val in fields:
+        if field_num == previous:
+            raise DecodeError(f"{where}: field {field_num} appears twice")
+        if field_num < previous:
+            raise DecodeError(f"{where}: field {field_num} is out of order after {previous}")
+        previous = field_num
+
+
+def _as_u32(val: int) -> int:
+    if val < 0 or val > 0xFFFFFFFF:
+        raise DecodeError("varint exceeds uint32 range")
+    return val
+
+
+def _decode_string(raw_bytes: bytes, field_name: str) -> str:
+    try:
+        return raw_bytes.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise DecodeError(f"{field_name} is not valid UTF-8") from exc
+
+
+def _decode_anti_abuse(buf: bytes) -> AntiAbuse:
+    fields = _read_fields(buf)
+    _assert_ascending_unique(fields, "anti_abuse")
+    credential = b""
+    nullifier = b""
+    epoch = 0
+    pow_bytes = b""
+    for field_num, wire_type, val in fields:
+        if field_num == AA_CREDENTIAL:
+            if wire_type != WIRE_LEN:
+                raise DecodeError("envelope is not in canonical form")
+            credential = val  # type: ignore[assignment]
+        elif field_num == AA_NULLIFIER:
+            if wire_type != WIRE_LEN:
+                raise DecodeError("envelope is not in canonical form")
+            nullifier = val  # type: ignore[assignment]
+        elif field_num == AA_EPOCH:
+            if wire_type != WIRE_VARINT:
+                raise DecodeError("envelope is not in canonical form")
+            epoch = _as_u32(val)  # type: ignore[arg-type]
+        elif field_num == AA_POW:
+            if wire_type != WIRE_LEN:
+                raise DecodeError("envelope is not in canonical form")
+            pow_bytes = val  # type: ignore[assignment]
+        else:
+            raise DecodeError(f"unknown anti_abuse field {field_num}")
+    return AntiAbuse(credential=credential, nullifier=nullifier, epoch=epoch, pow=pow_bytes)
+
+
+def decode_signed_envelope(raw: bytes) -> Envelope:
+    """Decode a signed envelope (fields 1..13) and verify canonical EN-02 form."""
+    fields = _read_fields(raw)
+    _assert_ascending_unique(fields, "envelope")
+
+    version = 0
+    plane = 0
+    domain = ""
+    author_key = b""
+    key_alg = 0
+    parent = ""
+    scope = ""
+    created_at_ms = 0
+    nonce = b""
+    priority = 0
+    body = b""
+    anti_abuse: Optional[AntiAbuse] = None
+    signature = b""
+
+    for field_num, wire_type, val in fields:
+        if field_num == FIELD_VERSION:
+            if wire_type != WIRE_VARINT:
+                raise DecodeError("envelope is not in canonical form")
+            version = _as_u32(val)  # type: ignore[arg-type]
+        elif field_num == FIELD_PLANE:
+            if wire_type != WIRE_VARINT:
+                raise DecodeError("envelope is not in canonical form")
+            plane = _as_u32(val)  # type: ignore[arg-type]
+        elif field_num == FIELD_DOMAIN:
+            if wire_type != WIRE_LEN:
+                raise DecodeError("envelope is not in canonical form")
+            domain = _decode_string(val, "domain")  # type: ignore[arg-type]
+        elif field_num == FIELD_AUTHOR_KEY:
+            if wire_type != WIRE_LEN:
+                raise DecodeError("envelope is not in canonical form")
+            author_key = val  # type: ignore[assignment]
+        elif field_num == FIELD_KEY_ALG:
+            if wire_type != WIRE_VARINT:
+                raise DecodeError("envelope is not in canonical form")
+            key_alg = _as_u32(val)  # type: ignore[arg-type]
+        elif field_num == FIELD_PARENT:
+            if wire_type != WIRE_LEN:
+                raise DecodeError("envelope is not in canonical form")
+            parent = _decode_string(val, "parent")  # type: ignore[arg-type]
+        elif field_num == FIELD_SCOPE:
+            if wire_type != WIRE_LEN:
+                raise DecodeError("envelope is not in canonical form")
+            scope = _decode_string(val, "scope")  # type: ignore[arg-type]
+        elif field_num == FIELD_CREATED_AT_MS:
+            if wire_type != WIRE_VARINT:
+                raise DecodeError("envelope is not in canonical form")
+            raw_u64 = val  # type: ignore[assignment]
+            created_at_ms = raw_u64 - (1 << 64) if raw_u64 >= (1 << 63) else raw_u64
+        elif field_num == FIELD_NONCE:
+            if wire_type != WIRE_LEN:
+                raise DecodeError("envelope is not in canonical form")
+            nonce = val  # type: ignore[assignment]
+        elif field_num == FIELD_PRIORITY:
+            if wire_type != WIRE_VARINT:
+                raise DecodeError("envelope is not in canonical form")
+            priority = _as_u32(val)  # type: ignore[arg-type]
+        elif field_num == FIELD_BODY:
+            if wire_type != WIRE_LEN:
+                raise DecodeError("envelope is not in canonical form")
+            body = val  # type: ignore[assignment]
+        elif field_num == FIELD_ANTI_ABUSE:
+            if wire_type != WIRE_LEN:
+                raise DecodeError("envelope is not in canonical form")
+            anti_abuse = _decode_anti_abuse(val)  # type: ignore[arg-type]
+        elif field_num == FIELD_SIGNATURE:
+            if wire_type != WIRE_LEN:
+                raise DecodeError("envelope is not in canonical form")
+            signature = val  # type: ignore[assignment]
+        else:
+            raise DecodeError(f"unknown envelope field {field_num}")
+
+    env = Envelope(
+        version=version,
+        plane=plane,
+        domain=domain,
+        author_key=author_key,
+        key_alg=key_alg,
+        parent=parent,
+        scope=scope,
+        created_at_ms=created_at_ms,
+        nonce=nonce,
+        priority=priority,
+        body=body,
+        anti_abuse=anti_abuse,
+        signature=signature,
+    )
+    if encode_signed_envelope(env) != raw:
+        raise DecodeError("envelope is not in canonical form")
+    return env
+
+
 def content_id_from_canonical(canonical: bytes) -> str:
     return PREFIX_CONTENT + base32_encode(hashlib.sha256(canonical).digest())
 
