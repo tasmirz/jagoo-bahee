@@ -1,0 +1,82 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[margin=0.72in]{geometry}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage[hidelinks]{hyperref}
+\usepackage{lmodern}
+\usepackage[T1]{fontenc}
+
+\setlength{\parskip}{4pt}
+\setlist[enumerate]{leftmargin=1.5em,itemsep=3pt,topsep=3pt}
+\setlist[itemize]{leftmargin=1.4em,itemsep=2pt,topsep=2pt}
+
+\begin{document}
+
+\begin{center}
+{\Large\bfseries Response to Reviewers --- ICCIT 2026 Paper \#2056}\\[3pt]
+{\large\itshape Islands of Reach: A Censorship-Resistant Federated Forum for National Internet Blackouts}
+\end{center}
+
+\vspace{1pt}
+\hrule
+\vspace{4pt}
+
+We thank both reviewers for their thoughtful and constructive feedback. Because the paper was accepted, we conducted a targeted camera-ready revision that preserves the original research motivation, architecture, and core contributions while addressing the required clarifications, statistical reporting, controlled experiments, figure/prose improvements, and explicit scope boundaries. Below we detail what changed, what was measured or clarified, where each update appears in the final manuscript (\texttt{iccit2026-paper-camera-ready.pdf}), and which items remain future work.
+
+\section*{Reviewer 1}
+
+\begin{enumerate}
+  \item \textbf{Multi-host validation beyond single-host Docker.}
+  All controlled experiments share one physical x86\_64 host (Intel Core i5-8265U, 8 logical CPUs, 19.38\,GiB RAM) running Docker virtual networks (\texttt{node:20-alpine}, MongoDB~7, Redis~7). We explicitly confined all claims in the Abstract, Methodology, Discussion/Limitations, and Conclusion to this single-host testbed (\S\S\,IV, VI--VII). Independent multi-host validation across separate machines and physical routers, with measured clock skew and wide-area latency, remains future work.
+
+  \item \textbf{Repeated trials and statistical rigor.}
+  We replaced the earlier single-run route-cut figures with repeated measurements: we submitted 20 fresh dependency chains (author certificate, community record, and post) with the exchange intact, withdrew the direct exchange path once, and submitted another 20 fresh chains through the bridge on the same running stack (20/20 delivered in each regime). Post medians rose from 735\,ms (IQR 436\,ms, SD 260\,ms, 95\% CI 507--913\,ms) intact to 1,732\,ms (IQR 446\,ms, SD 298\,ms, 95\% CI 1,482--1,841\,ms) bridged; certificate, community, and chain-span medians and intervals are also reported. We clarify that bootstrap intervals describe within-run variation and that sequential conditions on one host cannot separate route effects from host-load drift (\S\,IV, \S\,V-A, \S\,VI, Fig.\,5a).
+
+  \item \textbf{Controlled network emulation.}
+  We added six controlled \texttt{tc netem} scenarios shaping bridge federation traffic on TCP port~8444 (1 unshaped control plus 5 impairment conditions, 10 posts each; 10/10 delivered in every scenario): unshaped control (1.154\,s), 150$\pm$50\,ms egress delay (1.202\,s), 5\% loss with delay (1.210\,s), 10\% loss with delay (1.377\,s), 128\,kbit/s cap with delay and 2\% loss (1.335\,s), and three 8\,s loss / 8\,s recovery cycles after queuing all 10 posts during initial island-B loss (18.595\,s, 95\% CI 16.841--20.071\,s). We explicitly avoid generalizing 100\% delivery beyond the tested conditions (\S\,IV, \S\,V-A, Fig.\,5b).
+
+  \item \textbf{End-to-end ActivityPub / store-and-forward baseline.}
+  We paired two Jagoo Bahee nodes with two minimal Node.js ActivityPub HTTP-inbox peers (gzip, Ed25519 HTTP Signatures, push retries) over the same shaped WAN link (128\,kbit/s, 5\% loss, 75$\pm$15\,ms per direction). Both delivered 20/20 posts: Jagoo Bahee recorded a 520.5\,ms median (CI 394--586\,ms), 1,846.4\,B/post sender-interface traffic, and 88--92\,MiB RAM, versus 154.5\,ms (CI 145--161\,ms), 1,278.3\,B/post, and 9--14\,MiB for the minimal inbox (which omits Mastodon's web and worker stack). With shaping removed and inbound ports blocked, periodic pull recovered 10/10 posts (median 1.046\,s) while minimal-inbox push delivered 0/10; an outbound-only node without a gRPC listener backfilled 10/10 (4.957\,s from startup) and pushed 10/10 (0.341\,s). We explicitly qualify that timed intervals and persistence semantics differ across the tested implementations (\S\,IV, \S\,V-C, Table\,III).
+
+  \item \textbf{Adversarial stress, replay, malformed inputs, valid writes, and resource exhaustion.}
+  Beyond the default HTTP rate limiter (2,709/3,000 rejected at 1,347\,req/s), we evaluated raised-limit bad-signature rejection (2,593/3,000, 293\,req/s), malformed protobuf floods (3,000 HTTP~400 / 0 HTTP~500 at 2,383\,req/s), exact duplicates (1,000 existing receipts, 159\,req/s), and non-idempotent nonce reuse (1,000 HTTP~409 replays, 134\,req/s)---all with zero profiled database writes---alongside five-peer gRPC invalid-signature rejection (500/500), over-quota peer blocking (2 peers blocked, 15 peer-state writes, 0 admitted), and single-node valid writes at concurrency 1--32 (\S\,IV, \S\,V-B, Table\,II). Sustained resource-exhaustion thresholds remain unmeasured and are stated as open work (\S\,VI, \S\,VII).
+
+  \item \textbf{Accountability guarantees vs.\ unimplemented mechanisms.}
+  We added an explicit discussion and boundary table separating implemented guarantees from open gaps: ALSs independently verify canonical decoding, author Ed25519 signatures, content/server IDs, receipt signatures, STHs, and inclusion proofs before hash-chained storage; local RFC~6962 consistency proof generation and HTTP retrieval are implemented; peer observation checks key attribution, discards stale timestamps, and detects conflicting roots at equal size or newer shrinkage; pre-admission refusal produces no receipt (\S\,III-D, Table\,I, \S\,VI). Automated peer gRPC consistency verification on log growth, STH signature verification during peer head observation, automated ALS cross-head auditing, and distributed split-view detection remain open.
+
+  \item \textbf{Property-based and differential decoder validation.}
+  We added canonical decoders and negative and boundary tests in Rust and Python matching TypeScript, and ran 20,000 seeded differential cases alongside the 16 canonical reference vectors: 10,000 generated wire-format inputs (numeric boundaries, NFC Unicode, empty anti-abuse fields) matched identically, and across 16 mutation classes (10,000 cases) all three rejected 9,455 inputs and decoded the same 545 bit-flips with zero disagreements (after fixing an earlier TypeScript unsigned 32-bit bounds error with a regression test). We state explicitly that these tests check wire-format agreement rather than signature verification or full protocol security (\S\,IV, \S\,V-A).
+
+  \item \textbf{Figures and language.}
+  We replaced Fig.\,1 with a crisp vector diagram distinguishing conceptual (\texttt{L0}), Docker-evaluated (\texttt{L1--L3}), and out-of-scope (\texttt{L4}) regimes; clarified Fig.\,2's pre-pipeline quotas and Stage~14 authorization; redrew Fig.\,3 in vector TikZ; updated Fig.\,4 with explicit axis units, CIs/IQRs/p95, and text citation (\S\,V-B); added Fig.\,5 for route-cut and \texttt{netem} distributions; and corrected grammar, contractions, and \texttt{created\_at\_ms} terminology throughout (Figs.\,1--5, \S\S\,I--VII).
+\end{enumerate}
+
+\section*{Reviewer 2}
+
+\begin{enumerate}
+  \item \textbf{Single-host testbed scope.}
+  Conclusions in the Abstract, \S\,I, \S\,IV, \S\,VI, and \S\,VII are explicitly scoped to single-host Docker proof-of-concept experiments, with independent multi-host evaluation across physical machines and routers left as future work.
+
+  \item \textbf{Latency distributions and variability.}
+  We report medians, IQRs, sample standard deviations, 95\% within-run bootstrap CIs, and delivery counts for route-cut chains (20 intact, single exchange withdrawal, 20 bridged on the same stack), 6 \texttt{tc netem} conditions (10 posts each), and 50-post hop-scaling and drain-interval sweeps with 10.9\% repeat-control shift (\S\,IV, \S\,V-A, \S\,V-B, Figs.\,4--5).
+
+  \item \textbf{Resource consumption.}
+  We report Docker container memory and CPU snapshots across valid-write concurrency batches (87\,MiB idle, 108--181\,MiB post-batch; MongoDB 150--345\,MiB, Redis $<$9.5\,MiB), the 8-node chain (77--111\,MiB/node, max sampled CPU 21.18\%; shared MongoDB 184\,MiB, Redis 9\,MiB), active route-cut containers (105--151\,MiB, 0.59--30.72\% CPU), and the ActivityPub test (88--92\,MiB vs.\ 9--14\,MiB) (\S\S\,V-B--C, \S\,VI, Table\,II). Peak resident memory, disk footprint, sustained exhaustion thresholds, and single-board computer benchmarks remain future work (\S\,VI).
+
+  \item \textbf{Transport timeout and backoff behavior.}
+  We specify default RPC deadlines (5\,s control, 15\,s delivery with \texttt{AbortSignal} cancellation, 30\,s backfill), exponential retry backoff (1\,s to 15\,min cap, dead-lettering on the 13th failure after 47\,min 3\,s cumulative backoff), 60\,s peer backpressure hints, and uplink probes (5\,s interval, 1.5\,s timeout, two-failure threshold) (\S\,III-C). We separate pre-rebuild datasets (\texttt{03}--\texttt{06}) from rebuilt datasets (\texttt{02}, \texttt{07}, and the 22/22 ISP gate in 39.91\,s) (\S\,IV, \S\,V-A).
+
+  \item \textbf{Scalability under concurrent valid traffic.}
+  We evaluated 200 valid signed posts per concurrency level ($c = 1, 4, 16, 32$) across 32 certified identities on a single node (200/200 projected): throughput dropped from 29 to 27, 9, and 6\,requests/s, median latency rose from 32.06 to 4,192.33\,ms, p95 rose from 49.41 to 12,586.59\,ms, and p99 rose from 60\,ms to 15.940\,s. We explicitly clarify that these measurements characterize local single-node admission scalability under shared storage rather than concurrent end-to-end federation capacity, without speculating on unprofiled bottlenecks (\S\,IV, \S\,V-B, Table\,II).
+
+  \item \textbf{Cautious ActivityPub comparison.}
+  We distinguish representation sizes (earlier 80-activity 1,074\,B gzipped median and 40-activity \texttt{fosstodon.org} sample of 3,931\,B raw / 1,063\,B gzipped / 3,627\,B non-text vs.\ 155, 177, 206\,B non-text) from sender-interface traffic (1,846.4 vs.\ 1,278.3\,B/post). We retain both favorable (blocked-inbound pull 10/10 vs.\ 0/10) and unfavorable (higher latency and wire traffic vs.\ minimal push inbox) outcomes and explicitly qualify differences in timed operations, persistence semantics, schema upgrades, and Fediverse interoperability (\S\,IV, \S\,V-C, \S\,VI, Table\,III).
+
+  \item \textbf{Audit-log security guarantees and fork detection.}
+  We distinguish verifiable admission receipts and local HTTP consistency proofs from peer-head observation: peer checks confirm server-key attribution, discard stale timestamps, and flag equal-size conflicting roots or newer tree shrinkage, without re-verifying STH signatures or proving append-only growth; isolated observers can still see conflicting views (\S\,III-D, Table\,I, \S\,VI). Automated peer growth verification and distributed split-view detection remain future work.
+
+  \item \textbf{Language quality and conference theme fit.}
+  We corrected grammatical and phrasing issues throughout (\S\S\,I--VII), restored the four explicit contributions in \S\,I, and connected the paper's motivation and findings naturally to resilient networking and security in distributed systems under partial connectivity (\S\,I, \S\,VII).
+\end{enumerate}
+
+\end{document}
