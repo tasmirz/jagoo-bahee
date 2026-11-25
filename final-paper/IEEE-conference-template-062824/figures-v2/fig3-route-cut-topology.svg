@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="4.80in" height="3.24in" viewBox="0 0 480 324">
+
+<defs>
+  <style>
+    .t { font-family: 'Liberation Sans', Arial, sans-serif; fill: #273238; }
+    .hdr { font-family: 'Liberation Sans', Arial, sans-serif; fill: #FFFFFF; font-weight: 700; }
+    .mut { font-family: 'Liberation Sans', Arial, sans-serif; fill: #546E7A; }
+  </style>
+  <marker id="arr-ink" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#273238"/>
+  </marker>
+  <marker id="arr-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#235B85"/>
+  </marker>
+  <marker id="arr-amber" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#AB6A1D"/>
+  </marker>
+  <marker id="arr-muted" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#546E7A"/>
+  </marker>
+</defs>
+
+<rect width="480" height="324" fill="#FFFFFF"/>
+<rect x="165" y="8" width="150" height="40" rx="3.0" fill="#FFFFFF" stroke="#273238" stroke-width="1.2" stroke-dasharray="5,3"/>
+<text x="240.0" y="27.2" text-anchor="middle" class="t" font-size="10.8" font-weight="700" style="fill:#273238">IX EXCHANGE</text>
+<text x="240.0" y="40.3" text-anchor="middle" class="t" font-size="9.8" style="fill:#546E7A">10.90.9.0/24</text>
+<path d="M 165 28 H 62 V 76" fill="none" stroke="#AB6A1D" stroke-width="1.5" stroke-dasharray="5,4"/>
+<path d="M 315 28 H 418 V 76" fill="none" stroke="#AB6A1D" stroke-width="1.5" stroke-dasharray="5,4"/>
+<rect x="336" y="18" width="66" height="20" rx="3" fill="#FCEAEA" stroke="#9E3030" stroke-width="1.05"/>
+<text x="369" y="31.5" text-anchor="middle" class="t" font-size="10.2" font-weight="700" style="fill:#9E3030">&#x2715; IX CUT</text>
+<rect x="8" y="76" width="108" height="148" rx="3.5" fill="#FFFFFF" stroke="#235B85" stroke-width="1.35"/>
+<path d="M 11.5 76 H 112.5 Q 116 76 116 79.5 V 98.0 H 8 V 79.5 Q 8 76 11.5 76 Z" fill="#235B85"/>
+<text x="62.0" y="90.3" text-anchor="middle" class="hdr" font-size="9.8">ISLAND A · .1.0/24</text>
+<rect x="16" y="108" width="92" height="46" rx="3.0" fill="#FFFFFF" stroke="#235B85" stroke-width="1.1"/>
+<text x="62.0" y="129.6" text-anchor="middle" class="t" font-size="10.5" font-weight="700" style="fill:#273238">A1</text>
+<text x="62.0" y="144.7" text-anchor="middle" class="t" font-size="9.4" style="fill:#546E7A">IX peer (.1.10)</text>
+<rect x="16" y="166" width="92" height="46" rx="3.0" fill="#FFFFFF" stroke="#235B85" stroke-width="1.1"/>
+<text x="62.0" y="187.6" text-anchor="middle" class="t" font-size="10.5" font-weight="700" style="fill:#273238">A2</text>
+<text x="62.0" y="202.7" text-anchor="middle" class="t" font-size="9.4" style="fill:#546E7A">local only</text>
+<rect x="156" y="76" width="168" height="148" rx="3.5" fill="#FFFDF9" stroke="#AB6A1D" stroke-width="1.35"/>
+<path d="M 159.5 76 H 320.5 Q 324 76 324 79.5 V 98.0 H 156 V 79.5 Q 156 76 159.5 76 Z" fill="#AB6A1D"/>
+<text x="240.0" y="90.3" text-anchor="middle" class="hdr" font-size="9.8">DUAL-HOMED BRIDGE</text>
+<rect x="164" y="106" width="72" height="42" rx="3.0" fill="#FDF4E7" stroke="#AB6A1D" stroke-width="1.1"/>
+<text x="200.0" y="125.7" text-anchor="middle" class="t" font-size="9.8" font-weight="700" style="fill:#AB6A1D">UPLINK A</text>
+<text x="200.0" y="139.6" text-anchor="middle" class="t" font-size="8.9" style="fill:#546E7A">10.90.1.30</text>
+<rect x="244" y="106" width="72" height="42" rx="3.0" fill="#FDF4E7" stroke="#AB6A1D" stroke-width="1.1"/>
+<text x="280.0" y="125.7" text-anchor="middle" class="t" font-size="9.8" font-weight="700" style="fill:#AB6A1D">UPLINK B</text>
+<text x="280.0" y="139.6" text-anchor="middle" class="t" font-size="8.9" style="fill:#546E7A">10.90.2.30</text>
+<rect x="162" y="174" width="48" height="30" rx="3.0" fill="#FFFFFF" stroke="#AB6A1D" stroke-width="1.1"/>
+<text x="186.0" y="192.1" text-anchor="middle" class="t" font-size="9.2" font-weight="700" style="fill:#273238">Validate</text>
+<rect x="217" y="174" width="44" height="30" rx="3.0" fill="#FFFFFF" stroke="#AB6A1D" stroke-width="1.1"/>
+<text x="239.0" y="192.1" text-anchor="middle" class="t" font-size="9.2" font-weight="700" style="fill:#273238">Store</text>
+<rect x="268" y="174" width="48" height="30" rx="3.0" fill="#FFFFFF" stroke="#AB6A1D" stroke-width="1.1"/>
+<text x="292.0" y="192.1" text-anchor="middle" class="t" font-size="9.2" font-weight="700" style="fill:#273238">Outbox</text>
+<line x1="200" y1="148" x2="188" y2="172" stroke="#AB6A1D" stroke-width="1.35" marker-end="url(#arr-amber)"/>
+<line x1="210" y1="189" x2="215" y2="189" stroke="#AB6A1D" stroke-width="1.2" marker-end="url(#arr-amber)"/>
+<line x1="261" y1="189" x2="266" y2="189" stroke="#AB6A1D" stroke-width="1.2" marker-end="url(#arr-amber)"/>
+<line x1="292" y1="174" x2="282" y2="150" stroke="#AB6A1D" stroke-width="1.35" marker-end="url(#arr-amber)"/>
+<rect x="364" y="76" width="108" height="148" rx="3.5" fill="#FFFFFF" stroke="#235B85" stroke-width="1.35"/>
+<path d="M 367.5 76 H 468.5 Q 472 76 472 79.5 V 98.0 H 364 V 79.5 Q 364 76 367.5 76 Z" fill="#235B85"/>
+<text x="418.0" y="90.3" text-anchor="middle" class="hdr" font-size="9.8">ISLAND B · .2.0/24</text>
+<rect x="372" y="108" width="92" height="46" rx="3.0" fill="#FFFFFF" stroke="#235B85" stroke-width="1.1"/>
+<text x="418.0" y="129.6" text-anchor="middle" class="t" font-size="10.5" font-weight="700" style="fill:#273238">B1</text>
+<text x="418.0" y="144.7" text-anchor="middle" class="t" font-size="9.4" style="fill:#546E7A">IX peer (.2.10)</text>
+<text x="418" y="183" text-anchor="middle" class="mut" font-size="9.4">Direct route</text><text x="418" y="196" text-anchor="middle" class="mut" font-size="9.4">withdrawn mid-run</text>
+<line x1="108" y1="130" x2="162" y2="130" stroke="#235B85" stroke-width="1.5" marker-start="url(#arr-blue)" marker-end="url(#arr-blue)"/>
+<rect x="119" y="110" width="32" height="14" fill="#FFFFFF"/>
+<text x="135" y="120.5" text-anchor="middle" class="t" font-size="9.8" font-weight="700" style="fill:#235B85">gRPC</text>
+<line x1="316" y1="130" x2="370" y2="130" stroke="#235B85" stroke-width="1.5" marker-start="url(#arr-blue)" marker-end="url(#arr-blue)"/>
+<rect x="327" y="110" width="32" height="14" fill="#FFFFFF"/>
+<text x="343" y="120.5" text-anchor="middle" class="t" font-size="9.8" font-weight="700" style="fill:#235B85">gRPC</text>
+<rect x="8" y="236" width="464" height="80" rx="3.5" fill="#FFFFFF" stroke="#90A4AE" stroke-width="1.2"/><path d="M 11.5 236 H 468.5 Q 472 236 472 239.5 V 257 H 8 V 239.5 Q 8 236 11.5 236 Z" fill="#ECEFF2"/><text x="240" y="250.2" text-anchor="middle" class="t" font-size="9.8" font-weight="700">REPEATED ROUTE-CUT TRIALS · N = 20 EACH · 100% DELIVERY</text>
+<circle cx="22" cy="272" r="4" fill="#235B85"/>
+<text x="32" y="275.5" class="t" font-size="9.7">IX intact (20/20):  cert 0.58 s · comm 0.71 s · post 0.74 s [0.51, 0.91] · chain 1.10 s</text>
+<circle cx="22" cy="291" r="4" fill="#AB6A1D"/>
+<text x="32" y="294.5" class="t" font-size="9.7">IX cut (20/20):     cert 1.37 s · comm 1.71 s · post 1.73 s [1.48, 1.84] · chain 2.01 s</text>
+<text x="240" y="310.0" text-anchor="middle" class="mut" font-size="8.8">Medians [95% bootstrap/order CI] from exact in-transaction received_at_ms deltas</text>
+</svg>

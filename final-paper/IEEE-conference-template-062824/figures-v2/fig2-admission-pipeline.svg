@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="3.60in" height="3.74in" viewBox="0 0 360 374">
+
+<defs>
+  <style>
+    .t { font-family: 'Liberation Sans', Arial, sans-serif; fill: #273238; }
+    .hdr { font-family: 'Liberation Sans', Arial, sans-serif; fill: #FFFFFF; font-weight: 700; }
+    .mut { font-family: 'Liberation Sans', Arial, sans-serif; fill: #546E7A; }
+  </style>
+  <marker id="arr-ink" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#273238"/>
+  </marker>
+  <marker id="arr-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#235B85"/>
+  </marker>
+  <marker id="arr-amber" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#AB6A1D"/>
+  </marker>
+  <marker id="arr-muted" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#546E7A"/>
+  </marker>
+</defs>
+
+<rect width="360" height="374" fill="#FFFFFF"/>
+<rect x="52" y="6" width="256" height="34" rx="3.0" fill="#FFFFFF" stroke="#273238" stroke-width="1.25"/>
+<text x="180.0" y="22.4" text-anchor="middle" class="t" font-size="9.3" font-weight="700" style="fill:#273238">SIGNED ENVELOPE</text>
+<text x="180.0" y="33.5" text-anchor="middle" class="t" font-size="8.2" style="fill:#546E7A">exact received canonical protobuf bytes</text>
+<line x1="180" y1="40" x2="180" y2="49" stroke="#273238" stroke-width="1.3" marker-end="url(#arr-ink)"/>
+<rect x="20" y="51" width="320" height="35" rx="3.0" fill="#FDF4E7" stroke="#AB6A1D" stroke-width="1.25" stroke-dasharray="4,3"/>
+<text x="180.0" y="67.7" text-anchor="middle" class="t" font-size="8.9" font-weight="700" style="fill:#AB6A1D">TRANSPORT PRE-GATE · OUTSIDE PIPELINE</text>
+<text x="180.0" y="79.2" text-anchor="middle" class="t" font-size="8.1" style="fill:#273238">HTTP client limiter   |   gRPC PeerQuotaLimiter</text>
+<path d="M 180 86 V 94 H 88 V 101" fill="none" stroke="#273238" stroke-width="1.3" marker-end="url(#arr-ink)"/>
+<rect x="8" y="103" width="160" height="263" rx="3.5" fill="#FFFFFF" stroke="#235B85" stroke-width="1.35"/>
+<path d="M 11.5 103 H 164.5 Q 168 103 168 106.5 V 125.0 H 8 V 106.5 Q 8 103 11.5 103 Z" fill="#235B85"/>
+<text x="88.0" y="117.0" text-anchor="middle" class="hdr" font-size="8.9">STAGES 1–12 · READ-ONLY</text>
+<rect x="9.5" y="125" width="157" height="16" fill="#EAF2F8"/><text x="88" y="136.0" text-anchor="middle" class="t" font-size="8.0" font-weight="700" style="fill:#235B85">0 persistent database writes</text>
+<rect x="16" y="147" width="144" height="36" rx="3.0" fill="#FFFFFF" stroke="#90A4AE" stroke-width="1.05"/>
+<text x="88.0" y="164.0" text-anchor="middle" class="t" font-size="8.6" font-weight="700" style="fill:#273238">1–2 · BYTES</text>
+<text x="88.0" y="175.8" text-anchor="middle" class="t" font-size="7.8" style="fill:#546E7A">size limit, parse, exact re-encode</text>
+<line x1="88" y1="183" x2="88" y2="189" stroke="#273238" stroke-width="1.15" marker-end="url(#arr-ink)"/>
+<rect x="16" y="190" width="144" height="36" rx="3.0" fill="#FFFFFF" stroke="#90A4AE" stroke-width="1.05"/>
+<text x="88.0" y="207.0" text-anchor="middle" class="t" font-size="8.6" font-weight="700" style="fill:#273238">3–5 · ROUTING</text>
+<text x="88.0" y="218.8" text-anchor="middle" class="t" font-size="7.8" style="fill:#546E7A">version, domain, plane</text>
+<line x1="88" y1="226" x2="88" y2="232" stroke="#273238" stroke-width="1.15" marker-end="url(#arr-ink)"/>
+<rect x="16" y="233" width="144" height="36" rx="3.0" fill="#FFFFFF" stroke="#90A4AE" stroke-width="1.05"/>
+<text x="88.0" y="250.0" text-anchor="middle" class="t" font-size="8.6" font-weight="700" style="fill:#273238">6–7 · POLICY</text>
+<text x="88.0" y="261.8" text-anchor="middle" class="t" font-size="7.8" style="fill:#546E7A">domain size, alg, priority</text>
+<line x1="88" y1="269" x2="88" y2="275" stroke="#273238" stroke-width="1.15" marker-end="url(#arr-ink)"/>
+<rect x="16" y="276" width="144" height="36" rx="3.0" fill="#FFFFFF" stroke="#90A4AE" stroke-width="1.05"/>
+<text x="88.0" y="293.0" text-anchor="middle" class="t" font-size="8.6" font-weight="700" style="fill:#273238">8–10 · AUTH</text>
+<text x="88.0" y="304.8" text-anchor="middle" class="t" font-size="7.8" style="fill:#546E7A">clock window, Ed25519 sig, cert</text>
+<line x1="88" y1="312" x2="88" y2="318" stroke="#273238" stroke-width="1.15" marker-end="url(#arr-ink)"/>
+<rect x="16" y="319" width="144" height="36" rx="3.0" fill="#FFFFFF" stroke="#90A4AE" stroke-width="1.05"/>
+<text x="88.0" y="336.0" text-anchor="middle" class="t" font-size="8.6" font-weight="700" style="fill:#273238">11–12 · REPLAY</text>
+<text x="88.0" y="347.8" text-anchor="middle" class="t" font-size="7.8" style="fill:#546E7A">CID dedupe (200), nonce (409)</text>
+<rect x="192" y="103" width="160" height="263" rx="3.5" fill="#FFFFFF" stroke="#AB6A1D" stroke-width="1.35"/>
+<path d="M 195.5 103 H 348.5 Q 352 103 352 106.5 V 125.0 H 192 V 106.5 Q 192 103 195.5 103 Z" fill="#AB6A1D"/>
+<text x="272.0" y="117.0" text-anchor="middle" class="hdr" font-size="8.9">STAGES 13–19 · COMMIT</text>
+<rect x="193.5" y="125" width="157" height="16" fill="#FDF4E7"/><text x="272" y="136.0" text-anchor="middle" class="t" font-size="8.0" font-weight="700" style="fill:#AB6A1D">first DB mutation at Stage 13</text>
+<rect x="200" y="147" width="144" height="36" rx="3.0" fill="#FDF4E7" stroke="#AB6A1D" stroke-width="1.4"/>
+<text x="272.0" y="164.0" text-anchor="middle" class="t" font-size="8.6" font-weight="700" style="fill:#AB6A1D">13 · ANTI-ABUSE</text>
+<text x="272.0" y="175.8" text-anchor="middle" class="t" font-size="7.8" style="fill:#546E7A">origin only (PoW / credits)</text>
+<line x1="272" y1="183" x2="272" y2="189" stroke="#273238" stroke-width="1.2" marker-end="url(#arr-ink)"/>
+<rect x="200" y="190" width="144" height="36" rx="3.0" fill="#FFFFFF" stroke="#273238" stroke-width="1.05"/>
+<text x="272.0" y="207.0" text-anchor="middle" class="t" font-size="8.6" font-weight="700" style="fill:#273238">14–15 · SEMANTICS</text>
+<text x="272.0" y="218.8" text-anchor="middle" class="t" font-size="7.8" style="fill:#546E7A">authorise (14), validate (15)</text>
+<line x1="272" y1="226" x2="272" y2="232" stroke="#273238" stroke-width="1.2" marker-end="url(#arr-ink)"/>
+<rect x="200" y="233" width="144" height="36" rx="3.0" fill="#FFFFFF" stroke="#273238" stroke-width="1.05"/>
+<text x="272.0" y="250.0" text-anchor="middle" class="t" font-size="8.6" font-weight="700" style="fill:#273238">16–18 · ATOMIC TX</text>
+<text x="272.0" y="261.8" text-anchor="middle" class="t" font-size="7.8" style="fill:#546E7A">store, project, Merkle, sign</text>
+<line x1="272" y1="269" x2="272" y2="275" stroke="#273238" stroke-width="1.2" marker-end="url(#arr-ink)"/>
+<rect x="200" y="276" width="144" height="36" rx="3.0" fill="#FFFFFF" stroke="#273238" stroke-width="1.05"/>
+<text x="272.0" y="293.0" text-anchor="middle" class="t" font-size="8.6" font-weight="700" style="fill:#273238">19 · FAN-OUT</text>
+<text x="272.0" y="304.8" text-anchor="middle" class="t" font-size="7.8" style="fill:#546E7A">durable outbox (excl. sender)</text>
+<line x1="272" y1="312" x2="272" y2="318" stroke="#AB6A1D" stroke-width="1.2" marker-end="url(#arr-amber)"/>
+<rect x="200" y="319" width="144" height="36" rx="3.0" fill="#E8F5F3" stroke="#237469" stroke-width="1.4"/>
+<text x="272.0" y="336.0" text-anchor="middle" class="t" font-size="8.6" font-weight="700" style="fill:#237469">SIGNED RECEIPT</text>
+<text x="272.0" y="347.8" text-anchor="middle" class="t" font-size="7.8" style="fill:#546E7A">CID + leaf + STH + proof</text>
+<path d="M 160 337 H 180 V 165 H 198" fill="none" stroke="#273238" stroke-width="1.3" stroke-dasharray="4,3" marker-end="url(#arr-ink)"/>
+</svg>
