@@ -1,0 +1,150 @@
+<!-- Muted palette variant of fig1-system-architecture.svg for iccit2026-paper-prev-v2. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="7.00in" height="3.36in" viewBox="0 0 700 336">
+
+<defs>
+  <style>
+    .t { font-family: 'Liberation Sans', Arial, sans-serif; fill: #30383D; }
+    .hdr { font-family: 'Liberation Sans', Arial, sans-serif; fill: #30383D; font-weight: 700; }
+    .mut { font-family: 'Liberation Sans', Arial, sans-serif; fill: #525D63; }
+  </style>
+  <marker id="arr-ink" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#30383D"/>
+  </marker>
+  <marker id="arr-blue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#506775"/>
+  </marker>
+  <marker id="arr-amber" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#6D6255"/>
+  </marker>
+  <marker id="arr-muted" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#525D63"/>
+  </marker>
+</defs>
+
+<rect width="700" height="336" fill="#FFFFFF"/>
+<text x="12" y="16" class="t" font-size="9.5" font-weight="700">REACHABILITY REGIMES</text>
+<rect x="12" y="22" width="110" height="24" rx="3.0" fill="#FFFFFF" stroke="#506775" stroke-width="1.15"/>
+<text x="67.0" y="37.2" text-anchor="middle" class="t" font-size="9.3" font-weight="700" style="fill:#506775">L0 · GLOBAL</text>
+<line x1="124" y1="34" x2="143" y2="34" stroke="#506775" stroke-width="1.35" marker-end="url(#arr-blue)"/>
+<rect x="146" y="22" width="114" height="24" rx="3.0" fill="#FFFFFF" stroke="#506775" stroke-width="1.15"/>
+<text x="203.0" y="37.2" text-anchor="middle" class="t" font-size="9.3" font-weight="700" style="fill:#506775">L1 · NATIONAL</text>
+<line x1="262" y1="34" x2="281" y2="34" stroke="#506775" stroke-width="1.35" marker-end="url(#arr-blue)"/>
+<rect x="284" y="22" width="116" height="24" rx="3.0" fill="#FFFFFF" stroke="#506775" stroke-width="1.15"/>
+<text x="342.0" y="37.2" text-anchor="middle" class="t" font-size="9.3" font-weight="700" style="fill:#506775">L2 · ISP ISLAND</text>
+<line x1="402" y1="34" x2="421" y2="34" stroke="#6D6255" stroke-width="1.35" marker-end="url(#arr-amber)"/>
+<rect x="424" y="22" width="116" height="24" rx="3.0" fill="#F6F3EF" stroke="#6D6255" stroke-width="1.6"/>
+<text x="482.0" y="37.2" text-anchor="middle" class="t" font-size="9.3" font-weight="700" style="fill:#6D6255">L3 · BRIDGED</text>
+<line x1="542" y1="34" x2="563" y2="34" stroke="#525D63" stroke-width="1.35" stroke-dasharray="3.5,2.5" marker-end="url(#arr-muted)"/>
+<rect x="566" y="22" width="122" height="24" rx="3.0" fill="#F4F5F6" stroke="#525D63" stroke-width="1.15" stroke-dasharray="4,3"/>
+<text x="627.0" y="37.2" text-anchor="middle" class="t" font-size="9.3" font-weight="700" style="fill:#30383D">L4 · ISOLATED</text>
+<path d="M 12 49 V 53 H 540 V 49" fill="none" stroke="#525D63" stroke-width="0.95"/>
+<rect x="172" y="48" width="208" height="14" fill="#FFFFFF"/><text x="276" y="57.5" text-anchor="middle" class="mut" font-size="8.8">evaluated IP federation scope: L0–L3</text>
+<text x="627" y="57.5" text-anchor="middle" class="mut" font-size="8.8">out of scope</text>
+<path d="M 266 100 V 78 H 620 V 100" fill="none" stroke="#755B61" stroke-width="1.25" stroke-dasharray="5,4"/>
+<rect x="342" y="68" width="208" height="19" rx="3" fill="#F6F1F2" stroke="#755B61" stroke-width="1.25"/>
+<text x="446" y="80.8" text-anchor="middle" class="hdr" font-size="9.2" style="fill:#755B61">&#x2715; Direct IX path withdrawn</text>
+
+<!-- Each panel draws its outline last so the header fill cannot cover the stroke. -->
+<g transform="translate(12 100)">
+  <rect width="136" height="152" rx="4" fill="#FFFFFF"/>
+  <path d="M 0 22 V 4 Q 0 0 4 0 H 132 Q 136 0 136 4 V 22 Z" fill="#E9EDF0"/>
+  <text x="68" y="14.2" text-anchor="middle" class="hdr" font-size="9.5">CLIENT C1</text>
+  <g stroke="#77858D" stroke-width="1.1">
+    <rect x="8" y="29" width="120" height="28" rx="3" fill="#F1F5F7"/>
+    <rect x="8" y="76" width="120" height="28" rx="3" fill="#F6F3EF"/>
+    <rect x="8" y="119" width="120" height="28" rx="3" fill="#FFFFFF"/>
+  </g>
+  <g text-anchor="middle" class="t">
+    <text x="68" y="41" font-size="9" font-weight="700">Sign on Device</text>
+    <text x="68" y="52" font-size="8">Canonical envelope</text>
+    <text x="68" y="88" font-size="9" font-weight="700">Signed Receipt</text>
+    <text x="68" y="99" font-size="8">CID, leaf, tree head, proof</text>
+    <text x="68" y="131" font-size="9" font-weight="700">Audit Certificate</text>
+    <text x="68" y="142" font-size="8">Retained by client</text>
+  </g>
+  <rect width="136" height="152" rx="4" fill="none" stroke="#65737B" stroke-width="1.25"/>
+</g>
+
+<g transform="translate(198 100)">
+  <rect width="136" height="152" rx="4" fill="#FFFFFF"/>
+  <path d="M 0 22 V 4 Q 0 0 4 0 H 132 Q 136 0 136 4 V 22 Z" fill="#E5EDF1"/>
+  <text x="68" y="14.2" text-anchor="middle" class="hdr" font-size="9.5">S1 · ISLAND A</text>
+  <g stroke="#77858D" stroke-width="1.1" fill="#FFFFFF">
+    <rect x="8" y="29" width="120" height="28" rx="3"/>
+    <rect x="8" y="76" width="120" height="28" rx="3"/>
+    <rect x="8" y="119" width="120" height="28" rx="3"/>
+  </g>
+  <g text-anchor="middle" class="hdr" font-size="9">
+    <text x="68" y="46">19-Stage Admission</text>
+    <text x="68" y="93">Store + Merkle Log</text>
+    <text x="68" y="136">Durable Outbox</text>
+  </g>
+  <line x1="68" y1="57" x2="68" y2="73" stroke="#506775" stroke-width="1.2" marker-end="url(#arr-blue)"/>
+  <line x1="68" y1="104" x2="68" y2="116" stroke="#506775" stroke-width="1.2" marker-end="url(#arr-blue)"/>
+  <rect width="136" height="152" rx="4" fill="none" stroke="#65737B" stroke-width="1.25"/>
+</g>
+
+<g transform="translate(382 100)">
+  <rect width="136" height="152" rx="4" fill="#FBFAF8"/>
+  <path d="M 0 22 V 4 Q 0 0 4 0 H 132 Q 136 0 136 4 V 22 Z" fill="#EDE8E1"/>
+  <text x="68" y="14.2" text-anchor="middle" class="hdr" font-size="9.5">S3 · DUAL-HOMED BRIDGE</text>
+  <g stroke="#77858D" stroke-width="1.1">
+    <rect x="8" y="28" width="120" height="24" rx="3" fill="#F6F3EF"/>
+    <rect x="8" y="59" width="120" height="24" rx="3" fill="#FFFFFF"/>
+    <rect x="8" y="90" width="120" height="24" rx="3" fill="#FFFFFF"/>
+    <rect x="8" y="121" width="120" height="24" rx="3" fill="#FFFFFF"/>
+  </g>
+  <g text-anchor="middle" class="hdr" font-size="9">
+    <text x="68" y="43">Uplink A + Uplink B</text>
+    <text x="68" y="74">19-Stage Admission</text>
+    <text x="68" y="105">Store + Merkle Log</text>
+    <text x="68" y="136">Durable Outbox</text>
+  </g>
+  <line x1="68" y1="52" x2="68" y2="57" stroke="#6D6255" stroke-width="1.2" marker-end="url(#arr-amber)"/>
+  <line x1="68" y1="83" x2="68" y2="88" stroke="#6D6255" stroke-width="1.2" marker-end="url(#arr-amber)"/>
+  <line x1="68" y1="114" x2="68" y2="119" stroke="#6D6255" stroke-width="1.2" marker-end="url(#arr-amber)"/>
+  <rect width="136" height="152" rx="4" fill="none" stroke="#65737B" stroke-width="1.25"/>
+</g>
+
+<g transform="translate(552 100)">
+  <rect width="136" height="152" rx="4" fill="#FFFFFF"/>
+  <path d="M 0 22 V 4 Q 0 0 4 0 H 132 Q 136 0 136 4 V 22 Z" fill="#E5EDF1"/>
+  <text x="68" y="14.2" text-anchor="middle" class="hdr" font-size="9.5">S2 · ISLAND B</text>
+  <g stroke="#77858D" stroke-width="1.1" fill="#FFFFFF">
+    <rect x="8" y="29" width="120" height="28" rx="3"/>
+    <rect x="8" y="76" width="120" height="28" rx="3"/>
+    <rect x="8" y="119" width="120" height="28" rx="3"/>
+  </g>
+  <g text-anchor="middle" class="hdr" font-size="9">
+    <text x="68" y="46">19-Stage Admission</text>
+    <text x="68" y="93">Store + Merkle Log</text>
+    <text x="68" y="136">Durable Outbox</text>
+  </g>
+  <line x1="68" y1="57" x2="68" y2="73" stroke="#506775" stroke-width="1.2" marker-end="url(#arr-blue)"/>
+  <line x1="68" y1="104" x2="68" y2="116" stroke="#506775" stroke-width="1.2" marker-end="url(#arr-blue)"/>
+  <rect width="136" height="152" rx="4" fill="none" stroke="#65737B" stroke-width="1.25"/>
+</g>
+
+<!-- Federation arrows connect peer boundaries rather than internal stages. -->
+<line x1="141" y1="143" x2="203" y2="143" stroke="#506775" stroke-width="1.4" marker-end="url(#arr-blue)"/>
+<text x="172" y="135" text-anchor="middle" class="hdr" font-size="8.6" style="fill:#506775">HTTP</text>
+<line x1="205" y1="190" x2="143" y2="190" stroke="#6D6255" stroke-width="1.4" marker-end="url(#arr-amber)"/>
+<text x="172" y="182" text-anchor="middle" class="hdr" font-size="8.6" style="fill:#6D6255">Receipt</text>
+<line x1="334" y1="184" x2="382" y2="184" stroke="#506775" stroke-width="1.4" marker-start="url(#arr-blue)" marker-end="url(#arr-blue)"/>
+<text x="358" y="176" text-anchor="middle" class="hdr" font-size="8.6" style="fill:#506775">gRPC</text>
+<line x1="518" y1="184" x2="552" y2="184" stroke="#506775" stroke-width="1.4" marker-start="url(#arr-blue)" marker-end="url(#arr-blue)"/>
+<text x="535" y="176" text-anchor="middle" class="hdr" font-size="8.6" style="fill:#506775">gRPC</text>
+<text x="450" y="266" text-anchor="middle" class="mut" font-size="8.6">Each node validates the envelope. Trust sets quotas and traffic classes.</text>
+
+<path d="M 80 252 V 278 H 555" fill="none" stroke="#30383D" stroke-width="1.2" stroke-dasharray="4,3"/>
+<line x1="278" y1="278" x2="278" y2="290" stroke="#30383D" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arr-ink)"/>
+<line x1="555" y1="278" x2="555" y2="290" stroke="#30383D" stroke-width="1.2" stroke-dasharray="4,3" marker-end="url(#arr-ink)"/>
+<rect x="89" y="269" width="171" height="14" fill="#FFFFFF"/>
+<text x="174" y="279" text-anchor="middle" class="hdr" font-size="8.5">Audit certificates after acceptance</text>
+<rect x="184" y="292" width="188" height="34" rx="4" fill="#F4F5F6" stroke="#65737B" stroke-width="1.25"/>
+<text x="278" y="307" text-anchor="middle" class="hdr" font-size="9">ALS A · Hash-chained log</text>
+<text x="278" y="319" text-anchor="middle" class="t" font-size="8.2">Verify signatures, tree head and inclusion</text>
+<rect x="461" y="292" width="188" height="34" rx="4" fill="#F4F5F6" stroke="#65737B" stroke-width="1.25"/>
+<text x="555" y="307" text-anchor="middle" class="hdr" font-size="9">ALS B · Hash-chained log</text>
+<text x="555" y="319" text-anchor="middle" class="t" font-size="8.2">Verify signatures, tree head and inclusion</text>
+</svg>

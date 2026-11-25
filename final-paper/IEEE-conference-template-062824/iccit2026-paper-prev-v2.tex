@@ -24,11 +24,12 @@
 \usepackage{array}
 \usepackage{tikz}
 \usepackage{url}
-\usepackage{placeins}
 \usepackage{fancyhdr}
 \usepackage[hidelinks]{hyperref}
 \usetikzlibrary{arrows.meta,calc,fit,positioning,decorations.pathreplacing}
 \urlstyle{same}
+
+\setlength{\dbltextfloatsep}{13pt plus 2pt minus 2pt}
 
 % ICCIT camera-ready notices appear only on the title page.
 \fancypagestyle{iccitfirstpage}{%
@@ -93,7 +94,14 @@ This paper makes four contributions:
   \item The testbed evaluates route cuts, network impairments, hop scaling, admission under load, and delivery against a minimal ActivityPub inbox. Cross-language tests check the wire format.
 \end{enumerate}
 
-Our claim is limited to partition tolerance only when some IP paths remain between servers directly or through a bridge. This design cannot create a new route during complete blackout. This cannot force a server to accept a valid post or hide any visible relay from its hosting network operator. The work addresses resilient networking and security in distributed systems.
+Our claim is limited to partition tolerance only when some IP paths remain between servers directly or through a bridge. This design cannot create a new route during complete blackout. This cannot force a server to accept a valid post or hide any visible relay from its hosting network operator. The work addresses resilient networking and security in distributed systems. Fig.~\ref{fig:architecture} summarizes the roles and trust paths.
+
+\begin{figure*}[!t]
+  \centering
+  \includegraphics[width=\textwidth,trim=0 0 0 47bp,clip]{figures-v2/fig1-system-architecture-muted.pdf}
+  \caption{System architecture: validating island nodes, a dual-homed bridge, and independent audit-log services.}
+  \label{fig:architecture}
+\end{figure*}
 
 \section{Background and Research Gap}
 \label{sec:background}
@@ -119,32 +127,13 @@ Conventional server federation depends on reachable endpoints, while device-to-d
 
 \subsection{Architecture}
 
-We designed a system that works as connectivity narrows while making server acceptance externally auditable. We model domestic exchange traffic surviving lost international transit and ISP islands joined by a dual-homed relay. Clients reach nodes over HTTP and nodes federate over gRPC; all claims are scoped to that surviving IP path. Fig.~\ref{fig:architecture} summarizes the roles and trust paths.
-
-\begin{figure}[!t]
-  \centering
-  \begin{tikzpicture}[font=\normalsize, >=Latex,
-      box/.style={draw, rounded corners, align=center, inner sep=3pt},
-      link/.style={midway, fill=white, inner sep=1.5pt}]
-    \node[box] (a) at (-3,0) {Validating\\node A};
-    \node[box] (bridge) at (0,0) {Dual-homed\\bridge};
-    \node[box] (b) at (3,0) {Validating\\node B};
-    \node[box] (client) at (-3,1.65) {Client};
-    \node[box] (audit) at (3,1.65) {Independent\\audit log};
-    \draw[<->] (client) -- node[link,right] {HTTP} (a);
-    \draw[<->] (a) -- node[link,above=2pt] {gRPC} (bridge);
-    \draw[<->] (bridge) -- node[link,above=2pt] {gRPC} (b);
-    \draw[->,dashed] (client) -- node[link,above] {Audit certificate} (audit);
-  \end{tikzpicture}
-  \caption{System architecture: validating island nodes, a dual-homed bridge, and independent audit-log services.}
-  \label{fig:architecture}
-\end{figure}
+We designed a system that works as connectivity narrows while making server acceptance externally auditable. We model domestic exchange traffic surviving lost international transit and ISP islands joined by a dual-homed relay. Clients reach nodes over HTTP and nodes federate over gRPC; all claims are scoped to that surviving IP path.
 
 The signed envelope is invariant across ingress and relay paths. Every node applies the same 19-stage pipeline: the first 12 stages validate without persistent writes; acceptance then commits the object, signs a receipt, and queues a durable federation task. The scheduler drains in priority and sequence order and batches by peer and plane. The bridge applies quotas by source uplink, destination uplink, and priority. Ingress kind, supplying peer, direction, uplink, traffic class, and quota policy govern deduplication, replay protection, scheduling, and fan-out, but never relax signature, identifier, or body validation.
 
 The dual-homed bridge runs the same validating stack rather than transparently forwarding packets. Its relay capability is independently validated, stored, and quota-bounded under its own key.
 
-Independent audit-log services (ALSs) sit outside the write path. After committing an object, the server returns a signed receipt; the client forms a public audit certificate, retains it, and forwards it to one or more ALSs. Each ALS checks canonical decoding, the author signature, the content and server identifiers, the receipt signature, the signed tree head, and the inclusion proof before appending the certificate to a hash-chained record. The acknowledgement therefore remains externally verifiable if the accepting server later hides or deletes the object, limiting its ability to erase evidence silently. \FloatBarrier
+Independent audit-log services (ALSs) sit outside the write path. After committing an object, the server returns a signed receipt; the client forms a public audit certificate, retains it, and forwards it to one or more ALSs. Each ALS checks canonical decoding, the author signature, the content and server identifiers, the receipt signature, the signed tree head, and the inclusion proof before appending the certificate to a hash-chained record. The acknowledgement therefore remains externally verifiable if the accepting server later hides or deletes the object, limiting its ability to erase evidence silently.
 
 \subsection{Signed objects and admission}
 
@@ -248,15 +237,7 @@ object back to the peer from which it arrived.
   \label{fig:topology}
 \end{figure}
 
-Four implementation rules carry most of the replication safety. Peer bytes are
-passed through unchanged: the transport passes received envelopes as opaque
-byte strings and does not decode or re-encode them. Trust controls quota and
-priority, never validity; every peer, including the bridge, still repeats the
-full admission checks. Duplicate delivery is inevitable when push and
-backfill race, and it is absorbed by a database uniqueness constraint rather
-than by a read-then-write check. Fan-out excludes the peer that supplied an
-object, avoiding a redundant round trip that deduplication would eventually
-terminate, but not for free.
+Federation passes the original envelope as opaque bytes. Push and backfill can race, so a database uniqueness constraint makes duplicate delivery idempotent. Trust determines quota and priority, and each relay applies the full admission checks.
 
 \section{Methodology}
 \label{sec:method}
@@ -302,6 +283,8 @@ reflects what a protocol designer controls rather than how much a user typed.
 The comparison is deliberately generous to ActivityPub. It excludes HTTP
 framing, TLS, per-follower fan-out, shared dictionaries, and, most significantly, authentication, since our bytes carry a 64-byte signature
 verifiable at rest while HTTP Signatures authenticate delivery. A separate comparison uses a signed, gzipped ActivityPub inbox with push retries. Both pairs use 128\,kbit/s, 5\% loss, and 75\,ms added delay per direction with 15\,ms variation. Latency starts at origin insertion for Jagoo Bahee and before the HTTP send for the inbox. The route-cut, emulation, stress, and scaling data precede the final transport rebuild. The ISP gate and inbox comparison use the rebuilt image.
+
+Table~\ref{tab:tradeoff} compares fixed-schema protobuf and extensible JSON-LD.
 
 \begin{table*}[!t]
   \caption{Representation size and design trade-offs against ActivityPub. Sample: 80 real
@@ -378,14 +361,14 @@ The default HTTP limiter rejected 2,709 of 3,000 invalid inputs. With the limit 
 
 At concurrency 1, 4, 16 and 32, all 200 valid posts per setting reached the local projection. Throughput was 29, 27, 9 and 6 requests/s, with p95 latencies of 49, 353, 4{,}132 and 12{,}587\,ms. Docker application memory snapshots ranged from 108 to 181\,MiB after these batches, MongoDB used 150--345\,MiB, and Redis stayed below 9.5\,MiB. The eight-node application containers used 77--111\,MiB each, with a sampled CPU maximum of 21.18\%. These samples give no estimate of peak RSS or disk footprint.
 
-Table~\ref{tab:tradeoff} compares two encoding formats and their costs. The encoding ratios compare fixed-schema protobuf and extensible JSON-LD. They exclude transport and do not imply equivalent functionality or interoperability.
+The encoding ratios exclude transport and do not imply equivalent functionality or interoperability.
 
 On the constrained link both systems delivered 20/20 posts. Jagoo Bahee recorded a 521\,ms median (95\% CI 394--586\,ms) and 1{,}846 sender-interface bytes/post. The minimal AP inbox recorded 155\,ms (95\% CI 145--161\,ms) and 1{,}278 bytes/post. Application memory snapshots were 88--92\,MiB versus 9--14\,MiB. The inbox excludes the Mastodon application and worker stack. With inbound blocked, periodic pull recovered 10/10 posts (median 1.046\,s), while inbox push delivered 0/10. With its listener disabled, an outbound-only node pulled 10/10 and pushed 10/10 in a separate run.
 
 \section{Discussion and Limitations}
 \label{sec:limits}
 
-\textbf{Testbed validity.} All experiments ran on a single physical machine over virtual networks using Docker, and this is the paper's main limitation. Every node shared one kernel, clock, CPU and storage subsystem. The shared clock is what made cross-node timestamp subtraction valid, and it is exactly what a real deployment lacks. Virtual segments are also far simpler than physical routers, BGP reconvergence, NAT, DNS failure, variable MTUs and wireless links, and attaching a bridge to two of them is trivial where a real one needs separate links, routing policy, credentials, power and an operator. The route-cut experiment therefore demonstrates a correct software response to a change in routing state, not geographic latency, independent failure domains, or real provider behaviour.
+\textbf{Testbed validity.} All experiments ran on a single physical machine over virtual networks using Docker, and this is the paper's main limitation. Every node shared one kernel, clock, CPU and storage subsystem. The shared clock makes timestamp subtraction valid in this setup. Physical routers, BGP reconvergence, NAT, DNS failures, variable MTUs, and wireless links introduce conditions outside this evaluation. A deployed bridge also needs independent links, routing policy, credentials, power, and an operator.
 
 \textbf{Access and subscriber isolation.} The system assumes that nodes on the same network can communicate with each other or reach a shared bridge. However, some Wi-Fi networks and ISPs block direct communication between customers while still allowing them to access the provider's gateway. If this restriction exists on every available path, nodes cannot connect to each other or reach the bridge. In that situation, federation completely stops, and only local services continue to work. The current prototype has no alternative non-IP method for communication in this situation.
 
