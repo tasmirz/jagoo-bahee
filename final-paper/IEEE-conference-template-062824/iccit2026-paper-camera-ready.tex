@@ -305,7 +305,7 @@ Controlled experiments ran on one physical x86\_64 Linux host (Intel Core i5-826
 
 \textbf{Scaling and admission stress.} Linear chains isolated hop count with 50 posts per configuration: an eight-node chain at a 500\,ms drain interval and a four-node drain sweep across 250, 500, 1,000, and 2,000\,ms (with start and end 500\,ms controls). Each node used a distinct logical database inside one shared MongoDB process, so measurements include shared-process contention; an earlier 200-envelope run used a 1,000\,ms drain interval. Stress runs exercised HTTP admission, malformed protobufs, exact duplicates, non-idempotent nonce reuse, 5-peer gRPC frames/quotas, and single-node valid writes (32 certified identities, 200 posts per concurrency level), recording status codes, latencies, collection deltas, MongoDB profiler writes, and Docker CPU/memory snapshots.
 
-\textbf{ActivityPub comparison.} Two Jagoo Bahee nodes were paired with two minimal Node.js HTTP-inbox peers implementing gzip, Ed25519 HTTP Signatures, and push retries, with isolated database and WAN interfaces. WAN shaping added 75\,ms delay ($\pm$15\,ms) per direction, 5\% loss, and a 128\,kbit/s rate cap. We recorded sender WAN interface transmit bytes (including framing and any background packets). For Jagoo Bahee, we measured delivery time from insertion into the source database to insertion into the destination database. For the minimal inbox, timing began before the sender compressed and signed the payload and ended at verified in-memory receipt. Separately from the Docker delivery tests, we measured representation sizes by sampling 40 public \texttt{Create}/\texttt{Note} activities from \texttt{fosstodon.org} in addition to an earlier sample of 80 activities from two deployments. We restored each host's \texttt{@context} and subtracted the UTF-8 byte count of the authored text to estimate protocol overhead.
+\textbf{ActivityPub comparison.} Two Jagoo Bahee nodes were paired with two minimal Node.js HTTP-inbox peers implementing gzip, Ed25519 HTTP Signatures, and push retries, with isolated database and WAN interfaces. WAN shaping added 75\,ms delay ($\pm$15\,ms) per direction, 5\% loss, and a 128\,kbit/s rate cap. We recorded sender WAN interface transmit bytes (including framing and any background packets). For Jagoo Bahee, we measured delivery time from insertion into the source database to insertion into the destination database. For the minimal inbox, timing began before the sender compressed and signed the payload and ended at verified in-memory receipt. Separately, we created 40 synthetic public posts on a local Mastodon 4.7.6 instance running in Docker. We retrieved their \texttt{Create} activities from the outbox, restored \texttt{@context} from each corresponding standalone \texttt{Note}, and measured the compact JSON and gzipped sizes. We subtracted authored UTF-8 text bytes from the raw size to obtain non-text bytes.
 
 \section{Results}
 \label{sec:results}
@@ -325,7 +325,7 @@ On the rebuilt image, the ISP gate passed 22 of 22 criteria in 39.91\,s. In the 
     \toprule
     Source & Full raw & Non-text raw & Full gzip \\
     \midrule
-    Mastodon (40 activities) & 3,931 & 3,627 & 1,063 \\
+    Local Mastodon ($n=40$) & 3,385 & 3,148 & 811.5 \\
     Jagoo Bahee check-in & 155 & 155 & --- \\
     Jagoo Bahee broadcast & 243 & 177 & --- \\
     Jagoo Bahee post & 220 & 206 & --- \\
@@ -373,7 +373,7 @@ On the constrained lossy link, Jagoo Bahee and the minimal ActivityPub inbox eac
 
 With shaping disabled, inbound federation ports blocked at the receivers, and outbound connections available, the minimal push-only inbox delivered 0/10 posts within its retry budget. Jagoo Bahee's periodic pull recovered 10/10 posts with a median delivery time of 1.046\,s (95\% CI 0.469--1.509\,s). In a separate run, an outbound-only node with its gRPC listener disabled backfilled 10/10 existing posts with a median of 4.957\,s from startup and pushed 10/10 new posts with a median of 0.341\,s.
 
-The earlier 80-activity Mastodon sample had a 1,074\,B gzipped median, while the 40-activity \texttt{fosstodon.org} sample had medians of 3,931\,B raw, 1,063\,B gzipped, and 3,627\,B non-text overhead. Canonical Jagoo Bahee objects carry 155, 177, and 206\,B of non-text bytes for a check-in, broadcast, and forum post, respectively. Compact fixed schemas do not automatically yield lower wire bytes once HTTP/2 framing, receipts, and synchronization traffic are included, and rejecting unknown fields requires coordinated decoder upgrades whereas JSON-LD preserves Fediverse interoperability.
+The 40 synthetic Mastodon posts had median representation sizes of 3,385\,B raw and 811.5\,B gzipped, with 3,148\,B of non-text data in the raw representation. The Jagoo Bahee check-in, broadcast, and forum-post examples contained 155, 177, and 206\,B of non-text data, respectively. These objects carry different fields. Sender-interface traffic also includes framing and synchronization traffic (Table~\ref{tab:ap}).
 
 \section{Discussion and Limitations}
 \label{sec:limits}
@@ -383,8 +383,6 @@ The earlier 80-activity Mastodon sample had a 1,074\,B gzipped median, while the
 \textbf{Testbed and measurement limits.} All experiments share one x86\_64 host kernel, clock, CPU, and storage stack. Because intact route trials ran before the bridge trials on the same stack, route effects cannot be separated from host-load drift. Replicating the topology across independent machines requires measuring inter-host clock skew, physical routing, variable access links, and wide-area latency. Peak resident memory, disk growth, sustained resource-exhaustion limits, and single-board computer performance remain unmeasured.
 
 \textbf{Constraints related to operation, security, and privacy.} Subscriber isolation confines affected nodes to local operation. Federation stops if all domestic IP paths fail. Backfill rejects envelopes created more than seven days before receipt, as measured by the receiver's clock. Prolonged partitions can therefore leave gaps in the recovered history. Source binding selects an uplink. Network operators can observe endpoint addresses and traffic timing, and protocol whitelisting can block gRPC. The system provides no anonymity guarantee. Operators decide whether to acknowledge admission or relay an object. A permissive origin can admit large volumes of valid objects under its own policy, leaving receiving peers to enforce their ingress quotas.
-
-\textbf{Ethics.} The controlled experiments used synthetic data, and the encoding study sampled publicly available posts. Real deployments can expose bridge operators and users to identification or legal action.
 
 \section{Conclusion}
 
