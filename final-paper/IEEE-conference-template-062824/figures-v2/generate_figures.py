@@ -701,7 +701,7 @@ def build_fig4_hop_and_drain_scaling(d06: dict) -> None:
     d_p75 = np.array([drain_runs[d]["p75"] / 3.0 for d in drains])
     reg = d06["drainIntervalRegression"]["fit"]
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.1, 2.85), gridspec_kw={"wspace": 0.34})
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7.1, 2.3), gridspec_kw={"wspace": 0.34})
 
     # Panel (a)
     style_axes(ax1)
