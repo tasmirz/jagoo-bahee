@@ -759,7 +759,7 @@ def build_fig4_hop_and_drain_scaling(d06: dict) -> None:
         markersize=5.0,
         capsize=3.0,
         elinewidth=1.3,
-        label="Measured median & IQR",
+        label="Median and IQR",
         zorder=4,
     )
     dx = np.linspace(200, 2050, 50)
@@ -782,7 +782,7 @@ def build_fig4_hop_and_drain_scaling(d06: dict) -> None:
     )
     ax2.set_title("(b) Drain-Interval Sweep (Hop 3/3, N = 50)", fontweight="bold", fontsize=9.0, pad=7)
     ax2.set_xlabel("Outbox drain interval (ms)")
-    ax2.set_ylabel("Per-hop latency (ms)")
+    ax2.set_ylabel("Hop-three latency divided by three (ms)")
     ax2.set_xticks(drains)
     ax2.set_xticklabels(["250", "500", "1000", "2000"])
     ax2.set_xlim(100, 2150)

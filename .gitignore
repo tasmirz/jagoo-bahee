@@ -64,6 +64,16 @@ ops/scale-compose.generated.yml
 
 # Measurement output — reproducible via `pnpm scale:measure`
 ops/results/
+/ops/experiments/ap-cmp-compose.yml
+
+# Local ICCIT drafts, previews, and submission-side files
+/ieee paper/
+/tmp/pdfs/
+/tmp/drawio-render-test/
+/output/pdf/2056_*.pdf
+/output/pdf/2056-response*.pdf
+/output/pdf/2056-review*.pdf
+/output/pdf/iccit2026-paper.pdf
 
 # Local simplified paper rewrite
 /simplified-introduction-background-research-gap.txt

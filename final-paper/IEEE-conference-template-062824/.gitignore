@@ -56,3 +56,31 @@ missfont.log
 Thumbs.db
 .vscode/
 .idea/
+
+# Local reviewer materials and revision notes
+/2056-response*
+/2056-review*
+/2056_*
+/2056-paper-recommended.*
+/CAMERA-READY-CHANGELOG.md
+/CAMERA-READY-METHODOLOGY-REVISION.md
+/REMEDY.md
+/ai_marked.pdf
+/marked_sections_*.md
+/intro+bg.txt
+
+# Superseded manuscripts, template examples, and local exports
+/iccit2026-paper.*
+/iccit2026-paper-pre.tex
+/iccit2026-paper-pre.pdf
+/iccit2026-paper-prev-v2.*
+/iccit2026-paper-camera-ready.pdf
+/IEEE-conference-template-062824.*
+/IEEEtran_HOWTO.pdf
+/fig1.png
+/mmd.sty
+/figures/
+/figures-v2/*.png
+/figures-v2/fig1-system-architecture.*
+/figures-v2/fig1-system-architecture-muted.*
+/figures-v2/fig[23567]-*

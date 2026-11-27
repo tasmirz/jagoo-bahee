@@ -21,6 +21,14 @@ person-to-person messaging, where knowing exactly *who* is speaking is the entir
 > New here? **[Installation.md](Installation.md)** gets you running. **[Testing.md](Testing.md)**
 > explains what every test proves. This document explains how the system works.
 
+## ICCIT 2026 paper
+
+[Islands of Reach (PDF)](output/pdf/2056.pdf) is the camera-ready manuscript. Build it with
+`latexmk -pdf iccit2026-paper-camera-ready.tex` from the
+[LaTeX source directory](final-paper/IEEE-conference-template-062824).
+The manuscript uses the included vector figures. The
+[experiment scripts](ops/experiments) write local measurements to `ops/results/`.
+
 ---
 
 ## Contents
